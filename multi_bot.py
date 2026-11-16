@@ -1,102 +1,87 @@
-
+"""Read-only multi-market monitor for Tabdeal Futures (no trading)."""
 import json
 import time
 import urllib.request
 import urllib.parse
 from datetime import datetime
 
-BASE = "https://fapi.binance.com"
+from market_symbols import list_market_symbols
+from orderbook import parse_order_book
+
+BASE = "https://api1.tabdeal.org/r/fapi/v1"
+
 
 def get_data(path, params=None):
     url = BASE + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
-
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "Mozilla/5.0"}
+        headers={
+            "User-Agent": "Tabdeal-Futures-Monitor/1.0",
+            "Accept": "application/json",
+        },
     )
+    with urllib.request.urlopen(req, timeout=20) as response:
+        if response.status != 200:
+            raise RuntimeError("{} returned HTTP {}".format(path, response.status))
+        return json.loads(response.read().decode("utf-8"))
 
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return json.loads(r.read().decode())
 
 def get_symbols():
-    data = get_data("/fapi/v1/exchangeInfo")
-    symbols = [
-        x["symbol"] for x in data["symbols"]
-        if x["quoteAsset"] == "USDT"
-        and x["contractType"] == "PERPETUAL"
-        and x["status"] == "TRADING"
-    ]
-    return symbols[:96]
-
-def analyze(symbol):
-    candles = get_data(
-        "/fapi/v1/klines",
-        {"symbol": symbol, "interval": "1h", "limit": 60}
-    )
-
-    closes = [float(c[4]) for c in candles[:-1]]
-
-    ema9 = sum(closes[-9:]) / 9
-    ema21 = sum(closes[-21:]) / 21
-
-    changes = [
-        closes[i] - closes[i-1]
-        for i in range(1, len(closes))
-    ]
-
-    gains = [max(x, 0) for x in changes[-14:]]
-    losses = [max(-x, 0) for x in changes[-14:]]
-
-    avg_gain = sum(gains) / 14
-    avg_loss = sum(losses) / 14
-
-    if avg_loss == 0:
-        rsi = 100
+    data = get_data("/exchangeInfo")
+    if isinstance(data, dict):
+        symbols = data.get("symbols")
+        if symbols is None and isinstance(data.get("data"), dict):
+            symbols = data["data"].get("symbols")
+        if symbols is None and isinstance(data.get("data"), list):
+            symbols = data["data"]
     else:
-        rsi = 100 - (100 / (1 + avg_gain / avg_loss))
+        symbols = data
+    return list_market_symbols(symbols)
 
-    price = closes[-1]
 
-    if ema9 > ema21 and rsi < 70:
-        signal = "BUY"
-    elif ema9 < ema21 and rsi > 30:
-        signal = "SELL"
-    else:
-        signal = "WAIT"
+def read_market(symbol):
+    # Use the exact exchange-native symbol from Tabdeal exchangeInfo.
+    book = get_data("/depth", {"symbol": symbol, "limit": 5})
+    bids, asks = parse_order_book(book)
+    best_bid, best_ask = bids[0][0], asks[0][0]
+    midpoint = (best_bid + best_ask) / 2.0
+    spread = best_ask - best_bid
+    return best_bid, best_ask, midpoint, spread
 
-    return price, rsi, signal
 
 def main():
-    print("Futures Analyzer Started")
-    print("No real trades will be placed.")
-
+    print("Tabdeal Futures Market Monitor Started")
+    print("Read-only: no real or paper orders are generated.")
+    print("Price is the order-book midpoint estimate, not a last-trade price.")
+    get_data("/ping")
     symbols = get_symbols()
-    print("Active symbols:", len(symbols))
+    print("Active Tabdeal USDT markets:", len(symbols))
 
     while True:
-        print("\n================================")
+        print("\\n================================")
         print("Scan:", datetime.now().strftime("%H:%M:%S"))
-
-        for i, symbol in enumerate(symbols, 1):
+        successful = 0
+        errors = 0
+        for symbol in symbols:
             try:
-                price, rsi, signal = analyze(symbol)
-
+                bid, ask, midpoint, spread = read_market(symbol)
+                successful += 1
                 print(
                     symbol,
-                    "Price:", price,
-                    "RSI:", round(rsi, 2),
-                    "Signal:", signal
+                    "Bid:", bid,
+                    "Ask:", ask,
+                    "Midpoint estimate:", midpoint,
+                    "Spread:", spread,
                 )
-
-            except Exception as e:
-                print(symbol, "ERROR:", str(e))
-
+            except Exception as exc:
+                errors += 1
+                print(symbol, "ERROR:", str(exc)[:180])
             time.sleep(0.15)
-
-        print("Scan completed.")
+        print("Scan completed. Successful:", successful, "Errors:", errors)
         time.sleep(60)
+
 
 if __name__ == "__main__":
     main()
