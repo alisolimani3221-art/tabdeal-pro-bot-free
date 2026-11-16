@@ -301,6 +301,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.diagnostics_button)
         self.last_diagnostic_results = {}
         self.last_diagnostic_time = "هنوز اجرا نشده"
+        self.check_in_progress = False
 
         self.auto_trader_button = Button(
             markup=True, text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME,
@@ -367,6 +368,9 @@ class FuturesAnalyzerApp(App):
             self.current_symbol = symbols[0]
 
     def show_status(self, instance):
+        if self.check_in_progress:
+            return
+        self.check_in_progress = True
         self.check_button.disabled = True
         self.check_button.text = fa("در حال بررسی...")
         self.connection.text = fa("در حال آزمایش سایت و API بازار فیوچرز...")
@@ -733,11 +737,12 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def show_result(self, results):
+        self.check_in_progress = False
         self.last_diagnostic_results = dict(results)
         self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.check_button.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
-        website_ok = "website" in results and 200 <= results["website"] < 400
+        website_status = results.get("website", results.get("website_error", "ناموفق"))
         market_ok = (
             "market_ping" in results and 200 <= results["market_ping"] < 400
             and "market_info" in results and 200 <= results["market_info"] < 400
@@ -787,15 +792,15 @@ class FuturesAnalyzerApp(App):
                     row_button.disabled = True
                     row_button.background_color = (0.10, 0.13, 0.18, 1)
 
-        if website_ok and market_ok:
-            self.connection.text = fa("اتصال سایت و دریافت داده زنده بازار برقرار است")
+        if market_ok:
+            self.connection.text = fa("اتصال API بازار و دریافت دفتر سفارش برقرار است")
             self.connection.color = (0.35, 0.9, 0.55, 1)
             message = (
-                "سایت: کد {}\nپینگ بازار: کد {}\nاطلاعات بازار: کد {}\n"
+                "وضعیت سایت: {}\nپینگ بازار: کد {}\nاطلاعات بازار: کد {}\n"
                 "دفتر سفارش: کد {}\nنماد معاملاتی: {}\n"
                 "بهترین خرید: {:,.2f}\nبهترین فروش: {:,.2f}\n"
                 "قیمت میانی تقریبی: {:,.2f}"
-            ).format(results["website"], results["market_ping"], results["market_info"],
+            ).format(website_status, results["market_ping"], results["market_info"],
                      results["depth_status"], results["market_symbol"],
                      results["best_bid"], results["best_ask"], results["mid_price"])
             popup_title = "دریافت داده بازار موفق"
@@ -1006,11 +1011,11 @@ class FuturesAnalyzerApp(App):
         fields.add_widget(risk_row)
         body.add_widget(fields)
         self.auto_status_label = self.make_label(
-            "آماده شروع؛ سرمایه اولیه پیشنهادی 8 USDT است.", size=12, height=dp(100))
+            "معامله‌گر خودکار غیرفعال است؛ منبع کندل معتبر هنوز در دسترس نیست.", size=12, height=dp(100))
         body.add_widget(self.auto_status_label)
         actions = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dp(48))
-        start_button = Button(markup=True, text=fa("وضعیت اسکن خودکار"), font_name=FONT_NAME)
+        start_button = Button(markup=True, text=fa("بررسی وضعیت اسکن"), font_name=FONT_NAME)
         stop_button = Button(markup=True, text=fa("توقف"), font_name=FONT_NAME)
         close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME)
         actions.add_widget(start_button)
@@ -1023,15 +1028,15 @@ class FuturesAnalyzerApp(App):
 
         def start(_button):
             self.auto_status_label.text = fa(
-                "اسکن خودکار و تولید سیگنال فعلاً غیرفعال است.\\n"
-                "در API عمومی مستندشده تبدیل، کندل تاریخی وجود ندارد.\\n"
+                "اسکن خودکار و تولید سیگنال فعلاً غیرفعال است.\n"
+                "در API عمومی مستندشده تبدیل، کندل تاریخی وجود ندارد.\n"
                 "برای جلوگیری از سیگنال ساختگی، تا زمان تأیید منبع رسمی معاملات لحظه‌ای "
                 "هیچ معامله آزمایشی آغاز نمی‌شود."
             )
 
         def stop(_button):
             self.auto_stop_event.set()
-            self.auto_status_label.text = fa("درخواست توقف ثبت شد؛ اسکن جاری متوقف می‌شود.")
+            self.auto_status_label.text = fa("هیچ اسکن فعالی وجود ندارد؛ معامله‌گر خودکار غیرفعال است.")
 
         start_button.bind(on_press=start)
         stop_button.bind(on_press=stop)
