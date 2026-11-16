@@ -411,15 +411,8 @@ class FuturesAnalyzerApp(App):
             ping.close()
             results["market_ping"] = 200
 
-            server_time = get_response("/time")
-            try:
-                time_data = server_time.json()
-                results["market_time"] = 200
-                results["server_time_received"] = bool(time_data)
-            except Exception:
-                results["market_time"] = "پاسخ غیر JSON"
-            finally:
-                server_time.close()
+            # Do not make connectivity depend on an undocumented /time route.
+            # /ping, /exchangeInfo and /depth are the verified public endpoints.
 
             info = get_response("/exchangeInfo", timeout=25)
             try:
