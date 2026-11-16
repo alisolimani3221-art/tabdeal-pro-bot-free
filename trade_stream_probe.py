@@ -7,6 +7,7 @@ exchange documentation only guarantees the outer {"trade": {...}} envelope.
 import json
 import math
 import time
+import threading
 
 BROADCAST_URL = "wss://api1.tabdeal.org/special_margin/broadcast/"
 DEFAULT_SYMBOL = "AEVO_USDT"
@@ -108,7 +109,13 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         BROADCAST_URL, on_open=on_open, on_message=on_message, on_error=on_error
     )
     started = time.monotonic()
-    app.run_forever(ping_interval=20, ping_timeout=10)
+    timeout = threading.Timer(max(1, int(timeout_seconds)), app.close)
+    timeout.daemon = True
+    timeout.start()
+    try:
+        app.run_forever(ping_interval=20, ping_timeout=10)
+    finally:
+        timeout.cancel()
     result["elapsed_seconds"] = round(time.monotonic() - started, 2)
     return result
 
