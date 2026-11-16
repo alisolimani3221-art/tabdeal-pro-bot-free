@@ -175,14 +175,6 @@ jobs:
       - name: Build APK
         run: buildozer android debug
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Futures-Analyzer-APK
-          path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Verify Persian font is packaged in APK
         run: |
           set -eu
@@ -190,7 +182,18 @@ jobs:
           test -n "$APK"
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -E '(^|/)(NotoSans|NotoSansArabic|NotoNaskhArabic)-Regular\.ttf$'
+          tar -tf /tmp/private.tar | grep -E '(^|/)(NotoSans|NotoSansArabic|NotoNaskhArabic)-Regular\.ttf
+
+# Trigger verification build after the order-book and Persian-font fixes.
+
           echo "Persian and Latin UI fonts are present in the packaged application payload."
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 7
 
 # Trigger verification build after the order-book and Persian-font fixes.
