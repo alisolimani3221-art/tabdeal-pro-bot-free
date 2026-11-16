@@ -17,7 +17,7 @@ def _finite(value, name):
 
 
 def analyze_klines(candles):
-    """Calculate SMA20/SMA50, RSI14 and ATR14 from Binance-compatible candles.
+    """Calculate SMA20/SMA50, RSI14 and ATR14 from standard OHLC candle rows.
 
     The final candle is excluded because it may still be forming.
     """
