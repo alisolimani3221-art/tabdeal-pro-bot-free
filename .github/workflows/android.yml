@@ -17,6 +17,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
 
     steps:
       - name: Install Linux build tools
@@ -173,7 +174,7 @@ jobs:
           PY
 
       - name: Build APK
-        run: buildozer android debug
+        run: buildozer -v android debug
 
       - name: Verify Persian font is packaged in APK
         run: |
