@@ -41,6 +41,10 @@ class RiskAnalysisTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze_klines(candles)
 
+    def test_risk_rejects_nonpositive_short_target(self):
+        with self.assertRaises(ValueError):
+            calculate_position_risk(1000, 1, 100, 20, 2, 5)
+
     def test_analysis_rejects_insufficient_data(self):
         with self.assertRaises(ValueError):
             analyze_klines([[0, 1, 2, 0.5, 1.5, 1]] * 10)
