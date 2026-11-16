@@ -33,6 +33,14 @@ class RiskAnalysisTests(unittest.TestCase):
         self.assertGreater(result["sma20"], result["sma50"])
         self.assertEqual(result["closed_candles"], 55)
 
+    def test_analysis_rejects_close_outside_candle_range(self):
+        candles = []
+        for i in range(52):
+            candles.append([i, 100, 102, 99, 101, 1])
+        candles[-2] = [50, 100, 102, 99, 105, 1]
+        with self.assertRaises(ValueError):
+            analyze_klines(candles)
+
     def test_analysis_rejects_insufficient_data(self):
         with self.assertRaises(ValueError):
             analyze_klines([[0, 1, 2, 0.5, 1.5, 1]] * 10)
