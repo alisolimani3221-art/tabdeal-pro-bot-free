@@ -34,8 +34,9 @@ def analyze_klines(candles):
         highs.append(_finite(candle[2], "high"))
         lows.append(_finite(candle[3], "low"))
         closes.append(_finite(candle[4], "close"))
-    if any(h <= 0 or l <= 0 or c <= 0 or h < l for h, l, c in zip(highs, lows, closes)):
-        raise ValueError("invalid OHLC prices")
+    if any(h <= 0 or l <= 0 or c <= 0 or h < l or c < l or c > h
+           for h, l, c in zip(highs, lows, closes)):
+        raise ValueError("invalid OHLC prices: close must be within high/low range")
 
     sma20 = sum(closes[-20:]) / 20.0
     sma50 = sum(closes[-50:]) / 50.0
@@ -135,9 +136,9 @@ def recommend_leverage(technical, max_leverage=3):
     if price <= 0 or atr < 0 or cap < 1 or cap > 3:
         raise ValueError("invalid price, ATR, or leverage cap")
     volatility_pct = (atr / price) * 100.0
-    if signal not in ("BULLISH", "BEARISH"):
+    if signal not in ("BULLISH", "BEARISH") or volatility_pct > 2.5:
         return {"leverage": 1, "volatility_pct": volatility_pct,
-                "reason": "سیگنال قطعی نیست؛ ورود انجام نشود",
+                "reason": "سیگنال یا نوسان شرایط ورود را ندارد",
                 "trade_allowed": False}
     if volatility_pct <= 1.0:
         leverage, reason = min(3, cap), "نوسان پایین؛ اهرم محدود"
