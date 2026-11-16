@@ -159,7 +159,7 @@ class PaperTradingEngine:
                 stop = entry - stop_distance if choice["side"] == "BULLISH" else entry + stop_distance
                 target = entry + 3 * choice["atr"] if choice["side"] == "BULLISH" else entry - 3 * choice["atr"]
                 fee = notional * self.fee_rate
-                if fee < self.cash:
+                if fee < self.cash and notional / leverage <= self.cash - fee:
                     self.cash -= fee
                     self.position = {
                         "symbol": choice["symbol"], "side": choice["side"],
