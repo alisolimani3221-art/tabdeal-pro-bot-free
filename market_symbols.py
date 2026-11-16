@@ -52,12 +52,4 @@ def select_market_symbol(symbols, requested="BTCUSDT"):
         if _normalized_symbol(actual) == wanted:
             return str(actual)
 
-    # Preserve compatibility for symbol records whose metadata is incomplete.
-    if isinstance(symbols, list):
-        for item in symbols:
-            if not isinstance(item, dict):
-                continue
-            actual = item.get("symbol")
-            if actual is not None and _normalized_symbol(actual) == wanted:
-                return str(actual)
     raise ValueError("{} was not found in Futures exchangeInfo".format(requested))
