@@ -103,6 +103,8 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
         raise ValueError("leverage must be between 1 and 3")
     if not 0 < reward_risk <= 10:
         raise ValueError("reward/risk must be greater than 0 and at most 10")
+    if reward_risk * stop_percent >= 100:
+        raise ValueError("short target price would be zero or negative")
 
     risk_amount = capital * risk_percent / 100.0
     stop_distance = entry_price * stop_percent / 100.0
