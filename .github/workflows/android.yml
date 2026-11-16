@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'main.py'
+      - 'trade_stream_probe.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
       - 'orderbook.py'
