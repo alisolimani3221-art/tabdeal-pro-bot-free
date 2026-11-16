@@ -154,7 +154,9 @@ def fa(text):
             # font for each run instead of asking the Arabic font for Latin glyphs.
             value = re.sub(
                 r"[\x20-\x7e]+",
-                lambda match: "[font=Roboto]{}[/font]".format(match.group(0)),
+                lambda match: "[font=Roboto]{}[/font]".format(
+                    match.group(0).replace("&", "&amp;").replace("[", "&bl;").replace("]", "&br;")
+                ),
                 value,
             )
     except Exception:
