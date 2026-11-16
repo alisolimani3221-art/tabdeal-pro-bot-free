@@ -51,6 +51,19 @@ class PaperTraderTests(unittest.TestCase):
                 result["cash"]
             )
 
+    def test_rejects_non_usdt_symbol(self):
+        self.assertIsNone(rank_signal(setup(symbol="BTC_BTC")))
+
+    def test_rejects_non_list_scan_input_safely(self):
+        engine = PaperTradingEngine(capital=8)
+        result = engine.process_scan(None)
+        self.assertEqual(result["events"], [])
+        self.assertIsNone(result["open_position"])
+
+    def test_rejects_fractional_max_leverage(self):
+        with self.assertRaises(ValueError):
+            PaperTradingEngine(capital=8, max_leverage=2.5)
+
     def test_rejects_candidate_without_symbol(self):
         candidate = setup()
         candidate.pop("symbol")
