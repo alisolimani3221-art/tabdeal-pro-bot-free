@@ -3,6 +3,8 @@ import math
 
 
 def _positive(value, name):
+    if isinstance(value, bool) or value is None:
+        raise ValueError("{} must be a positive finite number".format(name))
     number = float(value)
     if not math.isfinite(number) or number <= 0:
         raise ValueError("{} must be positive and finite".format(name))
@@ -17,12 +19,14 @@ def rank_signal(technical):
     if signal not in ("BULLISH", "BEARISH"):
         return None
     symbol = str(technical.get("symbol", "")).strip()
-    if not symbol:
+    if not symbol or not symbol.replace("_", "").upper().endswith("USDT"):
         return None
     try:
         price = _positive(technical["price"], "price")
         sma20 = _positive(technical["sma20"], "sma20")
         sma50 = _positive(technical["sma50"], "sma50")
+        if isinstance(technical["rsi14"], bool):
+            return None
         rsi = float(technical["rsi14"])
         atr = _positive(technical["atr14"], "atr14")
     except (KeyError, TypeError, ValueError, OverflowError):
@@ -54,10 +58,13 @@ class PaperTradingEngine:
         self.risk_percent = float(risk_percent)
         if not 0 < self.risk_percent <= 0.5:
             raise ValueError("paper risk must be above 0 and at most 0.5 percent")
-        self.max_leverage = int(max_leverage)
-        if not 1 <= self.max_leverage <= 3:
-            raise ValueError("max leverage must be between 1 and 3")
+        leverage_value = _positive(max_leverage, "max_leverage")
+        if not leverage_value.is_integer() or not 1 <= leverage_value <= 3:
+            raise ValueError("max leverage must be an integer between 1 and 3")
+        self.max_leverage = int(leverage_value)
         self.fee_rate = _positive(fee_rate, "fee_rate")
+        if self.fee_rate > 0.05:
+            raise ValueError("fee rate is unrealistically high; maximum is 5 percent")
         self.slippage_rate = float(slippage_rate)
         if not 0 <= self.slippage_rate <= 0.01:
             raise ValueError("invalid slippage")
@@ -99,6 +106,8 @@ class PaperTradingEngine:
         """Update the open position and optionally enter the best valid setup."""
         self.scans += 1
         events = []
+        if not isinstance(candidates, (list, tuple)):
+            candidates = []
         valid = [x for x in (rank_signal(c) for c in candidates) if x]
         valid.sort(key=lambda x: x["score"], reverse=True)
 
