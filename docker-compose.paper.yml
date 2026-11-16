@@ -1,20 +1,14 @@
 services:
-  tabdeal-paper:
+  tabdeal-monitor:
     build:
       context: .
       dockerfile: Dockerfile.paper
-    container_name: tabdeal-paper-trader
+    container_name: tabdeal-market-monitor
     restart: unless-stopped
     init: true
     environment:
-      PAPER_CAPITAL_USDT: ${PAPER_CAPITAL_USDT:-8}
-      PAPER_RISK_PERCENT: ${PAPER_RISK_PERCENT:-0.5}
-      PAPER_MAX_LEVERAGE: ${PAPER_MAX_LEVERAGE:-3}
       PAPER_SCAN_SECONDS: ${PAPER_SCAN_SECONDS:-300}
       PAPER_WORKERS: ${PAPER_WORKERS:-8}
-      PAPER_STATE_PATH: /data/paper_state.json
-    volumes:
-      - ./paper-data:/data
     read_only: true
     tmpfs:
       - /tmp
