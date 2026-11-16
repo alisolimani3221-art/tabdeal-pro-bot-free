@@ -27,7 +27,7 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
-from kivy.uix.spinner import Spinner
+from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.core.window import Window
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path, resource_find
@@ -121,6 +121,15 @@ def font_for_text(text):
     )
     return FONT_NAME if has_arabic else NUMERIC_FONT_NAME
 
+class LatinSpinnerOption(SpinnerOption):
+    """Render every market-symbol dropdown row with the bundled Latin font."""
+    def __init__(self, **kwargs):
+        kwargs.setdefault("font_name", NUMERIC_FONT_NAME)
+        kwargs.setdefault("font_size", sp(16))
+        kwargs.setdefault("color", (1, 1, 1, 1))
+        super().__init__(**kwargs)
+
+
 TABDEAL_WEBSITE = "https://tabdeal.org/"
 FUTURES_API = "https://api1.tabdeal.org/r/fapi/v1"
 
@@ -189,6 +198,7 @@ class FuturesAnalyzerApp(App):
             text=self.current_symbol,
             values=(self.current_symbol,),
             font_name=NUMERIC_FONT_NAME,
+            option_cls=LatinSpinnerOption,
             font_size=sp(16),
             size_hint_y=None,
             height=dp(46),
