@@ -10,6 +10,7 @@ on:
       - 'orderbook.py'
       - 'market_symbols.py'
       - 'paper_trader.py'
+      - 'server_paper_trader.py'
       - 'tests/**'
       - '.github/workflows/android.yml'
 
@@ -76,10 +77,9 @@ jobs:
           import json
           import urllib.parse
           import urllib.request
-          import urllib.error
           from market_symbols import select_market_symbol
           from orderbook import parse_order_book
-          from risk_analysis import analyze_klines, calculate_position_risk
+          from risk_analysis import calculate_position_risk
 
           base = "https://api1.tabdeal.org/r/fapi/v1"
           def get(path, params=None):
