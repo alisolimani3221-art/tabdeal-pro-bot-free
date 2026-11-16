@@ -33,6 +33,19 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIsNone(result["open_position"])
         self.assertEqual(engine.closed_trades[-1]["reason"], "STOP")
 
+    def test_does_not_reopen_on_same_scan_after_stop(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        result = engine.process_scan([setup(price=98.0)])
+        self.assertTrue(any(e["event"] == "CLOSED" for e in result["events"]))
+        self.assertFalse(any(e["event"] == "OPENED" for e in result["events"]))
+        self.assertIsNone(result["open_position"])
+
+    def test_rejects_candidate_without_symbol(self):
+        candidate = setup()
+        candidate.pop("symbol")
+        self.assertIsNone(rank_signal(candidate))
+
     def test_one_position_at_a_time(self):
         engine = PaperTradingEngine(capital=8)
         engine.process_scan([setup()])
