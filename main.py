@@ -1021,6 +1021,13 @@ class FuturesAnalyzerApp(App):
                         raise RuntimeError("No active USDT perpetual symbols")
                     candidates = []
                     failures = 0
+                    checked = 0
+                    bullish = 0
+                    bearish = 0
+                    neutral = 0
+                    self.auto_scan_progress = {"checked": 0, "total": len(symbols), "failures": 0}
+                    Clock.schedule_once(lambda dt, total=len(symbols): self.update_auto_status(
+                        "اسکن جدید شروع شد.\n۰ از {} نماد بررسی شده؛ لطفاً منتظر بمانید.\nفقط شبیه‌سازی؛ بدون سفارش واقعی.".format(total)), 0)
                     for symbol in symbols:
                         if self.auto_stop_event.is_set():
                             break
@@ -1037,6 +1044,10 @@ class FuturesAnalyzerApp(App):
                                 continue
                         if candle_data is None:
                             failures += 1
+                            checked += 1
+                            if checked % 5 == 0 or checked == len(symbols):
+                                progress = "پیشرفت اسکن: {} از {} نماد\nسیگنال صعودی: {} | نزولی: {} | خنثی: {}\nخطاهای دریافت داده: {}".format(checked, len(symbols), bullish, bearish, neutral, failures)
+                                Clock.schedule_once(lambda dt, message=progress: self.update_auto_status(message), 0)
                             continue
                         if isinstance(candle_data, dict):
                             candle_data = candle_data.get("data", candle_data.get("result", candle_data.get("klines")))
@@ -1044,8 +1055,18 @@ class FuturesAnalyzerApp(App):
                             technical = analyze_klines(candle_data)
                             technical["symbol"] = symbol
                             candidates.append(technical)
+                            if technical.get("signal") == "BULLISH":
+                                bullish += 1
+                            elif technical.get("signal") == "BEARISH":
+                                bearish += 1
+                            else:
+                                neutral += 1
                         except Exception:
                             failures += 1
+                        checked += 1
+                        if checked % 5 == 0 or checked == len(symbols):
+                            progress = "پیشرفت اسکن: {} از {} نماد\nسیگنال صعودی: {} | نزولی: {} | خنثی: {}\nخطاهای دریافت/تحلیل: {}".format(checked, len(symbols), bullish, bearish, neutral, failures)
+                            Clock.schedule_once(lambda dt, message=progress: self.update_auto_status(message), 0)
                         self.auto_stop_event.wait(0.08)
                     if self.auto_stop_event.is_set():
                         break
@@ -1061,14 +1082,24 @@ class FuturesAnalyzerApp(App):
                     position_text = ("{} {} entry {:.6f} stop {:.6f} target {:.6f}".format(
                         position["symbol"], position["side"], position["entry"],
                         position["stop"], position["target"]) if position else "No open position")
-                    report = ("Paper scan #{} complete\\nSymbols: {} | Data errors: {} | Valid setups: {}\\n"
-                              "Virtual equity: {:.4f} USDT | Closed trades: {} | Net PnL: {:+.4f}\\n{}\\n"
-                              "Next scan in 5 minutes. No live orders.").format(
-                        self.auto_engine.scans, len(symbols), failures, len(result["candidates"]),
-                        result["equity"], len(closed), net_total, position_text)
+                    if result["open_position"]:
+                        decision_text = "معامله آزمایشی باز است؛ حد ضرر و هدف در گزارش آمده‌اند."
+                    elif result["events"]:
+                        decision_text = "رویداد معامله: {}".format(", ".join(event.get("event", "") for event in result["events"]))
+                    elif not result["candidates"]:
+                        decision_text = "ورودی معتبر پیدا نشد؛ فیلترهای ایمنی سیگنال‌ها را رد کردند."
+                    else:
+                        decision_text = "سیگنال معتبر دیده شد، اما هنوز موقعیت بازی وجود ندارد."
+                    report = ("اسکن شماره {} کامل شد\\nبررسی‌شده: {} از {} | خطا: {}\\n"
+                              "سیگنال خام: صعودی {} | نزولی {} | خنثی {}\\n"
+                              "فرصت‌های واجد شرایط: {}\\nسرمایه مجازی: {:.4f} تتر | معاملات بسته: {} | سود/زیان خالص: {:+.4f}\\n"
+                              "وضعیت: {}\\n{}\\nاسکن بعدی تا ۵ دقیقه دیگر. فقط آزمایشی؛ سفارش واقعی ارسال نمی‌شود.").format(
+                        self.auto_engine.scans, checked, len(symbols), failures, bullish, bearish, neutral,
+                        len(result["candidates"]), result["equity"], len(closed), net_total,
+                        decision_text, position_text)
                     Clock.schedule_once(lambda dt, message=report: self.update_auto_status(message), 0)
                 except Exception as exc:
-                    report = "Paper scan error: {}: {}\\nWill retry in 5 minutes.".format(type(exc).__name__, str(exc)[:220])
+                    report = "خطای اسکن خودکار: {}: {}\\nاسکن پس از ۵ دقیقه دوباره تلاش می‌کند. هیچ سفارش واقعی ارسال نشده است.".format(type(exc).__name__, str(exc)[:220])
                     Clock.schedule_once(lambda dt, message=report: self.update_auto_status(message), 0)
                 self.auto_stop_event.wait(300)
         finally:
