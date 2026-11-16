@@ -119,7 +119,9 @@ class PaperTradingEngine:
             hit_stop = current <= p["stop"] if p["side"] == "BULLISH" else current >= p["stop"]
             hit_target = current >= p["target"] if p["side"] == "BULLISH" else current <= p["target"]
             if hit_stop:
-                events.append(self._close(p["stop"], "STOP"))
+                # A gap through the stop is filled at the worse observed
+                # market price, not magically at the stop trigger.
+                events.append(self._close(current, "STOP"))
                 closed_this_scan = True
             elif hit_target:
                 events.append(self._close(p["target"], "TARGET"))
@@ -134,7 +136,15 @@ class PaperTradingEngine:
                                        else 1 - self.slippage_rate)
             stop_distance = 1.5 * choice["atr"]
             risk_cash = self.cash * self.risk_percent / 100.0
-            quantity = risk_cash / stop_distance
+            # Size for the full estimated stop loss, including entry/exit
+            # slippage and both-side fees, rather than price distance alone.
+            stop_fill = (entry - stop_distance) * (1 - self.slippage_rate) if choice["side"] == "BULLISH" else (entry + stop_distance) * (1 + self.slippage_rate)
+            risk_per_unit = abs(entry - stop_fill) + (entry + stop_fill) * self.fee_rate
+            if risk_per_unit <= 0 or not math.isfinite(risk_per_unit):
+                return {"events": events, "candidates": valid,
+                        "equity": self.equity, "cash": self.cash,
+                        "open_position": None, "closed_trades": len(self.closed_trades)}
+            quantity = risk_cash / risk_per_unit
             leverage = 1
             if choice["volatility_pct"] <= 1.0:
                 leverage = min(3, self.max_leverage)
@@ -156,7 +166,8 @@ class PaperTradingEngine:
                         "entry": entry, "last_price": choice["price"],
                         "stop": stop, "target": target, "quantity": quantity,
                         "notional": notional, "leverage": leverage,
-                        "risk_budget": risk_cash, "fees_entry": fee,
+                        "risk_budget": quantity * risk_per_unit,
+                        "risk_limit": risk_cash, "fees_entry": fee,
                         "score": choice["score"],
                     }
                     events.append({"event": "OPENED", "position": dict(self.position)})
