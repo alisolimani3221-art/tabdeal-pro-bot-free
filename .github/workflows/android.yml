@@ -133,8 +133,8 @@ jobs:
           from fontTools.ttLib import TTFont
 
           candidates = [
-              "NotoNaskhArabic-Regular.ttf",
               "NotoSansArabic-Regular.ttf",
+              "NotoNaskhArabic-Regular.ttf",
           ]
           font_path = next((p for p in candidates if os.path.isfile(p)), None)
           if not font_path:
