@@ -9,6 +9,8 @@ on:
       - 'multi_bot.py'
       - 'orderbook.py'
       - 'market_symbols.py'
+      - 'risk_analysis.py'
+      - 'requirements.txt'
       - 'paper_trader.py'
       - 'server_paper_trader.py'
       - 'tests/**'
@@ -112,7 +114,20 @@ jobs:
 
           get("/ping")
           info = get("/exchangeInfo")
-          symbols = info if isinstance(info, list) else info.get("symbols", info.get("data", {}).get("symbols", []))
+          if isinstance(info, list):
+              symbols = info
+          elif isinstance(info, dict):
+              symbols = info.get("symbols")
+              if symbols is None:
+                  nested = info.get("data")
+                  if isinstance(nested, dict):
+                      symbols = nested.get("symbols")
+                  elif isinstance(nested, list):
+                      symbols = nested
+              if symbols is None:
+                  raise RuntimeError("exchangeInfo response has no symbols list")
+          else:
+              raise RuntimeError("exchangeInfo response is not a list or object")
           symbol = select_market_symbol(symbols, "BTCUSDT")
           book = get("/depth", {"symbol": symbol, "limit": 5})
           bids, asks = parse_order_book(book)
