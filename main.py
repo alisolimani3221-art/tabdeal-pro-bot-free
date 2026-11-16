@@ -611,7 +611,7 @@ class FuturesAnalyzerApp(App):
 
         # Keep field labels Persian-only; avoid mixed RTL/LTR unit strings.
         add_field("capital", "سرمایه به تتر", "{:.2f}".format(self.capital_usdt))
-        add_field("entry", "قیمت ورود", "{:.2f}".format(self.latest_market_price) if self.latest_market_price else "")
+        add_field("entry", "قیمت ورود (تخمین دفتر سفارش)", "{:.2f}".format(self.latest_market_price) if self.latest_market_price else "")
         add_field("risk", "ریسک هر معامله", "1")
         add_field("stop", "فاصله حد ضرر", "1")
         add_field("leverage", "اهرم (حداکثر 3)", "3")
@@ -951,7 +951,7 @@ class FuturesAnalyzerApp(App):
         body.add_widget(self.auto_status_label)
         actions = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dp(48))
-        start_button = Button(text=fa("شروع اسکن خودکار"), font_name=FONT_NAME)
+        start_button = Button(text=fa("وضعیت اسکن خودکار"), font_name=FONT_NAME)
         stop_button = Button(text=fa("توقف"), font_name=FONT_NAME)
         close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
         actions.add_widget(start_button)
@@ -963,27 +963,12 @@ class FuturesAnalyzerApp(App):
                       size_hint=(0.96, 0.78), auto_dismiss=False)
 
         def start(_button):
-            if self.auto_trader_thread and self.auto_trader_thread.is_alive():
-                self.auto_status_label.text = fa("اسکن خودکار در حال اجراست.")
-                return
-            try:
-                capital = float(normalize_digits(capital_input.text))
-                risk = float(normalize_digits(risk_input.text))
-                if not 0 < capital < 1000000000 or not 0 < risk <= 0.5:
-                    raise ValueError("invalid capital or risk")
-                self.auto_engine = PaperTradingEngine(capital=capital, risk_percent=risk, max_leverage=3)
-                self.capital_usdt = capital
-                try:
-                    with open(self.settings_path, "w", encoding="utf-8") as settings_file:
-                        json.dump({"capital_usdt": capital}, settings_file)
-                except OSError:
-                    pass
-                self.auto_stop_event.clear()
-                self.auto_status_label.text = fa("اسکن بازار شروع شد؛ همه قراردادهای فعال USDT بررسی می‌شوند.")
-                self.auto_trader_thread = threading.Thread(target=self.run_auto_paper_scanner, daemon=True)
-                self.auto_trader_thread.start()
-            except (TypeError, ValueError, OverflowError):
-                self.auto_status_label.text = fa("ورودی نامعتبر است؛ ریسک باید حداکثر 0.5 درصد باشد.")
+            self.auto_status_label.text = fa(
+                "اسکن خودکار و تولید سیگنال فعلاً غیرفعال است.\\n"
+                "در API عمومی مستندشده تبدیل، کندل تاریخی وجود ندارد.\\n"
+                "برای جلوگیری از سیگنال ساختگی، تا زمان تأیید منبع رسمی معاملات لحظه‌ای "
+                "هیچ معامله آزمایشی آغاز نمی‌شود."
+            )
 
         def stop(_button):
             self.auto_stop_event.set()
