@@ -127,6 +127,20 @@ def normalize_digits(value):
     return str(value).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
 
 
+def fa_plain(text):
+    """Shape Persian text for widgets that do not support Kivy markup."""
+    value = str(text)
+    if not any("\\u0600" <= char <= "\\u06ff" or "\\u0750" <= char <= "\\u077f"
+               or "\\u08a0" <= char <= "\\u08ff" for char in value):
+        return value
+    try:
+        if arabic_reshaper is not None and get_display is not None:
+            return get_display(arabic_reshaper.reshape(value))
+    except Exception:
+        pass
+    return value
+
+
 def fa(text):
     """Shape Persian text and mark Latin runs to use the Latin-capable font."""
     value = str(text)
@@ -518,7 +532,7 @@ class FuturesAnalyzerApp(App):
         body.add_widget(self.make_label("مقدار: " + parts[1], size=15, height=dp(38)))
         close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME,
                               size_hint_y=None, height=dp(44))
-        popup = Popup(title=fa("جزئیات ردیف دفتر سفارش"),
+        popup = Popup(title=fa_plain("جزئیات ردیف دفتر سفارش"),
                       title_font=FONT_NAME, content=body,
                       size_hint=(0.88, 0.42))
         close_button.bind(on_press=popup.dismiss)
@@ -594,7 +608,7 @@ class FuturesAnalyzerApp(App):
         close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME,
                               size_hint_y=None, height=dp(46))
         body.add_widget(close_button)
-        popup = Popup(title=fa("تحلیل هوشمند بازار"), title_font=FONT_NAME,
+        popup = Popup(title=fa_plain("تحلیل هوشمند بازار"), title_font=FONT_NAME,
                       content=body, size_hint=(0.94, 0.82))
         close_button.bind(on_press=popup.dismiss)
         popup.open()
@@ -677,7 +691,7 @@ class FuturesAnalyzerApp(App):
 
         risk_scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
         risk_scroll.add_widget(body)
-        popup = Popup(title=fa("مدیریت ریسک معامله"), title_font=FONT_NAME,
+        popup = Popup(title=fa_plain("مدیریت ریسک معامله"), title_font=FONT_NAME,
                       content=risk_scroll, size_hint=(0.98, 0.94), auto_dismiss=False)
 
         def calculate(_button):
@@ -864,7 +878,7 @@ class FuturesAnalyzerApp(App):
 
         close_button = Button(markup=True, text=fa("متوجه شدم"), font_name=FONT_NAME, size_hint_y=None, height=dp(46))
         body.add_widget(close_button)
-        popup = Popup(title=fa(popup_title), title_font=FONT_NAME, content=body,
+        popup = Popup(title=fa_plain(popup_title), title_font=FONT_NAME, content=body,
                       size_hint=(0.94, 0.78), auto_dismiss=False)
         close_button.bind(on_press=popup.dismiss)
         popup.open()
@@ -880,12 +894,15 @@ class FuturesAnalyzerApp(App):
         results = getattr(self, "last_diagnostic_results", {}) or {}
         auto_running = bool(self.auto_trader_thread and self.auto_trader_thread.is_alive())
         font_status = "OK: " + str(FONT_PATH) if FONT_PATH else "MISSING: Persian font"
+        latin_status = "OK: " + str(LATIN_FONT_PATH) if LATIN_FONT_PATH else "MISSING: Latin font"
         depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
         lines = [
             "مرکز عیب‌یابی برنامه",
             "نسخه برنامه: " + APP_VERSION,
             "سیستم: Android / Kivy",
             "فونت فارسی: " + font_status,
+            "فونت لاتین: " + latin_status,
+            "وضعیت بارگذاری فونت: " + (FONT_LOAD_ERROR or "OK"),
             "نماد انتخاب‌شده: " + str(self.current_symbol),
             "دفتر سفارش: " + depth_status,
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
@@ -955,7 +972,7 @@ class FuturesAnalyzerApp(App):
         actions.add_widget(check_button)
         actions.add_widget(close_button)
         body.add_widget(actions)
-        popup = Popup(title=fa("مرکز عیب‌یابی"), title_font=FONT_NAME,
+        popup = Popup(title=fa_plain("مرکز عیب‌یابی"), title_font=FONT_NAME,
                       content=body, size_hint=(0.96, 0.82))
         def copy_report(_button):
             try:
@@ -1007,7 +1024,7 @@ class FuturesAnalyzerApp(App):
         actions.add_widget(stop_button)
         body.add_widget(actions)
         body.add_widget(close_button)
-        popup = Popup(title=fa("مدیریت معامله‌گر آزمایشی"),
+        popup = Popup(title=fa_plain("مدیریت معامله‌گر آزمایشی"),
                       title_font=FONT_NAME, content=body,
                       size_hint=(0.96, 0.78), auto_dismiss=False)
 
