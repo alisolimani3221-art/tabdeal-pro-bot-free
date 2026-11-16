@@ -18,6 +18,12 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertNotIn("fapi.binance.com", source)
         self.assertIn("/depth", source)
 
+    def test_docker_monitor_does_not_advertise_unused_paper_settings(self):
+        compose = (ROOT / "docker-compose.paper.yml").read_text(encoding="utf-8")
+        self.assertIn("tabdeal-market-monitor", compose)
+        self.assertNotIn("PAPER_CAPITAL_USDT", compose)
+        self.assertNotIn("PAPER_STATE_PATH", compose)
+
     def test_server_monitor_does_not_create_paper_trading_signals(self):
         source = (ROOT / "server_paper_trader.py").read_text(encoding="utf-8")
         self.assertIn("/depth", source)
