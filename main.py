@@ -84,30 +84,9 @@ else:
     FONT_LOAD_ERROR = "No bundled or Android system Noto Arabic font was found."
     FONT_NAME = "Roboto"
 
-# Use a separate Noto Sans Latin face for ASCII-only content (tickers,
-# English diagnostics, prices and numeric inputs). Persian/mixed RTL text keeps
-# the Arabic-capable face to avoid glyph fallback inconsistencies on Android.
-LATIN_FONT_CANDIDATES = [
-    os.path.join(BASE_DIR, "NotoSans-Regular.ttf"),
-    os.path.join(BASE_DIR, "assets", "NotoSans-Regular.ttf"),
-    "/system/fonts/Roboto-Regular.ttf",
-]
-LATIN_FONT_PATH = next((p for p in LATIN_FONT_CANDIDATES if os.path.isfile(p)), None)
-if LATIN_FONT_PATH:
-    try:
-        resource_add_path(os.path.dirname(LATIN_FONT_PATH))
-        LabelBase.register(
-            name="LatinNoto",
-            fn_regular=LATIN_FONT_PATH,
-            fn_bold=LATIN_FONT_PATH,
-            fn_italic=LATIN_FONT_PATH,
-            fn_bolditalic=LATIN_FONT_PATH,
-        )
-        NUMERIC_FONT_NAME = "LatinNoto"
-    except Exception:
-        NUMERIC_FONT_NAME = "Roboto"
-else:
-    NUMERIC_FONT_NAME = "Roboto"
+# Use Android's built-in Roboto for ASCII text, tickers, prices and numbers.
+# Persian and Arabic text continues to use the bundled Arabic-capable font.
+NUMERIC_FONT_NAME = "Roboto"
 
 
 def font_for_text(text):
@@ -940,9 +919,8 @@ class FuturesAnalyzerApp(App):
         capital_row.add_widget(self.make_label("سرمایه آزمایشی (USDT)", size=13, height=dp(44)))
         capital_input = TextInput(text="{:.2f}".format(self.capital_usdt),
                                   multiline=False, input_filter="float",
-                                  # Use the same bundled Arabic-capable font as the dialog.
-                                  # It includes Latin letters and digits too, avoiding Android tofu squares.
-                                  font_name=FONT_NAME, font_size=sp(16),
+                                  # Numeric-only input: use Android's standard Roboto.
+                                  font_name=NUMERIC_FONT_NAME, font_size=sp(16),
                                   size_hint_x=0.55, size_hint_y=None, height=dp(44))
         capital_row.add_widget(capital_input)
         fields.add_widget(capital_row)
