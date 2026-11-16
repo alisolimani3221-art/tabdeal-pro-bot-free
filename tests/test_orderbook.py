@@ -62,6 +62,16 @@ class MarketSymbolTests(unittest.TestCase):
         symbols = [{"symbol": "ETH_USDT"}, {"symbol": "BTC_USDT"}]
         self.assertEqual(select_market_symbol(symbols), "BTC_USDT")
 
+    def test_does_not_select_inactive_bitcoin_contract(self):
+        symbols = [
+            {"symbol": "BTC_USDT", "quoteAsset": "USDT", "status": "BREAK",
+             "contractType": "PERPETUAL"},
+            {"symbol": "ETH_USDT", "quoteAsset": "USDT", "status": "TRADING",
+             "contractType": "PERPETUAL"},
+        ]
+        with self.assertRaises(ValueError):
+            select_market_symbol(symbols, "BTCUSDT")
+
     def test_resolves_compact_symbol(self):
         self.assertEqual(select_market_symbol([{"symbol": "BTCUSDT"}]), "BTCUSDT")
 
