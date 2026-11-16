@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re
 import threading
 import requests
 import certifi
@@ -56,7 +57,15 @@ FONT_CANDIDATES = [
     "/system/fonts/NotoSansArabic-Regular.ttf",
 ]
 FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.isfile(p)), None)
+LATIN_FONT_CANDIDATES = [
+    os.path.join(BASE_DIR, "NotoSans-Regular.ttf"),
+    os.path.join(BASE_DIR, "assets", "NotoSans-Regular.ttf"),
+]
+LATIN_FONT_PATH = next((p for p in LATIN_FONT_CANDIDATES if os.path.isfile(p)), None)
 FONT_LOAD_ERROR = None
+FONT_NAME = "Roboto"
+NUMERIC_FONT_NAME = "Roboto"
+
 if FONT_PATH:
     try:
         resource_add_path(os.path.dirname(FONT_PATH))
@@ -67,33 +76,38 @@ if FONT_PATH:
             fn_italic=FONT_PATH,
             fn_bolditalic=FONT_PATH,
         )
-        # Kivy widgets such as Popup titles, Spinner dropdown rows and some
-        # Buttons use the built-in "Roboto" default unless font_name is set.
-        # Register the bundled Arabic-capable Noto face under that default
-        # name too, so Persian glyphs never fall back to tofu squares.
-        LabelBase.register(
-            name="Roboto",
-            fn_regular=FONT_PATH,
-            fn_bold=FONT_PATH,
-            fn_italic=FONT_PATH,
-            fn_bolditalic=FONT_PATH,
-        )
         FONT_NAME = "PersianNoto"
     except Exception as exc:
         FONT_LOAD_ERROR = "{}: {}".format(type(exc).__name__, str(exc))
-        FONT_NAME = "Roboto"
-else:
-    FONT_LOAD_ERROR = "No bundled or Android system Noto Arabic font was found."
-    FONT_NAME = "Roboto"
 
-# Use the same bundled Noto face for Persian, Latin text, symbols and numbers.
-# This avoids Android/Kivy fallback to a font that may render missing-glyph boxes.
-NUMERIC_FONT_NAME = FONT_NAME
+# Keep Latin letters, digits and punctuation in a Latin-capable face.
+# Never register an Arabic-only font as Roboto: that creates tofu squares.
+if LATIN_FONT_PATH:
+    try:
+        resource_add_path(os.path.dirname(LATIN_FONT_PATH))
+        LabelBase.register(
+            name="Roboto",
+            fn_regular=LATIN_FONT_PATH,
+            fn_bold=LATIN_FONT_PATH,
+            fn_italic=LATIN_FONT_PATH,
+            fn_bolditalic=LATIN_FONT_PATH,
+        )
+    except Exception as exc:
+        FONT_LOAD_ERROR = "{}: {}".format(type(exc).__name__, str(exc))
+
+if not FONT_PATH:
+    FONT_LOAD_ERROR = "No bundled or Android system Noto Arabic font was found."
+if not LATIN_FONT_PATH:
+    FONT_LOAD_ERROR = (FONT_LOAD_ERROR or "") + " No bundled Latin font was found."
 
 
 def font_for_text(text):
-    """Use one bundled font for all scripts to prevent Android tofu squares."""
-    return FONT_NAME
+    """Choose a font with glyph coverage for the text's script."""
+    value = str(text)
+    if any("\u0600" <= ch <= "\u06ff" or "\u0750" <= ch <= "\u077f"
+           or "\u08a0" <= ch <= "\u08ff" for ch in value):
+        return FONT_NAME
+    return NUMERIC_FONT_NAME
 
 class LatinSpinnerOption(SpinnerOption):
     """Render every market-symbol dropdown row with the bundled Latin font."""
@@ -114,16 +128,21 @@ def normalize_digits(value):
 
 
 def fa(text):
-    """Shape Arabic-script text only; leave ASCII numbers/symbols untouched."""
+    """Shape Persian text and mark Latin runs to use the Latin-capable font."""
     value = str(text)
-    # Numeric market values and Latin diagnostics should never be reordered by
-    # the bidi pass. This also preserves decimal points and thousands separators.
     if not any("\u0600" <= char <= "\u06ff" or "\u0750" <= char <= "\u077f"
                or "\u08a0" <= char <= "\u08ff" for char in value):
         return value
     try:
         if arabic_reshaper is not None and get_display is not None:
-            return get_display(arabic_reshaper.reshape(value))
+            value = get_display(arabic_reshaper.reshape(value))
+            # Kivy Label markup lets a mixed RTL/LTR sentence use the correct
+            # font for each run instead of asking the Arabic font for Latin glyphs.
+            value = re.sub(
+                r"[\\x20-\\x7e]+",
+                lambda match: "[font=Roboto]{}[/font]".format(match.group(0)),
+                value,
+            )
     except Exception:
         pass
     return value
@@ -302,7 +321,7 @@ class FuturesAnalyzerApp(App):
         return root
 
     def make_label(self, text, size=15, color=(1, 1, 1, 1), height=dp(48)):
-        return Label(text=fa(text), font_name=font_for_text(text), font_size=sp(size), color=color,
+        return Label(text=fa(text), font_name=font_for_text(text), markup=True, font_size=sp(size), color=color,
                      size_hint_y=None, height=height, halign="center", valign="middle",
                      text_size=(Window.width - dp(40), None))
 
@@ -514,7 +533,7 @@ class FuturesAnalyzerApp(App):
         report.bind(minimum_height=report.setter("height"))
 
         def add_line(text, size=15, height=dp(42), color=(0.94, 0.96, 1, 1), font=FONT_NAME):
-            label = Label(text=fa(text), font_name=font, font_size=sp(size),
+            label = Label(text=fa(text), font_name=font, markup=True, font_size=sp(size),
                           color=color, size_hint_y=None, height=height,
                           halign="center", valign="middle",
                           text_size=(Window.width * 0.82, None))
@@ -815,7 +834,7 @@ class FuturesAnalyzerApp(App):
         message = message.replace("API پینگ", "پینگ بازار")
         message = message.replace("نماد BTCUSDT", "نماد معاملاتی بیت‌کوین")
         message_label = Label(
-            text=fa(message), font_name=FONT_NAME, font_size=sp(15),
+            text=fa(message), font_name=FONT_NAME, markup=True, font_size=sp(15),
             halign="center", valign="middle", size_hint=(1, None),
             text_size=(Window.width * 0.80, None)
         )
@@ -895,7 +914,7 @@ class FuturesAnalyzerApp(App):
                 if ": " in line:
                     field_name, field_value = line.split(": ", 1)
                     field_label = Label(
-                        text=fa(field_name), font_name=FONT_NAME,
+                        text=fa(field_name), font_name=FONT_NAME, markup=True,
                         font_size=sp(12), size_hint=(1, None),
                         text_size=(Window.width * 0.82, None),
                         halign="center", valign="middle",
@@ -904,7 +923,7 @@ class FuturesAnalyzerApp(App):
                     field_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(5)))
                     report.add_widget(field_label)
                     value_label = Label(
-                        text=fa(field_value), font_name=font_for_text(field_value),
+                        text=fa(field_value), font_name=font_for_text(field_value), markup=True,
                         font_size=sp(12), size_hint=(1, None),
                         text_size=(Window.width * 0.82, None),
                         halign="center", valign="middle",
@@ -914,7 +933,7 @@ class FuturesAnalyzerApp(App):
                     report.add_widget(value_label)
                 else:
                     line_label = Label(
-                        text=fa(line), font_name=font_for_text(line),
+                        text=fa(line), font_name=font_for_text(line), markup=True,
                         font_size=sp(13), size_hint=(1, None),
                         text_size=(Window.width * 0.82, None),
                         halign="center", valign="middle",
