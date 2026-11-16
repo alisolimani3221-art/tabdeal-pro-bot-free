@@ -938,7 +938,9 @@ class FuturesAnalyzerApp(App):
         capital_row.add_widget(self.make_label("سرمایه آزمایشی (USDT)", size=13, height=dp(44)))
         capital_input = TextInput(text="{:.2f}".format(self.capital_usdt),
                                   multiline=False, input_filter="float",
-                                  font_name=NUMERIC_FONT_NAME, font_size=sp(16),
+                                  # Use the same bundled Arabic-capable font as the dialog.
+                                  # It includes Latin letters and digits too, avoiding Android tofu squares.
+                                  font_name=FONT_NAME, font_size=sp(16),
                                   size_hint_x=0.55, size_hint_y=None, height=dp(44))
         capital_row.add_widget(capital_input)
         fields.add_widget(capital_row)
