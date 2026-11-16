@@ -107,8 +107,8 @@ jobs:
           # time, exchangeInfo and depth, but not historical klines or a
           # public 24h ticker. Do not probe Binance-compatible paths.
           print("Tabdeal public REST candle/ticker feed: not documented; technical scanner remains disabled.")
-          print("LIVE API OK: symbol={}, bid={}, ask={}, candles={}, risk={}".format(
-              symbol, bids[0][0], asks[0][0], candle_ok, sizing["risk_amount"]))
+          print("LIVE API OK: symbol={}, bid={}, ask={}, technical_candles=disabled, risk={}".format(
+              symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
       - name: Install Buildozer
