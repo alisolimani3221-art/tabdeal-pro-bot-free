@@ -85,21 +85,14 @@ else:
     FONT_LOAD_ERROR = "No bundled or Android system Noto Arabic font was found."
     FONT_NAME = "Roboto"
 
-# Use Android's built-in Roboto for ASCII text, tickers, prices and numbers.
-# Persian and Arabic text continues to use the bundled Arabic-capable font.
-NUMERIC_FONT_NAME = "Roboto"
+# Use the same bundled Noto face for Persian, Latin text, symbols and numbers.
+# This avoids Android/Kivy fallback to a font that may render missing-glyph boxes.
+NUMERIC_FONT_NAME = FONT_NAME
 
 
 def font_for_text(text):
-    """Choose an Arabic-capable font for RTL text and Latin font otherwise."""
-    value = str(text)
-    has_arabic = any(
-        "\u0600" <= char <= "\u06ff"
-        or "\u0750" <= char <= "\u077f"
-        or "\u08a0" <= char <= "\u08ff"
-        for char in value
-    )
-    return FONT_NAME if has_arabic else NUMERIC_FONT_NAME
+    """Use one bundled font for all scripts to prevent Android tofu squares."""
+    return FONT_NAME
 
 class LatinSpinnerOption(SpinnerOption):
     """Render every market-symbol dropdown row with the bundled Latin font."""
