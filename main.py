@@ -192,7 +192,7 @@ class FuturesAnalyzerApp(App):
 
         content.add_widget(self.section_title("اطلاعات بازار"))
         cards = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(142))
-        card, self.price_value = self.info_card("قیمت میانی بازار", "هنوز دریافت نشده")
+        card, self.price_value = self.info_card("قیمت میانی دفتر سفارش", "هنوز دریافت نشده")
         cards.add_widget(card)
         card, self.bid_value = self.info_card("بهترین قیمت خرید", "-")
         cards.add_widget(card)
@@ -431,7 +431,7 @@ class FuturesAnalyzerApp(App):
             results["symbol_count"] = len(available_symbols)
 
             # Use the exact symbol returned by exchangeInfo. Tabdeal futures
-            # commonly uses BTC_USDT, not the Binance-style BTCUSDT alias.
+            # Preserve the exact symbol string returned by Tabdeal exchangeInfo.
             depth = get_response("/depth", params={"symbol": market_symbol, "limit": 5}, timeout=25)
             results["depth_http"] = depth.status_code
             results["depth_url"] = depth.url
@@ -482,7 +482,7 @@ class FuturesAnalyzerApp(App):
 
             # The documented public Futures REST API currently exposes
             # ping, time, exchangeInfo and depth, but no public kline or
-            # 24h ticker endpoint. Never call Binance-style paths here.
+            # 24h ticker endpoint. Do not substitute another exchange's paths.
             # The order-book midpoint is an estimate, not a last-trade price.
             results["market_price_source"] = "order_book_midpoint_estimate"
             results["market_summary"] = None
@@ -870,7 +870,7 @@ class FuturesAnalyzerApp(App):
         depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
         lines = [
             "مرکز عیب‌یابی برنامه",
-            "نسخه برنامه: 1.6",
+            "نسخه برنامه: 1.7",
             "سیستم: Android / Kivy",
             "فونت فارسی: " + font_status,
             "نماد انتخاب‌شده: " + str(self.current_symbol),
