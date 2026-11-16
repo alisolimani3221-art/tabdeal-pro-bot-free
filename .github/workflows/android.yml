@@ -75,6 +75,20 @@ jobs:
       - name: Test order book parser
         run: python -m unittest discover -s tests -v
 
+      - name: Verify app version matches Buildozer package version
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          app = Path("main.py").read_text(encoding="utf-8")
+          spec = Path("buildozer.spec").read_text(encoding="utf-8")
+          app_version = re.search(r'^APP_VERSION\\s*=\\s*["\\']([^"\\']+)["\\']', app, re.M)
+          package_version = re.search(r'^version\\s*=\\s*(\\S+)', spec, re.M)
+          if not app_version or not package_version or app_version.group(1) != package_version.group(1):
+              raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
+          print("App and APK versions match:", app_version.group(1))
+          PY
+
       - name: Smoke test live Tabdeal Futures API
         run: |
           python - <<'PY'
@@ -152,25 +166,23 @@ jobs:
                      or "\u08a0" <= ch <= "\u08ff" for ch in value):
                   shaped = arabic_reshaper.reshape(value)
                   checked.update(ord(ch) for ch in shaped)
-          # Latin letters, digits and punctuation are rendered by Android Roboto.
-          # Validate only Arabic-script glyphs against the bundled Persian font.
+          # Validate Latin and Arabic glyphs against the exact runtime font.
+          required_latin = set(range(0x20, 0x7F)) | {0x2014}
+          missing_latin = sorted(cp for cp in required_latin if cp not in cmap)
+          if missing_latin:
+              raise SystemExit("Runtime font is missing Latin UI glyphs: " +
+                               " ".join("U+%04X" % cp for cp in missing_latin))
           arabic_ranges = ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF),
                            (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
           arabic_checked = {cp for cp in checked
                             if any(start <= cp <= end for start, end in arabic_ranges)}
-          missing = sorted(cp for cp in arabic_checked if cp not in cmap)
-          if missing:
-              print("Missing Persian glyphs:", " ".join("U+%04X" % cp for cp in missing))
-              raise SystemExit("Bundled font does not cover all shaped Persian UI glyphs")
-          print("Persian font coverage OK:", font_path, "checked", len(arabic_checked), "Arabic glyphs")
-          latin_font = TTFont("NotoSans-Regular.ttf")
-          latin_cmap = set().union(*(table.cmap.keys() for table in latin_font["cmap"].tables))
-          required_latin = set(range(0x20, 0x7F)) | {0x2014}
-          missing_latin = sorted(cp for cp in required_latin if cp not in latin_cmap)
-          if missing_latin:
-              raise SystemExit("Latin font is missing required UI glyphs: " +
-                               " ".join("U+%04X" % cp for cp in missing_latin))
-          print("Latin font coverage OK: NotoSans-Regular.ttf", len(required_latin), "glyphs")
+          missing_arabic = sorted(cp for cp in arabic_checked if cp not in cmap)
+          if missing_arabic:
+              print("Missing Persian glyphs:", " ".join("U+%04X" % cp for cp in missing_arabic))
+              raise SystemExit("Runtime font does not cover all shaped Persian UI glyphs")
+          print("Runtime font coverage OK:", font_path,
+                "Arabic glyphs:", len(arabic_checked),
+                "Latin/punctuation glyphs:", len(required_latin))
           PY
 
       - name: Build APK
@@ -184,7 +196,7 @@ jobs:
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
           tar -tf /tmp/private.tar | grep -E '(^|/)(NotoSans|NotoSansArabic|NotoNaskhArabic)-Regular\.ttf$'
-          echo "Persian and Latin UI fonts are present in the packaged application payload."
+          echo "The exact runtime Persian/Latin font is present in the packaged application payload."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
