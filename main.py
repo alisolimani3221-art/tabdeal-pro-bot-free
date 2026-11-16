@@ -29,6 +29,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.core.window import Window
+from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path, resource_find
 from market_symbols import select_market_symbol, list_market_symbols
@@ -263,6 +264,16 @@ class FuturesAnalyzerApp(App):
                                   background_color=(0.12, 0.48, 0.38, 1), color=(1, 1, 1, 1))
         self.risk_button.bind(on_press=self.open_risk_calculator)
         content.add_widget(self.risk_button)
+
+        self.diagnostics_button = Button(
+            text=fa("مرکز عیب‌یابی و تعمیر برنامه"), font_name=FONT_NAME,
+            font_size=sp(16), size_hint_y=None, height=dp(50),
+            background_normal="", background_color=(0.30, 0.24, 0.48, 1),
+            color=(1, 1, 1, 1))
+        self.diagnostics_button.bind(on_press=self.open_diagnostics)
+        content.add_widget(self.diagnostics_button)
+        self.last_diagnostic_results = {}
+        self.last_diagnostic_time = "هنوز اجرا نشده"
 
         self.auto_trader_button = Button(
             text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME,
@@ -743,7 +754,7 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def show_result(self, results):
-        self.check_button.disabled = False
+        self.last_diagnostic_results = dict(results)\n        self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')\n        self.check_button.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
         website_ok = "website" in results and 200 <= results["website"] < 400
         market_ok = (
@@ -907,6 +918,71 @@ class FuturesAnalyzerApp(App):
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
+
+    def open_diagnostics(self, instance):
+        """Show an on-device health report and let the user copy it for support."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
+        report_scroll = ScrollView(do_scroll_x=False)
+        report = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
+        report.bind(minimum_height=report.setter("height"))
+
+        results = getattr(self, "last_diagnostic_results", {}) or {}
+        auto_running = bool(self.auto_trader_thread and self.auto_trader_thread.is_alive())
+        font_status = "OK: " + str(FONT_PATH) if FONT_PATH else "MISSING: Persian font"
+        depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
+        lines = [
+            "مرکز عیب‌یابی برنامه",
+            "نسخه برنامه: 1.6",
+            "سیستم: Android / Kivy",
+            "فونت فارسی: " + font_status,
+            "نماد انتخاب‌شده: " + str(self.current_symbol),
+            "دفتر سفارش: " + depth_status,
+            "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
+            "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
+            "معامله‌گر آزمایشی: " + ("RUNNING" if auto_running else "STOPPED"),
+            "آخرین بررسی: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
+        ]
+        for key in ("website", "market_ping", "market_info", "depth_status",
+                    "depth_http", "depth_content_type", "market_symbol",
+                    "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
+            if key in results:
+                lines.append("{}: {}".format(key, str(results[key])[:260]))
+        if not results:
+            lines.append("هنوز گزارش اتصال ثبت نشده است؛ ابتدا بررسی اتصال را اجرا کنید.")
+        report_text = "\n".join(lines)
+        label = Label(text=fa(report_text), font_name=font_for_text(report_text),
+                      font_size=sp(12), size_hint=(1, None),
+                      text_size=(Window.width * 0.80, None),
+                      halign="left", valign="top", color=(0.9, 0.94, 1, 1))
+        label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(18)))
+        report.add_widget(label)
+        report_scroll.add_widget(report)
+        body.add_widget(report_scroll)
+
+        actions = BoxLayout(orientation="horizontal", spacing=dp(8),
+                            size_hint_y=None, height=dp(46))
+        copy_button = Button(text=fa("کپی گزارش"), font_name=FONT_NAME)
+        check_button = Button(text=fa("آزمایش دوباره"), font_name=FONT_NAME)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
+        actions.add_widget(copy_button)
+        actions.add_widget(check_button)
+        actions.add_widget(close_button)
+        body.add_widget(actions)
+        popup = Popup(title=fa("مرکز عیب‌یابی"), title_font=FONT_NAME,
+                      content=body, size_hint=(0.96, 0.82))
+        def copy_report(_button):
+            try:
+                Clipboard.copy(report_text)
+                label.text = fa(report_text + "\n\nگزارش کپی شد؛ آن را در گفتگو جای‌گذاری کنید.")
+            except Exception as exc:
+                label.text = fa(report_text + "\n\nکپی گزارش انجام نشد: " + str(exc)[:100])
+        def rerun(_button):
+            popup.dismiss()
+            self.show_status(self.check_button)
+        copy_button.bind(on_press=copy_report)
+        check_button.bind(on_press=rerun)
+        close_button.bind(on_press=popup.dismiss)
+        popup.open()
 
     def open_auto_trader(self, instance):
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
