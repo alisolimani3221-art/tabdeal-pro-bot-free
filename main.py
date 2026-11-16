@@ -754,7 +754,9 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def show_result(self, results):
-        self.last_diagnostic_results = dict(results)\n        self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')\n        self.check_button.disabled = False
+        self.last_diagnostic_results = dict(results)
+        self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.check_button.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
         website_ok = "website" in results and 200 <= results["website"] < 400
         market_ok = (
