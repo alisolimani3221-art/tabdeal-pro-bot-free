@@ -227,7 +227,7 @@ class FuturesAnalyzerApp(App):
         cards.add_widget(card)
         card, self.ask_value = self.info_card("بهترین قیمت فروش", "—")
         cards.add_widget(card)
-        cards.add_widget(self.info_card("بازه زمانی", "لحظه‌ای")[0])
+        cards.add_widget(self.info_card("نوع داده", "تصویر دفتر سفارش")[0])
         content.add_widget(cards)
 
         # Tappable order-book header refreshes live data. Each level is also
@@ -272,7 +272,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(book_grid)
 
         content.add_widget(self.section_title("تحلیل تکنیکال"))
-        self.analysis_signal = self.make_label("پس از دریافت کندل‌ها، روند بازار محاسبه می‌شود.", size=15, height=dp(42))
+        self.analysis_signal = self.make_label("تحلیل تکنیکال تا زمان دسترسی به منبع معتبر کندل غیرفعال است.", size=15, height=dp(42))
         content.add_widget(self.analysis_signal)
         self.analysis_metrics = self.make_label("SMA20: --   SMA50: --   RSI14: --   ATR14: --", size=12, height=dp(38))
         self.analysis_metrics.font_name = NUMERIC_FONT_NAME
@@ -374,6 +374,7 @@ class FuturesAnalyzerApp(App):
             return
         self.check_in_progress = True
         self.check_button.disabled = True
+        self.symbol_spinner.disabled = True
         self.check_button.text = fa("در حال بررسی...")
         self.connection.text = fa("در حال آزمایش سایت و API بازار فیوچرز...")
         self.analysis.text = fa("لطفاً چند لحظه صبر کنید.")
@@ -743,6 +744,7 @@ class FuturesAnalyzerApp(App):
         self.last_diagnostic_results = dict(results)
         self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.check_button.disabled = False
+        self.symbol_spinner.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
         website_status = results.get("website", results.get("website_error", "ناموفق"))
         market_ok = (
@@ -822,8 +824,8 @@ class FuturesAnalyzerApp(App):
         # overlapped the safety notice on small screens.
         if market_ok and book_ok:
             self.analysis.text = fa(
-                "داده‌های زنده بازار دریافت شد.\n"
-                "دفتر سفارش خرید و فروش به‌روزرسانی شد.\n"
+                "تصویر فعلی دفتر سفارش دریافت شد.\n"
+                "قیمت‌ها مربوط به همین پاسخ API هستند، نه جریان معاملات لحظه‌ای.\n"
                 "گزارش کامل اتصال در پنجره جزئیات نمایش داده می‌شود."
             )
         else:
@@ -989,59 +991,28 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def open_auto_trader(self, instance):
-        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
-        body.add_widget(self.make_label(
-            "حالت آزمایشی: فقط معاملات شبیه‌سازی می‌شوند و هیچ سفارش واقعی ارسال نمی‌شود.",
-            size=13, height=dp(62), color=(1, 0.76, 0.38, 1)))
-        fields = BoxLayout(orientation="vertical", spacing=dp(6),
-                           size_hint_y=None, height=dp(112))
-        capital_row = BoxLayout(orientation="horizontal", spacing=dp(8))
-        capital_row.add_widget(self.make_label("سرمایه آزمایشی (USDT)", size=13, height=dp(44)))
-        capital_input = TextInput(text="{:.2f}".format(self.capital_usdt),
-                                  multiline=False, input_filter="float",
-                                  # Numeric-only input: use Android's standard Roboto.
-                                  font_name=NUMERIC_FONT_NAME, font_size=sp(16),
-                                  size_hint_x=0.55, size_hint_y=None, height=dp(44))
-        capital_row.add_widget(capital_input)
-        fields.add_widget(capital_row)
-        risk_row = BoxLayout(orientation="horizontal", spacing=dp(8))
-        risk_row.add_widget(self.make_label("ریسک هر معامله (حداکثر 0.5%)", size=12, height=dp(48)))
-        risk_input = TextInput(text="0.5", multiline=False, input_filter="float",
-                               font_name=NUMERIC_FONT_NAME, font_size=sp(16),
-                               size_hint_x=0.55, size_hint_y=None, height=dp(44))
-        risk_row.add_widget(risk_input)
-        fields.add_widget(risk_row)
-        body.add_widget(fields)
+        """Explain why automated scanning is disabled; expose no fake controls."""
+        body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(12))
         self.auto_status_label = self.make_label(
-            "معامله‌گر خودکار غیرفعال است؛ منبع کندل معتبر هنوز در دسترس نیست.", size=12, height=dp(100))
+            "معامله‌گر خودکار فعلاً غیرفعال است.\n"
+            "API عمومی مستندشده تبدیل در حال حاضر کندل تاریخی یا جریان معاملات "
+            "تأییدشده‌ای برای ساخت سیگنال ارائه نمی‌کند.\n"
+            "قیمت میانی دفتر سفارش جایگزین قیمت آخرین معامله یا کندل نیست.\n"
+            "برای جلوگیری از معامله بر پایه داده حدسی، ورود و خروج خودکار فعال نشده است.\n"
+            "این نسخه هیچ سفارش واقعی به صرافی ارسال نمی‌کند.",
+            size=14, height=dp(250), color=(1, 0.76, 0.38, 1)
+        )
         body.add_widget(self.auto_status_label)
-        actions = BoxLayout(orientation="horizontal", spacing=dp(8),
-                            size_hint_y=None, height=dp(48))
-        start_button = Button(markup=True, text=fa("بررسی وضعیت اسکن"), font_name=FONT_NAME)
-        stop_button = Button(markup=True, text=fa("توقف"), font_name=FONT_NAME)
-        close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME)
-        actions.add_widget(start_button)
-        actions.add_widget(stop_button)
-        body.add_widget(actions)
+        close_button = Button(
+            markup=True, text=fa("بستن"), font_name=FONT_NAME,
+            size_hint_y=None, height=dp(48)
+        )
         body.add_widget(close_button)
-        popup = Popup(title=fa_plain("مدیریت معامله‌گر آزمایشی"),
-                      title_font=FONT_NAME, content=body,
-                      size_hint=(0.96, 0.78), auto_dismiss=False)
-
-        def start(_button):
-            self.auto_status_label.text = fa(
-                "اسکن خودکار و تولید سیگنال فعلاً غیرفعال است.\n"
-                "در API عمومی مستندشده تبدیل، کندل تاریخی وجود ندارد.\n"
-                "برای جلوگیری از سیگنال ساختگی، تا زمان تأیید منبع رسمی معاملات لحظه‌ای "
-                "هیچ معامله آزمایشی آغاز نمی‌شود."
-            )
-
-        def stop(_button):
-            self.auto_stop_event.set()
-            self.auto_status_label.text = fa("هیچ اسکن فعالی وجود ندارد؛ معامله‌گر خودکار غیرفعال است.")
-
-        start_button.bind(on_press=start)
-        stop_button.bind(on_press=stop)
+        popup = Popup(
+            title=fa_plain("وضعیت معامله‌گر خودکار"),
+            title_font=FONT_NAME, content=body,
+            size_hint=(0.96, 0.72), auto_dismiss=False
+        )
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
