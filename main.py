@@ -480,54 +480,13 @@ class FuturesAnalyzerApp(App):
             results["mid_price"] = (bid + ask) / 2
             results["depth_diagnostic"] = "HTTP 200; bids={}; asks={}; parsed=OK".format(len(bids), len(asks))
 
-            # Candles are optional for the connection test: an unavailable
-            # kline endpoint must not turn a healthy order book into a failure.
-            try:
-                candles_response = get_response(
-                    "/klines",
-                    params={"symbol": market_symbol.replace("_", ""), "interval": "1h", "limit": 100},
-                    timeout=25,
-                )
-                try:
-                    candle_data = candles_response.json()
-                finally:
-                    candles_response.close()
-                if isinstance(candle_data, dict):
-                    candle_data = candle_data.get("data", candle_data.get("result", candle_data))
-                results["technical_analysis"] = analyze_klines(candle_data)
-            except Exception as analysis_exc:
-                results["analysis_error"] = "{}: {}".format(
-                    type(analysis_exc).__name__, str(analysis_exc)[:180]
-                )
-
-            # Some Tabdeal public futures deployments expose 24h ticker data
-            # even when historical candles are not enabled. Use only this
-            # exchange's own market summary as a clearly labelled fallback.
-            try:
-                ticker_response = get_response(
-                    "/ticker/24hr",
-                    params={"symbol": market_symbol.replace("_", "")},
-                    timeout=20,
-                )
-                try:
-                    ticker_data = ticker_response.json()
-                finally:
-                    ticker_response.close()
-                if isinstance(ticker_data, dict):
-                    ticker_data = ticker_data.get("data", ticker_data.get("result", ticker_data))
-                if isinstance(ticker_data, dict) and all(
-                    key in ticker_data for key in ("lastPrice", "priceChangePercent", "highPrice", "lowPrice")
-                ):
-                    results["market_summary"] = {
-                        "last_price": float(ticker_data["lastPrice"]),
-                        "change_percent": float(ticker_data["priceChangePercent"]),
-                        "high": float(ticker_data["highPrice"]),
-                        "low": float(ticker_data["lowPrice"]),
-                    }
-            except Exception as summary_exc:
-                results["summary_error"] = "{}: {}".format(
-                    type(summary_exc).__name__, str(summary_exc)[:140]
-                )
+            # The documented public Futures REST API currently exposes
+            # ping, time, exchangeInfo and depth, but no public kline or
+            # 24h ticker endpoint. Never call Binance-style paths here.
+            # The order-book midpoint is an estimate, not a last-trade price.
+            results["market_price_source"] = "order_book_midpoint_estimate"
+            results["market_summary"] = None
+            results["technical_analysis"] = None
 
         except Exception as exc:
             results["market_error"] = "{}: {}".format(type(exc).__name__, str(exc)[:320])
@@ -571,8 +530,8 @@ class FuturesAnalyzerApp(App):
         add_line("نماد:", size=15, font=FONT_NAME)
         add_line(self.current_symbol, size=17, font=NUMERIC_FONT_NAME)
         if not technical:
-            add_line("ابتدا بررسی اتصال را اجرا کن تا داده کندل‌های بازار دریافت شود.", height=dp(70))
-            add_line("بدون داده کافی، پیشنهاد خرید یا فروش صادر نمی‌شود.", size=13, color=(1, 0.72, 0.35, 1), height=dp(55))
+            add_line("API عمومی مستندشده تبدیل در حال حاضر داده کندل تاریخی ارائه نمی‌کند.", height=dp(70))
+            add_line("بنابراین هیچ سیگنال خرید یا فروش و هیچ ورود آزمایشی بر پایه داده حدسی صادر نمی‌شود.", size=13, color=(1, 0.72, 0.35, 1), height=dp(65))
         else:
             signal = technical.get("signal", "NEUTRAL")
             price = float(technical["price"])
@@ -765,38 +724,15 @@ class FuturesAnalyzerApp(App):
             and "depth_status" in results and 200 <= results["depth_status"] < 400
             and "mid_price" in results
         )
-        technical = results.get("technical_analysis")
-        self.latest_technical_analysis = technical
-        if technical:
-            self.latest_market_price = technical["price"]
-            signal_names = {
-                "BULLISH": "روند صعودی محتاطانه",
-                "BEARISH": "روند نزولی محتاطانه",
-                "NEUTRAL": "روند نامشخص؛ بهتر است صبر کنید",
-            }
-            self.analysis_signal.text = fa("نتیجه تحلیل: " + signal_names.get(technical["signal"], "نامشخص"))
-            self.analysis_metrics.text = (
-                "SMA20: {:,.2f}   SMA50: {:,.2f}\nRSI14: {:.1f}   ATR14: {:,.2f}"
-            ).format(technical["sma20"], technical["sma50"], technical["rsi14"], technical["atr14"])
-        elif results.get("market_summary"):
-            summary = results["market_summary"]
-            change = summary["change_percent"]
-            if change > 1.0:
-                summary_signal = "مومنتوم مثبت در ۲۴ ساعت گذشته"
-            elif change < -1.0:
-                summary_signal = "مومنتوم منفی در ۲۴ ساعت گذشته"
-            else:
-                summary_signal = "تغییر ۲۴ ساعته محدود؛ روند قطعی نیست"
-            self.latest_market_price = summary["last_price"]
-            self.analysis_signal.text = fa("خلاصه بازار: " + summary_signal)
-            self.analysis_metrics.text = (
-                "24h change: {:+.2f}%   High: {:,.2f}\nLow: {:,.2f}"
-            ).format(change, summary["high"], summary["low"])
-        else:
-            self.analysis_signal.text = fa(
-                "داده تاریخی تحلیل در API عمومی تبدیل در دسترس نبود."
-            )
-            self.analysis_metrics.text = "No candle or 24h ticker data"
+        # No documented public REST candle/ticker feed is available.
+        # Keep all technical signals disabled until a verified trade-stream
+        # candle builder is implemented and tested.
+        self.latest_technical_analysis = None
+        self.latest_market_price = results.get("mid_price") if market_ok else None
+        self.analysis_signal.text = fa(
+            "تحلیل تکنیکال غیرفعال است؛ API عمومی مستندشده تبدیل کندل ارائه نمی‌کند."
+        )
+        self.analysis_metrics.text = "No verified candle feed; midpoint is not a candle close"
 
         if market_ok:
             # Switch to Roboto only for actual ASCII numeric values.
@@ -1059,113 +995,16 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def run_auto_paper_scanner(self):
-        session = requests.Session()
-        session.headers.update({"User-Agent": "FuturesAnalyzer-PaperTrader/1.0",
-                                "Accept": "application/json", "Connection": "close"})
-        api = FUTURES_API
-        try:
-            while not self.auto_stop_event.is_set():
-                try:
-                    response = session.get(api + "/exchangeInfo", timeout=15, verify=certifi.where())
-                    response.raise_for_status()
-                    info = response.json()
-                    if isinstance(info, dict):
-                        symbols_data = info.get("symbols")
-                        if symbols_data is None:
-                            nested = info.get("data", {})
-                            symbols_data = nested.get("symbols") if isinstance(nested, dict) else nested
-                    else:
-                        symbols_data = info
-                    symbols = list_market_symbols(symbols_data)
-                    if not symbols:
-                        raise RuntimeError("No active USDT perpetual symbols")
-                    candidates = []
-                    failures = 0
-                    checked = 0
-                    bullish = 0
-                    bearish = 0
-                    neutral = 0
-                    self.auto_scan_progress = {"checked": 0, "total": len(symbols), "failures": 0}
-                    Clock.schedule_once(lambda dt, total=len(symbols): self.update_auto_status(
-                        "اسکن جدید شروع شد.\n۰ از {} نماد بررسی شده؛ لطفاً منتظر بمانید.\nفقط شبیه‌سازی؛ بدون سفارش واقعی.".format(total)), 0)
-                    for symbol in symbols:
-                        if self.auto_stop_event.is_set():
-                            break
-                        candle_data = None
-                        for api_symbol in (symbol.replace("_", ""), symbol):
-                            try:
-                                candle_response = session.get(api + "/klines",
-                                    params={"symbol": api_symbol, "interval": "1h", "limit": 100},
-                                    timeout=9, verify=certifi.where())
-                                candle_response.raise_for_status()
-                                candle_data = candle_response.json()
-                                break
-                            except Exception:
-                                continue
-                        if candle_data is None:
-                            failures += 1
-                            checked += 1
-                            if checked % 5 == 0 or checked == len(symbols):
-                                progress = "پیشرفت اسکن: {} از {} نماد\nسیگنال صعودی: {} | نزولی: {} | خنثی: {}\nخطاهای دریافت داده: {}".format(checked, len(symbols), bullish, bearish, neutral, failures)
-                                Clock.schedule_once(lambda dt, message=progress: self.update_auto_status(message), 0)
-                            continue
-                        if isinstance(candle_data, dict):
-                            candle_data = candle_data.get("data", candle_data.get("result", candle_data.get("klines")))
-                        try:
-                            technical = analyze_klines(candle_data)
-                            technical["symbol"] = symbol
-                            candidates.append(technical)
-                            if technical.get("signal") == "BULLISH":
-                                bullish += 1
-                            elif technical.get("signal") == "BEARISH":
-                                bearish += 1
-                            else:
-                                neutral += 1
-                        except Exception:
-                            failures += 1
-                        checked += 1
-                        if checked % 5 == 0 or checked == len(symbols):
-                            progress = "پیشرفت اسکن: {} از {} نماد\nسیگنال صعودی: {} | نزولی: {} | خنثی: {}\nخطاهای دریافت/تحلیل: {}".format(checked, len(symbols), bullish, bearish, neutral, failures)
-                            Clock.schedule_once(lambda dt, message=progress: self.update_auto_status(message), 0)
-                        self.auto_stop_event.wait(0.08)
-                    if self.auto_stop_event.is_set():
-                        break
-                    minimum_coverage = max(10, len(symbols) // 2)
-                    if len(candidates) < minimum_coverage:
-                        raise RuntimeError(
-                            "Insufficient candle coverage: {} of {} symbols; entries skipped".format(
-                                len(candidates), len(symbols)))
-                    result = self.auto_engine.process_scan(candidates)
-                    position = result.get("open_position")
-                    closed = self.auto_engine.closed_trades
-                    net_total = sum(t["net_pnl"] for t in closed)
-                    position_text = ("{} {} entry {:.6f} stop {:.6f} target {:.6f}".format(
-                        position["symbol"], position["side"], position["entry"],
-                        position["stop"], position["target"]) if position else "No open position")
-                    if result["open_position"]:
-                        decision_text = "معامله آزمایشی باز است؛ حد ضرر و هدف در گزارش آمده‌اند."
-                    elif result["events"]:
-                        decision_text = "رویداد معامله: {}".format(", ".join(event.get("event", "") for event in result["events"]))
-                    elif not result["candidates"]:
-                        decision_text = "ورودی معتبر پیدا نشد؛ فیلترهای ایمنی سیگنال‌ها را رد کردند."
-                    else:
-                        decision_text = "سیگنال معتبر دیده شد، اما هنوز موقعیت بازی وجود ندارد."
-                    report = ("اسکن شماره {} کامل شد\\nبررسی‌شده: {} از {} | خطا: {}\\n"
-                              "سیگنال خام: صعودی {} | نزولی {} | خنثی {}\\n"
-                              "فرصت‌های واجد شرایط: {}\\nسرمایه مجازی: {:.4f} تتر | معاملات بسته: {} | سود/زیان خالص: {:+.4f}\\n"
-                              "وضعیت: {}\\n{}\\nاسکن بعدی تا ۵ دقیقه دیگر. فقط آزمایشی؛ سفارش واقعی ارسال نمی‌شود.").format(
-                        self.auto_engine.scans, checked, len(symbols), failures, bullish, bearish, neutral,
-                        len(result["candidates"]), result["equity"], len(closed), net_total,
-                        decision_text, position_text)
-                    Clock.schedule_once(lambda dt, message=report: self.update_auto_status(message), 0)
-                except Exception as exc:
-                    report = "خطای اسکن خودکار: {}: {}\\nاسکن پس از ۵ دقیقه دوباره تلاش می‌کند. هیچ سفارش واقعی ارسال نشده است.".format(type(exc).__name__, str(exc)[:220])
-                    Clock.schedule_once(lambda dt, message=report: self.update_auto_status(message), 0)
-                self.auto_stop_event.wait(300)
-        finally:
-            session.close()
-            Clock.schedule_once(lambda dt: self.update_auto_status(
-                "Paper trader stopped. No live orders were sent."), 0)
+        """Fail closed: no verified public Tabdeal Futures candle feed exists."""
+        message = (
+            "اسکن خودکار فعلاً غیرفعال است.\n"
+            "API عمومی مستندشده تبدیل کندل تاریخی ارائه نمی‌کند.\n"
+            "قیمت میانی دفتر سفارش جایگزین کندل یا قیمت آخرین معامله نیست.\n"
+            "تا زمان پیاده‌سازی و آزمایش منبع رسمی معاملات لحظه‌ای، "
+            "هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.\n"
+            "هیچ سفارش واقعی ارسال نشده است."
+        )
+        Clock.schedule_once(lambda dt, value=message: self.update_auto_status(value), 0)
 
     def update_auto_status(self, message):
         label = getattr(self, "auto_status_label", None)
