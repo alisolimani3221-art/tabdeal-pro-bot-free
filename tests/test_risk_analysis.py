@@ -13,6 +13,12 @@ class RiskAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(result["stop_price_long"], 49000)
         self.assertAlmostEqual(result["target_price_long"], 52000)
 
+    def test_position_size_never_exceeds_collateral_leverage(self):
+        result = calculate_position_risk(100, 1, 100, 0.01, 2, 2)
+        self.assertLessEqual(result["margin_estimate"], 100)
+        self.assertLessEqual(result["notional"], 200)
+        self.assertLessEqual(result["risk_amount"], result["risk_limit"])
+
     def test_risk_limits_reject_excessive_risk(self):
         with self.assertRaises(ValueError):
             calculate_position_risk(1000, 6, 50000, 1, 3)
@@ -44,6 +50,14 @@ class RiskAnalysisTests(unittest.TestCase):
     def test_risk_rejects_nonpositive_short_target(self):
         with self.assertRaises(ValueError):
             calculate_position_risk(1000, 1, 100, 20, 2, 5)
+
+    def test_zero_atr_never_recommends_leverage(self):
+        from risk_analysis import recommend_leverage
+        result = recommend_leverage({
+            "signal": "BULLISH", "price": 100, "atr14": 0
+        })
+        self.assertFalse(result["trade_allowed"])
+        self.assertEqual(result["leverage"], 1)
 
     def test_analysis_rejects_insufficient_data(self):
         with self.assertRaises(ValueError):
