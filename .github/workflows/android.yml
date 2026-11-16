@@ -103,30 +103,10 @@ jobs:
           sizing = calculate_position_risk(1000, 1, bids[0][0], 1, 3, 2)
           if sizing["risk_amount"] > 10.000001:
               raise RuntimeError("Risk sizing validation failed")
-          candle_ok = False
-          for candle_symbol in (symbol.replace("_", ""), symbol):
-              try:
-                  candles = get("/klines", {"symbol": candle_symbol, "interval": "1h", "limit": 100})
-                  indicators = analyze_klines(candles)
-                  if indicators["rsi14"] < 0 or indicators["rsi14"] > 100:
-                      raise RuntimeError("RSI validation failed")
-                  candle_ok = True
-                  print("Tabdeal futures candles OK: SMA20={}, SMA50={}, RSI14={}, ATR14={}".format(
-                      indicators["sma20"], indicators["sma50"], indicators["rsi14"], indicators["atr14"]))
-                  break
-              except urllib.error.HTTPError as exc:
-                  print("Optional candle endpoint unavailable for {}: HTTP {}".format(candle_symbol, exc.code))
-          for optional_path, params in (
-              ("/ticker/24hr", {"symbol": symbol.replace("_", "")}),
-              ("/trades", {"symbol": symbol.replace("_", ""), "limit": 100}),
-              ("/aggTrades", {"symbol": symbol.replace("_", ""), "limit": 100}),
-          ):
-              try:
-                  payload = get(optional_path, params)
-                  count = len(payload) if isinstance(payload, list) else "object"
-                  print("Optional market endpoint OK: {} records={}".format(optional_path, count))
-              except urllib.error.HTTPError as exc:
-                  print("Optional market endpoint unavailable: {} HTTP {}".format(optional_path, exc.code))
+          # The published public Futures REST API documents ping,
+          # time, exchangeInfo and depth, but not historical klines or a
+          # public 24h ticker. Do not probe Binance-compatible paths.
+          print("Tabdeal public REST candle/ticker feed: not documented; technical scanner remains disabled.")
           print("LIVE API OK: symbol={}, bid={}, ask={}, candles={}, risk={}".format(
               symbol, bids[0][0], asks[0][0], candle_ok, sizing["risk_amount"]))
           PY
