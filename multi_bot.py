@@ -60,7 +60,7 @@ def main():
     print("Active Tabdeal USDT markets:", len(symbols))
 
     while True:
-        print("\\n================================")
+        print("\n================================")
         print("Scan:", datetime.now().strftime("%H:%M:%S"))
         successful = 0
         errors = 0
