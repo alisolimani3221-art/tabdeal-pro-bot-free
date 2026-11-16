@@ -36,6 +36,21 @@ class OrderBookTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_order_book({"bids": [["nan", "1"]], "asks": [["11", "1"]]})
 
+    def test_ignores_zero_quantity_levels(self):
+        bids, asks = parse_order_book({
+            "bids": [["101", "0"], ["100", "2"]],
+            "asks": [["102", "3"], ["103", "0"]],
+        })
+        self.assertEqual(bids, [(100.0, 2.0)])
+        self.assertEqual(asks, [(102.0, 3.0)])
+
+    def test_rejects_book_with_only_zero_quantity(self):
+        with self.assertRaises(ValueError):
+            parse_order_book({
+                "bids": [["100", "0"]],
+                "asks": [["101", "0"]],
+            })
+
     def test_rejects_crossed_book(self):
         with self.assertRaises(ValueError):
             parse_order_book({"bids": [["12", "1"]], "asks": [["11", "1"]]})
