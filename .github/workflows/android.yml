@@ -182,10 +182,7 @@ jobs:
           test -n "$APK"
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -E '(^|/)(NotoSans|NotoSansArabic|NotoNaskhArabic)-Regular\.ttf
-
-# Trigger verification build after the order-book and Persian-font fixes.
-
+          tar -tf /tmp/private.tar | grep -E '(^|/)(NotoSans|NotoSansArabic|NotoNaskhArabic)-Regular\.ttf$'
           echo "Persian and Latin UI fonts are present in the packaged application payload."
 
       - name: Upload APK
@@ -195,5 +192,3 @@ jobs:
           path: bin/*.apk
           if-no-files-found: error
           retention-days: 7
-
-# Trigger verification build after the order-book and Persian-font fixes.
