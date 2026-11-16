@@ -34,7 +34,7 @@ def _levels(raw):
 
             price = _number(price)
             quantity = _number(quantity)
-            if price > 0 and quantity >= 0:
+            if price > 0 and quantity > 0:
                 result.append((price, quantity))
         except (TypeError, ValueError, OverflowError):
             continue
