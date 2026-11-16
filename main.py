@@ -43,10 +43,12 @@ FONT_CANDIDATES = [
     # Use Noto Sans Arabic as the app-wide default: Kivy widgets that implicitly
     # request Roboto (buttons, spinners, popup titles, text inputs) must also
     # receive Persian glyphs, not only labels explicitly styled as Persian.
-    os.path.join(BASE_DIR, "NotoSansArabic-Regular.ttf"),
-    os.path.join(BASE_DIR, "assets", "NotoSansArabic-Regular.ttf"),
+    # Prefer Noto Naskh Arabic: it has broad Arabic Presentation Forms
+    # coverage required by arabic_reshaper on Android/Kivy.
     os.path.join(BASE_DIR, "NotoNaskhArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "assets", "NotoNaskhArabic-Regular.ttf"),
+    os.path.join(BASE_DIR, "NotoSansArabic-Regular.ttf"),
+    os.path.join(BASE_DIR, "assets", "NotoSansArabic-Regular.ttf"),
     "/system/fonts/NotoNaskhArabicUI-Regular.ttf",
     "/system/fonts/NotoNaskhArabic-Regular.ttf",
     "/system/fonts/NotoSansArabic-Regular.ttf",
