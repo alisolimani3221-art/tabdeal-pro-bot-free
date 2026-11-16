@@ -185,34 +185,16 @@ jobs:
       - name: Build APK
         run: buildozer -v android debug
 
-      - name: Verify Persian font is packaged in APK
+      - name: Verify both runtime fonts are packaged in APK
         run: |
           set -eu
           APK="$(find bin -maxdepth 1 -name '*.apk' -print -quit)"
           test -n "$APK"
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Futures-Analyzer-APK
-          path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 7
-
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSans-Regular\.ttf
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Futures-Analyzer-APK
-          path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 7
-
-          echo "Both runtime Arabic and Latin fonts are present in the packaged application payload."
+          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf$'
+          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSans-Regular\.ttf$'
+          echo "Both Arabic and Latin runtime fonts are packaged in the APK."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
