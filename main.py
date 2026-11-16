@@ -577,7 +577,9 @@ class FuturesAnalyzerApp(App):
                           text_size=(Window.width * 0.82, None))
             report.add_widget(label)
 
-        add_line("نماد: " + self.current_symbol, size=16, font=FONT_NAME)
+        # Render the Persian caption and Latin market symbol separately so each uses a font with the required glyphs.
+        add_line("نماد:", size=15, font=FONT_NAME)
+        add_line(self.current_symbol, size=17, font=NUMERIC_FONT_NAME)
         if not technical:
             add_line("ابتدا بررسی اتصال را اجرا کن تا داده کندل‌های بازار دریافت شود.", height=dp(70))
             add_line("بدون داده کافی، پیشنهاد خرید یا فروش صادر نمی‌شود.", size=13, color=(1, 0.72, 0.35, 1), height=dp(55))
