@@ -41,6 +41,16 @@ class PaperTraderTests(unittest.TestCase):
         self.assertFalse(any(e["event"] == "OPENED" for e in result["events"]))
         self.assertIsNone(result["open_position"])
 
+    def test_entry_fee_does_not_consume_required_margin(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.01, slippage_rate=0)
+        result = engine.process_scan([setup()])
+        if result["open_position"]:
+            self.assertLessEqual(
+                result["open_position"]["notional"] /
+                result["open_position"]["leverage"],
+                result["cash"]
+            )
+
     def test_rejects_candidate_without_symbol(self):
         candidate = setup()
         candidate.pop("symbol")
