@@ -108,13 +108,20 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
 
     risk_amount = capital * risk_percent / 100.0
     stop_distance = entry_price * stop_percent / 100.0
-    quantity = risk_amount / stop_distance
+    # Risk sizing must also respect available collateral. A very tight stop
+    # can otherwise produce a notional position many times larger than
+    # capital * leverage even though the nominal stop-loss budget looks safe.
+    risk_limited_quantity = risk_amount / stop_distance
+    max_collateral_quantity = (capital * leverage) / entry_price
+    quantity = min(risk_limited_quantity, max_collateral_quantity)
     notional = quantity * entry_price
     margin_estimate = notional / leverage
+    actual_risk_amount = quantity * stop_distance
     target_distance = stop_distance * reward_risk
 
     return {
-        "risk_amount": risk_amount,
+        "risk_amount": actual_risk_amount,
+        "risk_limit": risk_amount,
         "stop_price_long": entry_price - stop_distance,
         "stop_price_short": entry_price + stop_distance,
         "target_price_long": entry_price + target_distance,
@@ -138,7 +145,7 @@ def recommend_leverage(technical, max_leverage=3):
     if price <= 0 or atr < 0 or cap < 1 or cap > 3:
         raise ValueError("invalid price, ATR, or leverage cap")
     volatility_pct = (atr / price) * 100.0
-    if signal not in ("BULLISH", "BEARISH") or volatility_pct > 2.5:
+    if atr == 0 or signal not in ("BULLISH", "BEARISH") or volatility_pct > 2.5:
         return {"leverage": 1, "volatility_pct": volatility_pct,
                 "reason": "سیگنال یا نوسان شرایط ورود را ندارد",
                 "trade_allowed": False}
