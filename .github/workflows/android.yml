@@ -147,42 +147,39 @@ jobs:
           import arabic_reshaper
           from fontTools.ttLib import TTFont
 
-          candidates = [
-              "NotoSansArabic-Regular.ttf",
-              "NotoNaskhArabic-Regular.ttf",
-          ]
-          font_path = next((p for p in candidates if os.path.isfile(p)), None)
-          if not font_path:
-              raise SystemExit("No bundled Persian font found")
-          font = TTFont(font_path)
-          cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
+          arabic_candidates = ["NotoSansArabic-Regular.ttf", "NotoNaskhArabic-Regular.ttf"]
+          arabic_path = next((p for p in arabic_candidates if os.path.isfile(p)), None)
+          latin_path = "NotoSans-Regular.ttf"
+          if not arabic_path or not os.path.isfile(latin_path):
+              raise SystemExit("Both Arabic and Latin runtime fonts must be bundled")
           with open("main.py", encoding="utf-8") as source:
               tree = ast.parse(source.read())
           strings = [node.value for node in ast.walk(tree)
                      if isinstance(node, ast.Constant) and isinstance(node.value, str)]
           checked = set()
           for value in strings:
-              if any("\u0600" <= ch <= "\u06ff" or "\u0750" <= ch <= "\u077f"
-                     or "\u08a0" <= ch <= "\u08ff" for ch in value):
-                  shaped = arabic_reshaper.reshape(value)
-                  checked.update(ord(ch) for ch in shaped)
-          # Validate Latin and Arabic glyphs against the exact runtime font.
-          required_latin = set(range(0x20, 0x7F)) | {0x2014}
-          missing_latin = sorted(cp for cp in required_latin if cp not in cmap)
-          if missing_latin:
-              raise SystemExit("Runtime font is missing Latin UI glyphs: " +
-                               " ".join("U+%04X" % cp for cp in missing_latin))
+              if any("\\u0600" <= ch <= "\\u06ff" or "\\u0750" <= ch <= "\\u077f"
+                     or "\\u08a0" <= ch <= "\\u08ff" for ch in value):
+                  checked.update(ord(ch) for ch in arabic_reshaper.reshape(value))
           arabic_ranges = ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF),
                            (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
           arabic_checked = {cp for cp in checked
-                            if any(start <= cp <= end for start, end in arabic_ranges)}
-          missing_arabic = sorted(cp for cp in arabic_checked if cp not in cmap)
+                            if any(a <= cp <= b for a, b in arabic_ranges)}
+          arabic_font = TTFont(arabic_path)
+          arabic_cmap = set().union(*(table.cmap.keys() for table in arabic_font["cmap"].tables))
+          missing_arabic = sorted(cp for cp in arabic_checked if cp not in arabic_cmap)
           if missing_arabic:
-              print("Missing Persian glyphs:", " ".join("U+%04X" % cp for cp in missing_arabic))
-              raise SystemExit("Runtime font does not cover all shaped Persian UI glyphs")
-          print("Runtime font coverage OK:", font_path,
-                "Arabic glyphs:", len(arabic_checked),
-                "Latin/punctuation glyphs:", len(required_latin))
+              raise SystemExit("Arabic font missing glyphs: " +
+                               " ".join("U+%04X" % cp for cp in missing_arabic))
+          latin_font = TTFont(latin_path)
+          latin_cmap = set().union(*(table.cmap.keys() for table in latin_font["cmap"].tables))
+          required_latin = set(range(0x20, 0x7F)) | {0x2014}
+          missing_latin = sorted(cp for cp in required_latin if cp not in latin_cmap)
+          if missing_latin:
+              raise SystemExit("Latin font missing glyphs: " +
+                               " ".join("U+%04X" % cp for cp in missing_latin))
+          print("Arabic font OK:", arabic_path, len(arabic_checked), "glyphs")
+          print("Latin font OK:", latin_path, len(required_latin), "glyphs")
           PY
 
       - name: Build APK
@@ -195,8 +192,27 @@ jobs:
           test -n "$APK"
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf$'
-          echo "The exact runtime Persian/Latin font is present in the packaged application payload."
+          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSans-Regular\.ttf
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+          echo "Both runtime Arabic and Latin fonts are present in the packaged application payload."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
