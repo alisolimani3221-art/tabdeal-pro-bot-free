@@ -888,12 +888,48 @@ class FuturesAnalyzerApp(App):
         if not results:
             lines.append("هنوز گزارش اتصال ثبت نشده است؛ ابتدا بررسی اتصال را اجرا کنید.")
         report_text = "\n".join(lines)
-        label = Label(text=fa(report_text), font_name=font_for_text(report_text),
-                      font_size=sp(12), size_hint=(1, None),
-                      text_size=(Window.width * 0.80, None),
-                      halign="left", valign="top", color=(0.9, 0.94, 1, 1))
-        label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(18)))
-        report.add_widget(label)
+
+        # Render each Persian field name and its Latin/numeric value separately.
+        # A single mixed-direction Label can select the Arabic font for ASCII
+        # text too, producing tofu rectangles on some Android/Kivy devices.
+        def render_report(extra_text=""):
+            report.clear_widgets()
+            display_lines = list(lines)
+            if extra_text:
+                display_lines.append(extra_text)
+            for line in display_lines:
+                if ": " in line:
+                    field_name, field_value = line.split(": ", 1)
+                    field_label = Label(
+                        text=fa(field_name), font_name=FONT_NAME,
+                        font_size=sp(12), size_hint=(1, None),
+                        text_size=(Window.width * 0.82, None),
+                        halign="center", valign="middle",
+                        color=(0.45, 0.78, 1, 1)
+                    )
+                    field_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(5)))
+                    report.add_widget(field_label)
+                    value_label = Label(
+                        text=fa(field_value), font_name=font_for_text(field_value),
+                        font_size=sp(12), size_hint=(1, None),
+                        text_size=(Window.width * 0.82, None),
+                        halign="center", valign="middle",
+                        color=(0.9, 0.94, 1, 1)
+                    )
+                    value_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(7)))
+                    report.add_widget(value_label)
+                else:
+                    line_label = Label(
+                        text=fa(line), font_name=font_for_text(line),
+                        font_size=sp(13), size_hint=(1, None),
+                        text_size=(Window.width * 0.82, None),
+                        halign="center", valign="middle",
+                        color=(0.9, 0.94, 1, 1)
+                    )
+                    line_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(8)))
+                    report.add_widget(line_label)
+
+        render_report()
         report_scroll.add_widget(report)
         body.add_widget(report_scroll)
 
@@ -911,9 +947,9 @@ class FuturesAnalyzerApp(App):
         def copy_report(_button):
             try:
                 Clipboard.copy(report_text)
-                label.text = fa(report_text + "\n\nگزارش کپی شد؛ آن را در گفتگو جای‌گذاری کنید.")
+                render_report("گزارش کپی شد؛ آن را در گفتگو جای‌گذاری کنید.")
             except Exception as exc:
-                label.text = fa(report_text + "\n\nکپی گزارش انجام نشد: " + str(exc)[:100])
+                render_report("کپی گزارش انجام نشد: " + str(exc)[:100])
         def rerun(_button):
             popup.dismiss()
             self.show_status(self.check_button)
