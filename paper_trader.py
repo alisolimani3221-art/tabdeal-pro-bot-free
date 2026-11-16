@@ -16,6 +16,9 @@ def rank_signal(technical):
     signal = technical.get("signal")
     if signal not in ("BULLISH", "BEARISH"):
         return None
+    symbol = str(technical.get("symbol", "")).strip()
+    if not symbol:
+        return None
     try:
         price = _positive(technical["price"], "price")
         sma20 = _positive(technical["sma20"], "sma20")
@@ -36,7 +39,7 @@ def rank_signal(technical):
     trend_strength = abs(sma20 - sma50) / price * 100.0
     momentum_strength = abs(rsi - 50.0) / 18.0
     score = trend_strength * 10.0 + momentum_strength - volatility_pct * 0.5
-    return {"symbol": str(technical.get("symbol", "")), "side": signal,
+    return {"symbol": symbol, "side": signal,
             "price": price, "atr": atr, "rsi": rsi,
             "volatility_pct": volatility_pct, "score": score}
 
@@ -99,6 +102,7 @@ class PaperTradingEngine:
         valid = [x for x in (rank_signal(c) for c in candidates) if x]
         valid.sort(key=lambda x: x["score"], reverse=True)
 
+        closed_this_scan = False
         if self.position:
             p = self.position
             # Mark the open position using its latest candle close even if its
@@ -116,10 +120,14 @@ class PaperTradingEngine:
             hit_target = current >= p["target"] if p["side"] == "BULLISH" else current <= p["target"]
             if hit_stop:
                 events.append(self._close(p["stop"], "STOP"))
+                closed_this_scan = True
             elif hit_target:
                 events.append(self._close(p["target"], "TARGET"))
+                closed_this_scan = True
 
-        if (self.position is None and valid and self.cash > 0
+        # Never close and reopen on the same scan: that can create an
+        # immediate churn loop on a signal that has not changed.
+        if (not closed_this_scan and self.position is None and valid and self.cash > 0
                 and self.cash > self.initial_capital * 0.97):
             choice = valid[0]
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
