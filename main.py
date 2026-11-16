@@ -5,6 +5,7 @@ import threading
 import requests
 import certifi
 
+APP_VERSION = "1.8"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -863,7 +864,7 @@ class FuturesAnalyzerApp(App):
         depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
         lines = [
             "مرکز عیب‌یابی برنامه",
-            "نسخه برنامه: 1.7",
+            "نسخه برنامه: " + APP_VERSION,
             "سیستم: Android / Kivy",
             "فونت فارسی: " + font_status,
             "نماد انتخاب‌شده: " + str(self.current_symbol),
