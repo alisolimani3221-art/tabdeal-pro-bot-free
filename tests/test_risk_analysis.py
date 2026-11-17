@@ -52,12 +52,12 @@ class RiskAnalysisTests(unittest.TestCase):
             calculate_position_risk(1000, 1, 100, 20, 2, 5)
 
     def test_zero_atr_never_recommends_leverage(self):
+
         from risk_analysis import recommend_leverage
-        result = recommend_leverage({
-            "signal": "BULLISH", "price": 100, "atr14": 0
-        })
-        self.assertFalse(result["trade_allowed"])
-        self.assertEqual(result["leverage"], 1)
+        with self.assertRaises(ValueError):
+            recommend_leverage({
+                "signal": "BULLISH", "price": 100, "atr14": 0
+            })
 
     def test_analysis_rejects_insufficient_data(self):
         with self.assertRaises(ValueError):
