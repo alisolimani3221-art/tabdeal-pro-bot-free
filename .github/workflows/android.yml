@@ -14,6 +14,12 @@ on:
       - 'requirements.txt'
       - 'paper_trader.py'
       - 'server_paper_trader.py'
+      - 'Dockerfile.paper'
+      - 'docker-compose.paper.yml'
+      - '.env.paper.example'
+      - 'README.md'
+      - 'SERVER_PAPER_TRADING.md'
+      - 'requirements.txt'
       - 'tests/**'
       - '.github/workflows/android.yml'
 
@@ -58,10 +64,14 @@ jobs:
           if [ -n "$SANS_FONT" ]; then
             cp "$SANS_FONT" assets/NotoSansArabic-Regular.ttf
             cp "$SANS_FONT" NotoSansArabic-Regular.ttf
-          fi
-          if [ -n "$NASKH_FONT" ]; then
-            cp "$NASKH_FONT" assets/NotoNaskhArabic-Regular.ttf
-            cp "$NASKH_FONT" NotoNaskhArabic-Regular.ttf
+          elif [ -n "$NASKH_FONT" ]; then
+            # Keep a deterministic runtime filename even on runners that
+            # provide Naskh but not Noto Sans Arabic.
+            cp "$NASKH_FONT" assets/NotoSansArabic-Regular.ttf
+            cp "$NASKH_FONT" NotoSansArabic-Regular.ttf
+          else
+            echo "No Arabic-capable Noto font found" >&2
+            exit 1
           fi
           if [ -n "$LATIN_FONT" ]; then
             cp "$LATIN_FONT" assets/NotoSans-Regular.ttf
@@ -76,10 +86,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install application test dependencies
+        run: python -m pip install -r requirements.txt
+
       - name: Compile Python sources
         run: python -m compileall -q .
 
-      - name: Test order book parser
+      - name: Run full regression suite
         run: python -m unittest discover -s tests -v
 
       - name: Verify app version matches Buildozer package version
@@ -182,6 +195,7 @@ jobs:
           import ast
           import os
           import arabic_reshaper
+          from bidi.algorithm import get_display
           from fontTools.ttLib import TTFont
 
           arabic_candidates = ["NotoSansArabic-Regular.ttf", "NotoNaskhArabic-Regular.ttf"]
@@ -215,9 +229,17 @@ jobs:
           if missing_latin:
               raise SystemExit("Runtime font missing Latin glyphs: " +
                                " ".join("U+%04X" % cp for cp in missing_latin))
+          sample = "فارسی آزمایش پشتیبانی"
+          shaped = arabic_reshaper.reshape(sample)
+          displayed = get_display(shaped, base_dir="R")
+          forms = {ord(ch) for ch in displayed
+                   if 0xFB50 <= ord(ch) <= 0xFDFF or 0xFE70 <= ord(ch) <= 0xFEFF}
+          if not forms or not forms.issubset(arabic_cmap):
+              raise SystemExit("Persian reshape+bidi runtime font smoke test failed")
           print("Unified runtime font OK:", arabic_path,
                 "Persian glyphs:", len(arabic_checked),
-                "Latin/digit glyphs:", len(required_latin))
+                "Latin/digit glyphs:", len(required_latin),
+                "RTL sample glyphs:", len(forms))
           PY
 
       - name: Build APK
@@ -230,9 +252,26 @@ jobs:
           test -n "$APK"
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf$'
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSans-Regular\.ttf$'
-          echo "Both Arabic and Latin runtime fonts are packaged in the APK."
+          tar -tf /tmp/private.tar > /tmp/private-files.txt
+          grep -E '(^|/)NotoSansArabic-Regular\.ttf
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 7
+ /tmp/private-files.txt
+          grep -E '(^|/)NotoSans-Regular\.ttf
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 7
+ /tmp/private-files.txt
+          echo "Both Arabic-capable and Latin runtime fonts are packaged in the APK."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
