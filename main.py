@@ -162,7 +162,7 @@ def fa(text):
             run = (match.group(0).replace("&", "&amp;")
                    .replace("[", "&bl;").replace("]", "&br;"))
             return "[font=LatinNoto]{}[/font]".format(run)
-        return re.sub(r"[\\x20-\\x7e]+", latin_run, value)
+        return re.sub(r"[\x20-\x7e]+", latin_run, value)
     except Exception as exc:
         RTL_RUNTIME_ERROR = "{}: {}".format(type(exc).__name__, str(exc)[:180])
         return value
@@ -265,8 +265,8 @@ class FuturesAnalyzerApp(App):
         # Tappable order-book header refreshes live data. Each level is also
         # a real button so the user can inspect that exact bid/ask price and size.
         book_title_button = Button(
-            markup=True, text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
-            font_name=FONT_NAME, font_size=sp(17),
+            text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
+            font_name=FONT_NAME, markup=True, font_size=sp(17),
             size_hint_y=None, height=dp(42),
             background_normal="", background_color=(0.08, 0.28, 0.42, 1),
             color=(0.35, 0.78, 1, 1),
@@ -596,7 +596,7 @@ class FuturesAnalyzerApp(App):
         report.bind(minimum_height=report.setter("height"))
 
         def add_line(text, size=15, height=dp(42), color=(0.94, 0.96, 1, 1), font=FONT_NAME):
-            label = Label(markup=True, text=fa(text), font_name=font, font_size=sp(size),
+            label = Label(markup=True, text=fa(text), font_name=font, markup=True, font_size=sp(size),
                           color=color, size_hint_y=None, height=height,
                           halign="center", valign="middle",
                           text_size=(Window.width * 0.82, None))
