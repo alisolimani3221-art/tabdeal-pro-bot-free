@@ -51,7 +51,7 @@ class GeminiAssistantTests(unittest.TestCase):
 
     def test_assistant_rtl_display_shapes_persian_without_reordering(self):
         render_text = load_assistant_rtl_text()
-        self.assertEqual(render_text("متن فارسی"), "SHAPED:متن فارسی")
+        self.assertEqual(render_text("متن فارسی"), "VISUAL:SHAPED:متن فارسی")
 
     def test_assistant_rtl_display_preserves_latin_only_text(self):
         render_text = load_assistant_rtl_text()
