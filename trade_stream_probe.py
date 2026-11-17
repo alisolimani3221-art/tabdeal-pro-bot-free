@@ -74,12 +74,11 @@ def inspect_trade_message(message):
         return {"ok": False, "reason": "missing_trade_object",
                 "top_level_shape": _shape(payload)}
     trade = payload.get("trade")
-    return {
-        "ok": isinstance(trade, dict),
-        "reason": "trade_object_observed" if isinstance(trade, dict) else "trade_not_object",
-        "top_level_shape": _shape(payload),
-        "trade_shape": _shape(trade),
-    }
+    if not isinstance(trade, dict):
+        return {"ok": False, "reason": "trade_not_object",
+                "top_level_shape": _shape(payload)}
+    return {"ok": True, "reason": "trade_object_observed",
+            "top_level_shape": _shape(payload), "trade_shape": _shape(trade)}
 
 
 def _finite_positive(value):
@@ -164,7 +163,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
         result["messages"] += 1
         observed = inspect_trade_message(message)
         result["last_diagnostic"] = observed.get("reason", "unknown")
-        if observed.get("trade_shape"):
+        if observed.get("ok") and observed.get("trade_shape"):
             result["trade_envelopes"] += 1
             signature = json.dumps(observed["trade_shape"], sort_keys=True)
             known = {json.dumps(item, sort_keys=True) for item in result["schema_observations"]}
