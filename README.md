@@ -2,6 +2,14 @@
 
 Android APK build and Tabdeal USDT-margined futures market analyzer.
 
+## Current release status (1.11)
+- Android app version and Buildozer package version are 1.11.
+- The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
+- Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
+- Persian UI font bundling and RTL support are verified during the Android build.
+- Technical signals and automatic execution remain disabled until a reliable candle feed is validated across symbols, reconnects, ordering and missing-event recovery.
+- The WebSocket trade payload schema is an empirical observation only; it is not treated as an official contract. See `TRADE_STREAM_SCHEMA.md`.
+
 ## Features
 - Reads active futures symbols from Tabdeal Futures API.
 - Current REST snapshot of best bid/ask and order book (not a continuous trade stream).
