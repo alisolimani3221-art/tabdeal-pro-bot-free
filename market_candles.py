@@ -25,6 +25,8 @@ class TradeCandleBuilder:
         self.last_sequence = None
         self.rejected = 0
         self.gaps = 0
+        # The first bucket after subscription/reconnect may be only partially observed.
+        self.discard_next_close = True
 
     @staticmethod
     def _positive(value, name):
@@ -84,12 +86,16 @@ class TradeCandleBuilder:
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
-            self.closed.append(self._as_row(self.current))
+            if not self.discard_next_close:
+                self.closed.append(self._as_row(self.current))
+            else:
+                self.discard_next_close = False
             if bucket != previous_bucket + self.interval_ms:
                 self.gaps += 1
                 gap_detected = True
                 # Do not let indicators bridge an unknown interval.
                 self.closed.clear()
+                self.discard_next_close = True
             self.current = self._new_candle(bucket, price, quantity, timestamp)
 
         self.last_timestamp_ms = timestamp
@@ -97,6 +103,15 @@ class TradeCandleBuilder:
             self.last_sequence = sequence
         return {"accepted": True, "gap_detected": gap_detected,
                 "closed_candles": len(self.closed), "ready": self.is_ready}
+
+    def reset_after_gap(self):
+        """Discard all in-flight history after any reconnect that may miss trades."""
+        self.closed.clear()
+        self.current = None
+        self.last_timestamp_ms = None
+        self.last_sequence = None
+        self.gaps += 1
+        self.discard_next_close = True
 
     @staticmethod
     def _new_candle(bucket, price, quantity, timestamp):
