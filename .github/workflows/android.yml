@@ -1,4 +1,5 @@
 name: Build Futures Analyzer APK
+# Trigger a fresh verified APK build after the Persian assistant RTL regression fix.
 
 on:
   workflow_dispatch:
