@@ -34,7 +34,7 @@ def rank_signal(technical):
     if not math.isfinite(rsi) or not 0 <= rsi <= 100:
         return None
     volatility_pct = atr / price * 100.0
-    if volatility_pct > 2.5:
+    if volatility_pct > 2.0:
         return None
     if signal == "BULLISH" and not (price > sma20 > sma50 and 50 <= rsi < 68):
         return None
