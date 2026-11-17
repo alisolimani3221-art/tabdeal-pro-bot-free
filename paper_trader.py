@@ -129,12 +129,28 @@ class PaperTradingEngine:
                 except (TypeError, ValueError, OverflowError):
                     pass
             current = p["last_price"]
-            hit_stop = current <= p["stop"] if p["side"] == "BULLISH" else current >= p["stop"]
-            hit_target = current >= p["target"] if p["side"] == "BULLISH" else current <= p["target"]
+            # Use the full closed candle range, not only its close. If both
+            # stop and target were touched in one candle, assume the stop was
+            # hit first because OHLC data cannot reveal the intrabar path.
+            bar = mark if isinstance(mark, dict) else {}
+            try:
+                bar_open = _positive(bar.get("candle_open", current), "candle open")
+                bar_high = _positive(bar.get("candle_high", current), "candle high")
+                bar_low = _positive(bar.get("candle_low", current), "candle low")
+                if not bar_low <= min(bar_open, current) <= max(bar_open, current) <= bar_high:
+                    raise ValueError("inconsistent closed candle range")
+            except (TypeError, ValueError, OverflowError):
+                bar_open = bar_high = bar_low = current
+            if p["side"] == "BULLISH":
+                hit_stop = bar_low <= p["stop"]
+                hit_target = bar_high >= p["target"]
+                stop_fill = min(p["stop"], bar_open)
+            else:
+                hit_stop = bar_high >= p["stop"]
+                hit_target = bar_low <= p["target"]
+                stop_fill = max(p["stop"], bar_open)
             if hit_stop:
-                # A gap through the stop is filled at the worse observed
-                # market price, not magically at the stop trigger.
-                events.append(self._close(current, "STOP"))
+                events.append(self._close(stop_fill, "STOP"))
                 closed_this_scan = True
             elif hit_target:
                 events.append(self._close(p["target"], "TARGET"))
