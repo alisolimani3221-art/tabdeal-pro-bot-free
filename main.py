@@ -830,9 +830,9 @@ class FuturesAnalyzerApp(App):
         # The ping endpoint is advisory only. Real market availability
         # is established by exchangeInfo plus a successfully parsed depth book.
         market_ok = (
-            "market_info" in results and 200 <= results["market_info"] < 400
-            and "depth_status" in results and 200 <= results["depth_status"] < 400
+            "depth_status" in results and 200 <= results["depth_status"] < 400
             and "mid_price" in results
+            and bool(results.get("bids")) and bool(results.get("asks"))
         )
         # No documented public REST candle/ticker feed is available.
         # Keep all technical signals disabled until a verified trade-stream
