@@ -5,6 +5,8 @@ import threading
 import requests
 import certifi
 
+APP_VERSION = "1.8"
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
