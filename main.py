@@ -6,7 +6,7 @@ import threading
 import requests
 import certifi
 
-APP_VERSION = "1.8"
+APP_VERSION = "1.9"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -404,6 +404,15 @@ class FuturesAnalyzerApp(App):
         self.check_button.text = fa("در حال بررسی...")
         self.connection.text = fa("در حال آزمایش سایت و API بازار فیوچرز...")
         self.analysis.text = fa("لطفاً چند لحظه صبر کنید.")
+        # Never leave a previous symbol's book visible while a new request runs.
+        self.last_market_snapshot = None
+        for label in (self.price_value, self.bid_value, self.ask_value):
+            label.font_name = FONT_NAME
+            label.text = fa("در حال دریافت...")
+        for row in self.bid_rows + self.ask_rows:
+            row.text = "--       --"
+            row.disabled = True
+            row.background_color = (0.10, 0.13, 0.18, 1)
         selected_symbol = self.current_symbol
         threading.Thread(
             target=self.check_services, args=(selected_symbol,), daemon=True
