@@ -8,6 +8,7 @@ import logging
 import os
 import signal
 import time
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -15,9 +16,30 @@ import requests
 from market_symbols import list_market_symbols
 from orderbook import parse_order_book
 
-API = os.getenv("TABDEAL_FUTURES_API", "https://api1.tabdeal.org/r/fapi/v1").rstrip("/")
-INTERVAL = max(60, int(os.getenv("PAPER_SCAN_SECONDS", "300")))
-WORKERS = max(1, min(12, int(os.getenv("PAPER_WORKERS", "8"))))
+def load_config(environ=None):
+    """Validate monitor configuration before starting network activity."""
+    values = os.environ if environ is None else environ
+    api = values.get("TABDEAL_FUTURES_API", "https://api1.tabdeal.org/r/fapi/v1").strip()
+    parsed = urlsplit(api)
+    if (parsed.scheme != "https" or not parsed.hostname
+            or parsed.username or parsed.password or parsed.query or parsed.fragment):
+        raise ValueError("TABDEAL_FUTURES_API must be an HTTPS base URL without credentials, query or fragment")
+    if any(part == ".." for part in parsed.path.split("/")):
+        raise ValueError("TABDEAL_FUTURES_API path must not contain parent segments")
+
+    def read_integer(name, default):
+        raw = values.get(name, default)
+        try:
+            return int(raw)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("{} must be an integer".format(name))
+
+    interval = max(60, read_integer("PAPER_SCAN_SECONDS", "300"))
+    workers = max(1, min(12, read_integer("PAPER_WORKERS", "8")))
+    return api.rstrip("/"), interval, workers
+
+
+API, INTERVAL, WORKERS = load_config()
 STOP = False
 
 logging.basicConfig(
@@ -46,7 +68,7 @@ def read_market(symbol):
         "symbol": symbol,
         "best_bid": bid,
         "best_ask": ask,
-        "midpoint_estimate": (bid + ask) / 2.0,
+        "midpoint_estimate": bid / 2.0 + ask / 2.0,
         "spread": ask - bid,
     }
 
