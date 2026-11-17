@@ -7,7 +7,7 @@ This service is **read-only**. It uses the documented public Tabdeal Futures RES
 - `/exchangeInfo`
 - `/depth`
 
-The published public Futures REST documentation does not currently describe a historical candle (`klines`) or 24-hour ticker endpoint. Therefore this service does not calculate technical signals, simulate entries/exits, or submit real orders. Its midpoint is only an order-book estimate, not a last-trade price or candle close.
+The published public Futures REST documentation does not currently describe a historical candle (`klines`) or 24-hour ticker endpoint. A short, read-only WebSocket observation found trade-shaped messages, but sequence continuity, timestamp semantics, gap recovery and the inner schema are not yet verified. Therefore this service does not calculate technical signals, simulate entries/exits, or submit real orders. Its midpoint is only an order-book estimate, not a last-trade price or candle close. See `TRADE_STREAM_SCHEMA.md`.
 
 ## Deploy on a Linux VPS with Docker Compose
 
