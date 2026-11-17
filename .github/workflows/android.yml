@@ -289,8 +289,10 @@ jobs:
           grep -E "(^|/)NotoSansArabic-Regular[.]ttf$" /tmp/private-files.txt
           grep -E "(^|/)NotoSans-Regular[.]ttf$" /tmp/private-files.txt
           grep -E "(^|/)assets/FONT-LICENSE[.]txt$" /tmp/private-files.txt
-          grep -E "(^|/)vendor/arabic_reshaper/__init__[.]py$" /tmp/private-files.txt
-          grep -E "(^|/)vendor/bidi/algorithm[.]py$" /tmp/private-files.txt
+          # python-for-android may byte-compile app sources into __pycache__.
+          # Accept either source .py files or their packaged .pyc equivalents.
+          grep -E "(^|/)vendor/arabic_reshaper/(__init__[.]py|__pycache__/__init__[^/]*[.]pyc)$" /tmp/private-files.txt
+          grep -E "(^|/)vendor/bidi/(algorithm[.]py|__pycache__/algorithm[^/]*[.]pyc)$" /tmp/private-files.txt
           echo "Arabic/Latin fonts, font license and both RTL shaping libraries are packaged in the APK."
 
       - name: Upload APK
