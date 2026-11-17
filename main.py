@@ -714,7 +714,7 @@ class FuturesAnalyzerApp(App):
         """Ask Gemini to explain a bounded market snapshot; never place orders."""
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
         body.add_widget(self.make_label(
-            "کلید را فقط از Google AI Studio وارد کنید. کلید ذخیره نمی‌شود و پس از ارسال پاک می‌شود.",
+            "کلید فقط هنگام استفاده وارد می‌شود و ذخیره نمی‌شود. پرسش و snapshot بازار به Google ارسال می‌شود؛ در طرح رایگان ممکن است برای بهبود محصولات استفاده شود.",
             size=13, height=dp(62), color=(1, 0.78, 0.42, 1)
         ))
         key_input = TextInput(
