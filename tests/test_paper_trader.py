@@ -51,6 +51,9 @@ class PaperTraderTests(unittest.TestCase):
                 result["cash"]
             )
 
+    def test_rejects_volatility_above_two_percent(self):
+        self.assertIsNone(rank_signal(dict(setup(), atr14=2.1)))
+
     def test_rejects_non_usdt_symbol(self):
         self.assertIsNone(rank_signal(setup(symbol="BTC_BTC")))
 
