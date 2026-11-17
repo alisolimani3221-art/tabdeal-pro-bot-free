@@ -7,7 +7,7 @@ never creates orders or turns an order-book midpoint into a trading signal.
 import math
 import requests
 
-GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
 MAX_QUESTION_CHARS = 1000
 MAX_CONTEXT_CHARS = 4000
 MAX_OUTPUT_TOKENS = 700
