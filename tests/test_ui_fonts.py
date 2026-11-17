@@ -68,5 +68,12 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn('"\\u06ff"', workflow)
         self.assertNotIn('"\\\\u0600"', workflow)
 
+    def test_plain_persian_text_uses_arabic_shaping_helper(self):
+        source = pathlib.Path("main.py").read_text(encoding="utf-8")
+        self.assertIn("def contains_arabic(text):", source)
+        plain = source[source.index("def fa_plain(text):"):source.index("def fa(text):")]
+        self.assertIn("if not contains_arabic(value):", plain)
+        self.assertNotIn('"\\\\u0600"', plain)
+
 if __name__ == "__main__":
     unittest.main()
