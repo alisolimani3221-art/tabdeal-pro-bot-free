@@ -749,7 +749,7 @@ class FuturesAnalyzerApp(App):
             text=assistant_rtl_text("پاسخ هوش مصنوعی اینجا نمایش داده می‌شود."),
             font_name=FONT_NAME, markup=False, font_size=sp(13),
             color=(0.92, 0.95, 1, 1), size_hint_y=None,
-            halign="right", valign="top", base_direction="rtl",
+            halign="right", valign="top", base_direction="ltr",
             text_size=(Window.width * 0.82, None)
         )
         result_label.bind(texture_size=lambda widget, size: setattr(widget, "height", max(dp(90), size[1] + dp(18))))
