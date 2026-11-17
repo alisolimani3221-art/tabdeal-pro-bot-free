@@ -52,6 +52,15 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertNotIn("new_order", source)
         self.assertNotIn("create_order", source)
 
+    def test_docker_monitor_is_hardened_and_runs_non_root(self):
+        compose = self.read("docker-compose.paper.yml")
+        dockerfile = self.read("Dockerfile.paper")
+        self.assertIn("read_only: true", compose)
+        self.assertIn("cap_drop:", compose)
+        self.assertIn("no-new-privileges:true", compose)
+        self.assertIn("mem_limit:", compose)
+        self.assertIn("USER trader", dockerfile)
+
     def test_docker_monitor_does_not_advertise_unused_paper_settings(self):
         compose = self.read("docker-compose.paper.yml")
         self.assertIn("tabdeal-market-monitor", compose)
