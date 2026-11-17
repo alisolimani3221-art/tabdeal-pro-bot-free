@@ -84,6 +84,9 @@ def inspect_trade_message(message):
     if not isinstance(trade, dict):
         return {"ok": False, "reason": "trade_not_object",
                 "top_level_shape": _shape(payload)}
+    if not trade:
+        return {"ok": False, "reason": "empty_trade_object",
+                "top_level_shape": _shape(payload)}
     return {"ok": True, "reason": "trade_object_observed",
             "top_level_shape": _shape(payload), "trade_shape": _shape(trade)}
 
