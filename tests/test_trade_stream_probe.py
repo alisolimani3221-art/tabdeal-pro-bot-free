@@ -31,6 +31,18 @@ class TradeStreamProbeTests(unittest.TestCase):
                          "trade_not_object")
         self.assertEqual(inspect_trade_message("not json")["reason"], "invalid_json")
 
+    def test_schema_inspector_does_not_count_non_object_trade(self):
+        result = inspect_trade_message('{"trade": null}')
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "trade_not_object")
+        self.assertNotIn("trade_shape", result)
+
+    def test_empty_trade_object_is_observed_but_not_schema_confirmed(self):
+        result = inspect_trade_message('{"trade": {}}')
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["reason"], "trade_object_observed")
+        self.assertEqual(result["trade_shape"], {"type": "object", "keys": {}})
+
     def test_millisecond_timestamp_is_preserved(self):
         payload = {"trade": {"s": "AEVO_USDT", "p": "2",
                              "q": "3", "T": 1700000000123}}
