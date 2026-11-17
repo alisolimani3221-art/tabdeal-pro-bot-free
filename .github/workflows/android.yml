@@ -23,7 +23,8 @@ on:
       - '.github/workflows/android.yml'
 
 concurrency:
-  group: tabdeal-free-apk-build
+  # Keep branch verification builds from cancelling the protected main APK build.
+  group: tabdeal-free-apk-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
