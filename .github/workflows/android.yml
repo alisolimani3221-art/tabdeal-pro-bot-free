@@ -208,15 +208,16 @@ jobs:
           if missing_arabic:
               raise SystemExit("Arabic font missing glyphs: " +
                                " ".join("U+%04X" % cp for cp in missing_arabic))
-          latin_font = TTFont(latin_path)
-          latin_cmap = set().union(*(table.cmap.keys() for table in latin_font["cmap"].tables))
-          required_latin = set(range(0x20, 0x7F)) | {0x2014}
-          missing_latin = sorted(cp for cp in required_latin if cp not in latin_cmap)
+          # main.py registers the Arabic font as both PersianNoto and Roboto.
+          # Validate Latin coverage in that exact same runtime font.
+          required_latin = set(range(0x20, 0x7F)) | {0x2013, 0x2014, 0x2019, 0x201C, 0x201D}
+          missing_latin = sorted(cp for cp in required_latin if cp not in arabic_cmap)
           if missing_latin:
-              raise SystemExit("Latin font missing glyphs: " +
+              raise SystemExit("Runtime font missing Latin glyphs: " +
                                " ".join("U+%04X" % cp for cp in missing_latin))
-          print("Arabic font OK:", arabic_path, len(arabic_checked), "glyphs")
-          print("Latin font OK:", latin_path, len(required_latin), "glyphs")
+          print("Unified runtime font OK:", arabic_path,
+                "Persian glyphs:", len(arabic_checked),
+                "Latin/digit glyphs:", len(required_latin))
           PY
 
       - name: Build APK
