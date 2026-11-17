@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from trade_stream_probe import parse_trade_message
+from trade_stream_probe import inspect_trade_message, parse_trade_message
 
 
 class TradeStreamProbeTests(unittest.TestCase):
@@ -13,6 +13,23 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(result["price"], 1.25)
         self.assertEqual(result["quantity"], 4.0)
         self.assertEqual(result["timestamp_ms"], 1700000000000)
+
+    def test_schema_inspector_reports_keys_and_types_without_values(self):
+        payload = {"trade": {"symbol": "BTC_USDT", "px": "123.45",
+                             "size": "0.5", "event_time": 1700000000123}}
+        result = inspect_trade_message(json.dumps(payload))
+        self.assertTrue(result["ok"])
+        shape = result["trade_shape"]
+        self.assertEqual(shape["type"], "object")
+        self.assertEqual(shape["keys"]["px"]["type"], "string")
+        self.assertEqual(shape["keys"]["event_time"]["type"], "number")
+        self.assertNotIn("123.45", json.dumps(result))
+        self.assertNotIn("BTC_USDT", json.dumps(result))
+
+    def test_schema_inspector_rejects_unknown_or_invalid_envelopes(self):
+        self.assertEqual(inspect_trade_message('{"trade": null}')["reason"],
+                         "trade_not_object")
+        self.assertEqual(inspect_trade_message("not json")["reason"], "invalid_json")
 
     def test_millisecond_timestamp_is_preserved(self):
         payload = {"trade": {"s": "AEVO_USDT", "p": "2",
