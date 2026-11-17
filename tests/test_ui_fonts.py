@@ -71,6 +71,14 @@ class UiFontAssignmentTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
         self.assertIn("tabdeal-free-apk-build-${{ github.ref }}", workflow)
 
+    def test_font_license_is_bundled_and_verified(self):
+        spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
+        self.assertIn("txt", spec)
+        self.assertIn("assets/*.txt", spec)
+        self.assertIn("assets/FONT-LICENSE.txt", workflow)
+        self.assertIn("assets/FONT-LICENSE[.]txt", workflow)
+
     def test_font_workflow_verifies_rtl_libraries_inside_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
         self.assertIn("vendor/arabic_reshaper/__init__[.]py", workflow)
