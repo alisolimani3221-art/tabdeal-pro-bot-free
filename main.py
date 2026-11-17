@@ -35,6 +35,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.spinner import Spinner
 from kivy.core.window import Window
+from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path, resource_find
 from market_symbols import select_market_symbol, list_market_symbols
@@ -953,7 +954,7 @@ class FuturesAnalyzerApp(App):
 
 
     def open_diagnostics(self, instance):
-        """Show standalone font, RTL and latest API diagnostics."""
+        """Show copyable ASCII-safe font, RTL and latest API diagnostics."""
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
         scroll = ScrollView(do_scroll_x=False)
         report = BoxLayout(orientation="vertical", spacing=dp(8),
@@ -962,6 +963,7 @@ class FuturesAnalyzerApp(App):
         report.add_widget(self.make_label(
             "گزارش وضعیت فونت و نمایش فارسی", size=16, height=dp(42)))
         runtime_lines = [
+            "APP_VERSION={}".format(APP_VERSION),
             "font_name={}".format(FONT_NAME),
             "font_path={}".format(FONT_PATH or "NOT_FOUND"),
             "font_load_error={}".format(FONT_LOAD_ERROR or "NONE"),
@@ -970,12 +972,18 @@ class FuturesAnalyzerApp(App):
             rtl_diagnostic(),
         ]
         last = getattr(self, "last_results", {}) or {}
-        for key in ("website", "market_ping", "market_info", "depth_http",
-                    "depth_status", "depth_diagnostic", "depth_raw_preview", "market_error"):
+        for key in ("website", "market_ping", "market_info", "market_symbol",
+                    "depth_http", "depth_status", "depth_content_type",
+                    "depth_url", "depth_diagnostic", "depth_raw_preview",
+                    "market_error"):
             if key in last:
-                runtime_lines.append("{}={}".format(key, str(last[key])[:500]))
+                runtime_lines.append("{}={}".format(key, str(last[key])[:700]))
+        report_text = "\n".join(runtime_lines)
+        # Keep the on-screen diagnostic strictly ASCII so an Android fallback
+        # font can never turn unsupported mixed-script characters into tofu.
+        display_text = report_text.encode("ascii", "backslashreplace").decode("ascii")
         details = Label(
-            text="\n".join(runtime_lines), font_name=NUMERIC_FONT_NAME,
+            text=display_text, font_name=NUMERIC_FONT_NAME,
             font_size=sp(11), color=(0.86, 0.90, 0.96, 1),
             halign="left", valign="top", size_hint=(1, None),
             text_size=(Window.width * 0.80, None),
@@ -985,9 +993,21 @@ class FuturesAnalyzerApp(App):
         report.add_widget(details)
         scroll.add_widget(report)
         body.add_widget(scroll)
-        close_button = Button(text=fa("بستن"), font_name=FONT_NAME,
-                              size_hint_y=None, height=dp(46))
-        body.add_widget(close_button)
+
+        actions = BoxLayout(orientation="horizontal", spacing=dp(8),
+                            size_hint_y=None, height=dp(46))
+        copy_button = Button(text=fa("کپی گزارش"), font_name=FONT_NAME)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
+        def copy_report(_button):
+            try:
+                Clipboard.copy(report_text)
+                copy_button.text = fa("گزارش کپی شد")
+            except Exception as exc:
+                copy_button.text = fa("خطا در کپی: ") + type(exc).__name__
+        copy_button.bind(on_press=copy_report)
+        actions.add_widget(copy_button)
+        actions.add_widget(close_button)
+        body.add_widget(actions)
         popup = Popup(title=fa("مرکز عیب‌یابی"), title_font=FONT_NAME,
                       content=body, size_hint=(0.94, 0.78))
         close_button.bind(on_press=popup.dismiss)
