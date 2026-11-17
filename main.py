@@ -36,7 +36,7 @@ from kivy.core.window import Window
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path, resource_find
 from market_symbols import select_market_symbol, list_market_symbols
-from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
+from risk_analysis import calculate_position_risk, recommend_leverage
 from paper_trader import PaperTradingEngine
 
 # Resolve the bundled font from both the app directory and Kivy resources.
@@ -131,12 +131,29 @@ def normalize_digits(value):
     return str(value).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
 
 
+def contains_arabic(text):
+    """Return whether text contains Arabic-script code points used by Persian."""
+    return any(
+        "\u0600" <= char <= "\u06ff"
+        or "\u0750" <= char <= "\u077f"
+        or "\u08a0" <= char <= "\u08ff"
+        for char in str(text)
+    )
+
+
+def fa_plain(text):
+    """Return plain non-Arabic text unchanged; Arabic text is shaped by fa()."""
+    value = str(text)
+    if not contains_arabic(value):
+        return value
+    return value
+
+
 def fa(text):
     """Shape Arabic-script text; never silently claim RTL support when unavailable."""
     global RTL_RUNTIME_ERROR
     value = str(text)
-    if not any("\u0600" <= char <= "\u06ff" or "\u0750" <= char <= "\u077f"
-               or "\u08a0" <= char <= "\u08ff" for char in value):
+    if not contains_arabic(value):
         return value
     if arabic_reshaper is None or get_display is None:
         RTL_RUNTIME_ERROR = RTL_IMPORT_ERROR or "RTL libraries unavailable"
@@ -536,54 +553,13 @@ class FuturesAnalyzerApp(App):
                 "HTTP 200; bids={}; asks={}; best_bid={}; best_ask={}; parsed=OK"
             ).format(len(bids), len(asks), bid, ask)
 
-            # Candles are optional for the connection test: an unavailable
-            # kline endpoint must not turn a healthy order book into a failure.
-            try:
-                candles_response = get_response(
-                    "/klines",
-                    params={"symbol": market_symbol.replace("_", ""), "interval": "1h", "limit": 100},
-                    timeout=25,
-                )
-                try:
-                    candle_data = candles_response.json()
-                finally:
-                    candles_response.close()
-                if isinstance(candle_data, dict):
-                    candle_data = candle_data.get("data", candle_data.get("result", candle_data))
-                results["technical_analysis"] = analyze_klines(candle_data)
-            except Exception as analysis_exc:
-                results["analysis_error"] = "{}: {}".format(
-                    type(analysis_exc).__name__, str(analysis_exc)[:180]
-                )
-
-            # Some Tabdeal public futures deployments expose 24h ticker data
-            # even when historical candles are not enabled. Use only this
-            # exchange's own market summary as a clearly labelled fallback.
-            try:
-                ticker_response = get_response(
-                    "/ticker/24hr",
-                    params={"symbol": market_symbol.replace("_", "")},
-                    timeout=20,
-                )
-                try:
-                    ticker_data = ticker_response.json()
-                finally:
-                    ticker_response.close()
-                if isinstance(ticker_data, dict):
-                    ticker_data = ticker_data.get("data", ticker_data.get("result", ticker_data))
-                if isinstance(ticker_data, dict) and all(
-                    key in ticker_data for key in ("lastPrice", "priceChangePercent", "highPrice", "lowPrice")
-                ):
-                    results["market_summary"] = {
-                        "last_price": float(ticker_data["lastPrice"]),
-                        "change_percent": float(ticker_data["priceChangePercent"]),
-                        "high": float(ticker_data["highPrice"]),
-                        "low": float(ticker_data["lowPrice"]),
-                    }
-            except Exception as summary_exc:
-                results["summary_error"] = "{}: {}".format(
-                    type(summary_exc).__name__, str(summary_exc)[:140]
-                )
+            # This public futures deployment has not confirmed historical
+            # candles or 24h ticker endpoints. Do not probe unsupported paths;
+            # keep the verified live order book independent of analysis data.
+            results["analysis_error"] = (
+                "Historical candle and 24h ticker endpoints are not confirmed; "
+                "technical signals are disabled until a verified source is available."
+            )
 
         except Exception as exc:
             results["market_error"] = "{}: {}".format(type(exc).__name__, str(exc)[:320])
@@ -1088,82 +1064,14 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def run_auto_paper_scanner(self):
-        session = requests.Session()
-        session.headers.update({"User-Agent": "FuturesAnalyzer-PaperTrader/1.0",
-                                "Accept": "application/json", "Connection": "close"})
-        api = FUTURES_API
-        try:
-            while not self.auto_stop_event.is_set():
-                try:
-                    response = session.get(api + "/exchangeInfo", timeout=15, verify=certifi.where())
-                    response.raise_for_status()
-                    info = response.json()
-                    if isinstance(info, dict):
-                        symbols_data = info.get("symbols")
-                        if symbols_data is None:
-                            nested = info.get("data", {})
-                            symbols_data = nested.get("symbols") if isinstance(nested, dict) else nested
-                    else:
-                        symbols_data = info
-                    symbols = list_market_symbols(symbols_data)
-                    if not symbols:
-                        raise RuntimeError("No active USDT perpetual symbols")
-                    candidates = []
-                    failures = 0
-                    for symbol in symbols:
-                        if self.auto_stop_event.is_set():
-                            break
-                        candle_data = None
-                        for api_symbol in (symbol.replace("_", ""), symbol):
-                            try:
-                                candle_response = session.get(api + "/klines",
-                                    params={"symbol": api_symbol, "interval": "1h", "limit": 100},
-                                    timeout=9, verify=certifi.where())
-                                candle_response.raise_for_status()
-                                candle_data = candle_response.json()
-                                break
-                            except Exception:
-                                continue
-                        if candle_data is None:
-                            failures += 1
-                            continue
-                        if isinstance(candle_data, dict):
-                            candle_data = candle_data.get("data", candle_data.get("result", candle_data.get("klines")))
-                        try:
-                            technical = analyze_klines(candle_data)
-                            technical["symbol"] = symbol
-                            candidates.append(technical)
-                        except Exception:
-                            failures += 1
-                        self.auto_stop_event.wait(0.08)
-                    if self.auto_stop_event.is_set():
-                        break
-                    minimum_coverage = max(10, len(symbols) // 2)
-                    if len(candidates) < minimum_coverage:
-                        raise RuntimeError(
-                            "Insufficient candle coverage: {} of {} symbols; entries skipped".format(
-                                len(candidates), len(symbols)))
-                    result = self.auto_engine.process_scan(candidates)
-                    position = result.get("open_position")
-                    closed = self.auto_engine.closed_trades
-                    net_total = sum(t["net_pnl"] for t in closed)
-                    position_text = ("{} {} entry {:.6f} stop {:.6f} target {:.6f}".format(
-                        position["symbol"], position["side"], position["entry"],
-                        position["stop"], position["target"]) if position else "No open position")
-                    report = ("Paper scan #{} complete\\nSymbols: {} | Data errors: {} | Valid setups: {}\\n"
-                              "Virtual equity: {:.4f} USDT | Closed trades: {} | Net PnL: {:+.4f}\\n{}\\n"
-                              "Next scan in 5 minutes. No live orders.").format(
-                        self.auto_engine.scans, len(symbols), failures, len(result["candidates"]),
-                        result["equity"], len(closed), net_total, position_text)
-                    Clock.schedule_once(lambda dt, message=report: self.update_auto_status(message), 0)
-                except Exception as exc:
-                    report = "Paper scan error: {}: {}\\nWill retry in 5 minutes.".format(type(exc).__name__, str(exc)[:220])
-                    Clock.schedule_once(lambda dt, message=report: self.update_auto_status(message), 0)
-                self.auto_stop_event.wait(300)
-        finally:
-            session.close()
-            Clock.schedule_once(lambda dt: self.update_auto_status(
-                "Paper trader stopped. No live orders were sent."), 0)
+        """Fail closed until a verified candle feed is implemented."""
+        message = (
+            "اسکن آزمایشی شروع نشد: منبع کندل معتبر هنوز تأیید نشده است. "
+            "هیچ سیگنال یا معامله‌ای ساخته نشد."
+        )
+        Clock.schedule_once(
+            lambda dt, value=message: self.update_auto_status(value), 0
+        )
 
     def update_auto_status(self, message):
         label = getattr(self, "auto_status_label", None)
