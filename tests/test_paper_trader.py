@@ -43,6 +43,32 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(result["events"][0]["event"], "CLOSED")
         self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
 
+    def test_long_stop_triggers_on_intrabar_low_even_when_close_recovers(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        candle = dict(setup(price=100.5), signal="NEUTRAL",
+                      candle_open=100.5, candle_high=101.0, candle_low=98.0)
+        result = engine.process_scan([candle])
+        self.assertEqual(result["events"][0]["trade"]["reason"], "STOP")
+        self.assertAlmostEqual(result["events"][0]["trade"]["exit"],
+                               result["events"][0]["trade"]["stop"])
+
+    def test_stop_wins_when_stop_and_target_are_both_touched(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        candle = dict(setup(price=100.5), signal="NEUTRAL",
+                      candle_open=100.5, candle_high=104.0, candle_low=98.0)
+        result = engine.process_scan([candle])
+        self.assertEqual(result["events"][0]["trade"]["reason"], "STOP")
+
+    def test_short_stop_triggers_on_intrabar_high(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup(signal="BEARISH")])
+        candle = dict(setup(price=100.5, signal="BEARISH"), signal="NEUTRAL",
+                      candle_open=100.5, candle_high=103.0, candle_low=99.0)
+        result = engine.process_scan([candle])
+        self.assertEqual(result["events"][0]["trade"]["reason"], "STOP")
+
     def test_stop_closes_short_position(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup(signal="BEARISH")])
