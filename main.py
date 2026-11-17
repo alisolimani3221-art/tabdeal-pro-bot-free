@@ -342,7 +342,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(book_grid)
 
         content.add_widget(self.section_title("تحلیل تکنیکال"))
-        self.analysis_signal = self.make_label("تحلیل تکنیکال تا زمان دسترسی به منبع معتبر کندل غیرفعال است.", size=15, height=dp(42))
+        self.analysis_signal = self.make_label("برای تحلیل تکنیکال، معامله‌گر آزمایشی را اجرا کنید؛ ابتدا داده کافی جمع‌آوری می‌شود.", size=15, height=dp(42))
         content.add_widget(self.analysis_signal)
         self.analysis_metrics = self.make_label("SMA20: --   SMA50: --   RSI14: --   ATR14: --", size=12, height=dp(38))
         self.analysis_metrics.font_name = NUMERIC_FONT_NAME
@@ -1323,6 +1323,9 @@ class FuturesAnalyzerApp(App):
                 try:
                     technical = analyze_klines(builder.candles_for_analysis())
                     technical["symbol"] = symbol
+                    Clock.schedule_once(
+                        lambda dt, value=dict(technical): self.update_technical_labels(value), 0
+                    )
                     result = engine.process_scan([technical])
                     last_processed_bucket = current_bucket
                     events = result.get("events", [])
@@ -1387,6 +1390,19 @@ class FuturesAnalyzerApp(App):
             lambda dt: self.update_auto_status("شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است."),
             0,
         )
+
+    def update_technical_labels(self, technical):
+        """Publish verified closed-candle indicators to the main analysis panel."""
+        self.latest_technical_analysis = dict(technical)
+        signal = technical.get("signal", "NEUTRAL")
+        labels = {"BULLISH": "صعودی", "BEARISH": "نزولی", "NEUTRAL": "خنثی"}
+        if getattr(self, "analysis_signal", None) is not None:
+            self.analysis_signal.text = fa("سیگنال کندل بسته‌شده: " + labels.get(signal, "خنثی"))
+        if getattr(self, "analysis_metrics", None) is not None:
+            self.analysis_metrics.text = (
+                "SMA20: {:.6g} | SMA50: {:.6g} | RSI14: {:.2f} | ATR14: {:.6g}"
+            ).format(technical["sma20"], technical["sma50"],
+                     technical["rsi14"], technical["atr14"])
 
     def update_auto_status(self, message):
         label = getattr(self, "auto_status_label", None)
