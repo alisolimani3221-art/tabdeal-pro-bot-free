@@ -178,8 +178,8 @@ jobs:
                      if isinstance(node, ast.Constant) and isinstance(node.value, str)]
           checked = set()
           for value in strings:
-              if any("\\u0600" <= ch <= "\\u06ff" or "\\u0750" <= ch <= "\\u077f"
-                     or "\\u08a0" <= ch <= "\\u08ff" for ch in value):
+              if any("\u0600" <= ch <= "\u06ff" or "\u0750" <= ch <= "\u077f"
+                     or "\u08a0" <= ch <= "\u08ff" for ch in value):
                   checked.update(ord(ch) for ch in arabic_reshaper.reshape(value))
           arabic_ranges = ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF),
                            (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
