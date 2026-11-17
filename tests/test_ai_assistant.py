@@ -1,4 +1,7 @@
+import ast
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import ai_assistant
@@ -12,6 +15,23 @@ class FakeResponse:
 
     def close(self):
         self.closed = True
+
+
+def load_assistant_rtl_text():
+    """Load the pure display helper without importing the Android/Kivy app."""
+    source = Path("main.py").read_text(encoding="utf-8")
+    module = ast.parse(source, filename="main.py")
+    node = next(
+        item for item in module.body
+        if isinstance(item, ast.FunctionDef) and item.name == "assistant_rtl_text"
+    )
+    isolated = ast.Module(body=[node], type_ignores=[])
+    namespace = {
+        "contains_arabic": lambda value: any("\\u0600" <= ch <= "\\u06ff" for ch in str(value)),
+        "arabic_reshaper": SimpleNamespace(reshape=lambda value: "SHAPED:" + value),
+    }
+    exec(compile(isolated, "main.py", "exec"), namespace)
+    return namespace["assistant_rtl_text"]
 
 
 class GeminiAssistantTests(unittest.TestCase):
@@ -30,17 +50,12 @@ class GeminiAssistantTests(unittest.TestCase):
             ai_assistant.build_prompt(" ", {"symbol": "BTC_USDT"})
 
     def test_assistant_rtl_display_shapes_persian_without_reordering(self):
-        from main import assistant_rtl_text
-        with patch("main.arabic_reshaper") as reshaper:
-            reshaper.reshape.return_value = "SHAPED"
-            with patch("main.contains_arabic", return_value=True):
-                self.assertEqual(assistant_rtl_text("متن فارسی"), "SHAPED")
-            reshaper.reshape.assert_called_once_with("متن فارسی")
+        render_text = load_assistant_rtl_text()
+        self.assertEqual(render_text("متن فارسی"), "SHAPED:متن فارسی")
 
     def test_assistant_rtl_display_preserves_latin_only_text(self):
-        from main import assistant_rtl_text
-        with patch("main.contains_arabic", return_value=False):
-            self.assertEqual(assistant_rtl_text("BTC_USDT 123"), "BTC_USDT 123")
+        render_text = load_assistant_rtl_text()
+        self.assertEqual(render_text("BTC_USDT 123"), "BTC_USDT 123")
 
     @patch("ai_assistant.requests.post")
     def test_key_is_sent_in_header_not_url(self, post):
