@@ -6,7 +6,7 @@ A read-only GitHub Actions probe connected to:
 
 `wss://api1.tabdeal.org/special_margin/broadcast/`
 
-It subscribed using the plain-text market symbol `BTC_USDT`. In one 25-second observation window, the client received 10 messages; 8 contained a non-empty `trade` object. The redacted report is from workflow run [44012802730](https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/44012802730). No prices, quantities, sequence values, timestamps, or account credentials were retained in that report.
+It subscribed using the plain-text market symbol `BTC_USDT`. In a later 15-second observation window, the client received 24 messages and 20 matched the strict parser; the redacted report is retained in the latest successful APK workflow. This remains a short empirical sample. No prices, quantities, sequence values, timestamps, or account credentials were retained in that report.
 
 The observed `trade` object had these fields and JSON types:
 
@@ -27,15 +27,18 @@ The strict read-only parser now recognizes `amount` as quantity and `updated` as
 - One short sample does not prove that messages are complete, ordered, gap-free, unique, or recoverable after disconnects.
 - The meaning of `updated` and `side_name` has not been independently confirmed against an authoritative exchange specification.
 - This observation does not validate historical candles, 24-hour ticker data, funding, fees, or liquidation prices.
-- No candle aggregation has been enabled, and no buy/sell signal or exchange order is generated from this stream.
+- The Android app now aggregates normalized events into one-minute OHLCV candles for the currently selected symbol, but this is an experimental, local paper-simulation path—not a validated production trading feed.
+- The first candle after subscription and every reconnect is discarded; timestamp gaps clear the warm-up history. Analysis waits for at least 51 closed candles plus a forming candle.
+- Paper simulation uses closed-candle indicators and conservative local risk limits. No exchange order is generated or submitted.
 
-## Gate before enabling candle analysis
+## Remaining validation before wider deployment
 
 1. Capture redacted schema metadata over several hours and across multiple active symbols.
 2. Verify sequence monotonicity, duplicate behavior, timestamp ordering, and gap detection.
 3. Test reconnect/resubscribe behavior and determine whether missed events can be recovered.
 4. Confirm the semantics of price, amount, side and timestamp against Tabdeal's official specification or exchange support.
-5. Build candle aggregation only after the above checks pass; test out-of-order events, duplicate sequence IDs, missing intervals, timezone boundaries and process restarts.
-6. Compare generated candles against an authoritative Tabdeal chart/feed before enabling any signal.
+5. Continue testing out-of-order events, duplicate sequence IDs, missing intervals, timezone boundaries and process restarts.
+6. Compare generated candles against an authoritative Tabdeal chart/feed before relying on signals.
+7. Extend from the selected symbol to a multi-symbol service only after connection limits, rate limits and sustained data quality are known.
 
-Until then, the Android scanner and automatic trading remain disabled. This file records an empirical observation, not an official API contract.
+The Android app's current simulator is one-symbol and foreground-only. It is not guaranteed to continue while Android suspends or closes the app. Live exchange orders remain disabled. This file records empirical observations, not an official API contract.
