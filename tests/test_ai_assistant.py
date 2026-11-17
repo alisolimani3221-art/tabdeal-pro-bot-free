@@ -29,6 +29,9 @@ def load_assistant_rtl_text():
     namespace = {
         "contains_arabic": lambda value: any(0x0600 <= ord(ch) <= 0x06ff for ch in str(value)),
         "arabic_reshaper": SimpleNamespace(reshape=lambda value: "SHAPED:" + value),
+        # The production helper calls python-bidi after reshaping. Supply a
+        # deterministic stand-in because this isolated AST test omits that dependency.
+        "get_display": lambda value, base_dir=None: "VISUAL:" + value,
     }
     exec(compile(isolated, "main.py", "exec"), namespace)
     return namespace["assistant_rtl_text"]
