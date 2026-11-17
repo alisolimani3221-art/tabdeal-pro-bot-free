@@ -56,6 +56,25 @@ class GeminiAssistantTests(unittest.TestCase):
         render_text = load_assistant_rtl_text()
         self.assertEqual(render_text("متن فارسی"), "VISUAL:SHAPED:متن فارسی")
 
+    def test_assistant_result_label_does_not_apply_second_rtl_reorder(self):
+        source = Path("main.py").read_text(encoding="utf-8")
+        module = ast.parse(source, filename="main.py")
+        method = next(
+            item for item in ast.walk(module)
+            if isinstance(item, ast.FunctionDef) and item.name == "open_ai_assistant"
+        )
+        result_label = next(
+            node.value for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "result_label" for target in node.targets)
+            and isinstance(node.value, ast.Call)
+        )
+        direction = next(
+            keyword.value.value for keyword in result_label.keywords
+            if keyword.arg == "base_direction" and isinstance(keyword.value, ast.Constant)
+        )
+        self.assertEqual(direction, "ltr")
+
     def test_assistant_rtl_display_preserves_latin_only_text(self):
         render_text = load_assistant_rtl_text()
         self.assertEqual(render_text("BTC_USDT 123"), "BTC_USDT 123")
