@@ -1,15 +1,27 @@
 """Resolve and enumerate symbols using Tabdeal Futures exchangeInfo."""
+import re
+
+# Tabdeal's USDT-margined futures symbols use either BASE_USDT or BASEUSDT.
+# Do not silently erase arbitrary punctuation: that can turn malformed input
+# into a different, apparently valid market identifier.
+_SYMBOL_RE = re.compile(r"^[A-Z0-9]+_?USDT$")
 
 
 def _normalized_symbol(value):
-    return "".join(char for char in str(value).upper() if char.isalnum())
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().upper()
+    if not _SYMBOL_RE.fullmatch(candidate):
+        return None
+    return candidate.replace("_", "")
 
 
 def list_market_symbols(symbols):
-    """Return all active USDT perpetual contracts in exchange-native format.
+    """Return unique active USDT perpetual contracts in exchange-native form.
 
-    Fields absent from an exchange response are tolerated, but when present
-    they must identify an active USDT perpetual contract.
+    String entries are supported for simplified/test payloads. For object
+    entries, any supplied quote/status/contract metadata must agree with an
+    active USDT perpetual contract; malformed symbols are always discarded.
     """
     if not isinstance(symbols, list):
         raise ValueError("Futures exchangeInfo did not contain a symbols list")
@@ -19,7 +31,7 @@ def list_market_symbols(symbols):
     for item in symbols:
         if isinstance(item, dict):
             actual = item.get("symbol")
-            if actual is None:
+            if not isinstance(actual, str):
                 continue
             quote = item.get("quoteAsset")
             status = item.get("status")
@@ -30,14 +42,16 @@ def list_market_symbols(symbols):
                 continue
             if contract is not None and str(contract).upper() not in ("PERPETUAL", "PERP"):
                 continue
-        else:
+        elif isinstance(item, str):
             actual = item
-        actual = str(actual)
+        else:
+            continue
+
         normalized = _normalized_symbol(actual)
-        if not normalized.endswith("USDT") or normalized in seen:
+        if normalized is None or normalized in seen:
             continue
         seen.add(normalized)
-        found.append(actual)
+        found.append(actual.strip())
 
     # Keep BTC as the initial/default choice, then list the remaining
     # exchange-supported contracts alphabetically.
@@ -46,8 +60,10 @@ def list_market_symbols(symbols):
 
 
 def select_market_symbol(symbols, requested="BTCUSDT"):
-    """Return the exchange's exact symbol matching a normalized market pair."""
+    """Return the exchange's exact symbol matching a valid normalized pair."""
     wanted = _normalized_symbol(requested)
+    if wanted is None:
+        raise ValueError("requested symbol must be a valid USDT futures symbol")
     for actual in list_market_symbols(symbols):
         if _normalized_symbol(actual) == wanted:
             return str(actual)

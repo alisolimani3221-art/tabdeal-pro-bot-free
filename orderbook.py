@@ -111,4 +111,9 @@ def parse_order_book(payload):
         )
     if asks[0][0] < bids[0][0]:
         raise ValueError("crossed order book: best ask is below best bid")
+    # Keep downstream midpoint arithmetic finite even for adversarial payloads.
+    midpoint = bids[0][0] / 2.0 + asks[0][0] / 2.0
+    spread = asks[0][0] - bids[0][0]
+    if not math.isfinite(midpoint) or not math.isfinite(spread):
+        raise ValueError("best bid/ask arithmetic exceeds the supported numeric range")
     return bids, asks

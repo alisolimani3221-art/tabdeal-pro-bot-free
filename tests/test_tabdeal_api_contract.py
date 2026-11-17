@@ -32,6 +32,24 @@ class TabdealApiContractTests(unittest.TestCase):
         source = self.read("main.py")
         self.assertIn("run_auto_paper_scanner", source)
         self.assertIn("هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود", source)
+        self.assertIn("معامله‌گر خودکار در این نسخه غیرفعال است", source)
+        self.assertNotIn("فقط در حالت آزمایشی شبیه‌سازی می‌کند", source)
+
+    def test_observed_trade_schema_is_documented_without_enabling_signals(self):
+        doc = self.read("TRADE_STREAM_SCHEMA.md")
+        source = self.read("main.py")
+        self.assertIn("side_name", doc)
+        self.assertIn("updated", doc)
+        self.assertIn("No candle aggregation has been enabled", doc)
+        self.assertIn("run_auto_paper_scanner", source)
+        self.assertIn("هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود", source)
+
+    def test_ci_runs_optional_redacted_trade_stream_probe(self):
+        workflow = self.read(".github/workflows/android.yml")
+        self.assertIn("Read-only Tabdeal trade broadcast probe", workflow)
+        self.assertIn("continue-on-error: true", workflow)
+        self.assertIn("trade-stream-probe-report.json", workflow)
+        self.assertIn("Upload redacted trade-stream probe report", workflow)
 
     def test_public_trade_probe_is_read_only_and_has_no_credentials(self):
         source = self.read("trade_stream_probe.py")
@@ -42,6 +60,15 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertNotIn("new_order", source.lower())
         self.assertNotIn("create_order", source.lower())
 
+    def test_all_runtime_components_are_read_only_and_have_no_credentials(self):
+        for name in ("main.py", "multi_bot.py", "server_paper_trader.py",
+                     "trade_stream_probe.py", "paper_trader.py"):
+            source = self.read(name).lower()
+            with self.subTest(name=name):
+                for forbidden in ("api_key", "api_secret", "new_order", "create_order"):
+                    self.assertNotIn(forbidden, source)
+                self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
+
     def test_server_monitor_does_not_create_paper_trading_signals_or_orders(self):
         source = self.read("server_paper_trader.py")
         self.assertIn("/depth", source)
@@ -49,6 +76,15 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertNotIn("PaperTradingEngine", source)
         self.assertNotIn("new_order", source)
         self.assertNotIn("create_order", source)
+
+    def test_docker_monitor_is_hardened_and_runs_non_root(self):
+        compose = self.read("docker-compose.paper.yml")
+        dockerfile = self.read("Dockerfile.paper")
+        self.assertIn("read_only: true", compose)
+        self.assertIn("cap_drop:", compose)
+        self.assertIn("no-new-privileges:true", compose)
+        self.assertIn("mem_limit:", compose)
+        self.assertIn("USER trader", dockerfile)
 
     def test_docker_monitor_does_not_advertise_unused_paper_settings(self):
         compose = self.read("docker-compose.paper.yml")

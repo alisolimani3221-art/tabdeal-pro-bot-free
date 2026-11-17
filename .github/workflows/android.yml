@@ -14,11 +14,17 @@ on:
       - 'requirements.txt'
       - 'paper_trader.py'
       - 'server_paper_trader.py'
+      - 'Dockerfile.paper'
+      - 'docker-compose.paper.yml'
+      - '.env.paper.example'
+      - 'README.md'
+      - 'SERVER_PAPER_TRADING.md'
       - 'tests/**'
       - '.github/workflows/android.yml'
 
 concurrency:
-  group: tabdeal-free-apk-build
+  # Keep branch verification builds from cancelling the protected main APK build.
+  group: tabdeal-free-apk-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,28 +64,38 @@ jobs:
           if [ -n "$SANS_FONT" ]; then
             cp "$SANS_FONT" assets/NotoSansArabic-Regular.ttf
             cp "$SANS_FONT" NotoSansArabic-Regular.ttf
-          fi
-          if [ -n "$NASKH_FONT" ]; then
-            cp "$NASKH_FONT" assets/NotoNaskhArabic-Regular.ttf
-            cp "$NASKH_FONT" NotoNaskhArabic-Regular.ttf
+          elif [ -n "$NASKH_FONT" ]; then
+            # Keep a deterministic runtime filename even on runners that
+            # provide Naskh but not Noto Sans Arabic.
+            cp "$NASKH_FONT" assets/NotoSansArabic-Regular.ttf
+            cp "$NASKH_FONT" NotoSansArabic-Regular.ttf
+          else
+            echo "No Arabic-capable Noto font found" >&2
+            exit 1
           fi
           if [ -n "$LATIN_FONT" ]; then
             cp "$LATIN_FONT" assets/NotoSans-Regular.ttf
             cp "$LATIN_FONT" NotoSans-Regular.ttf
           fi
           test -s NotoSans-Regular.ttf
-          test -s NotoSansArabic-Regular.ttf -o -s NotoNaskhArabic-Regular.ttf
-          ls -l Noto*Regular.ttf
+          test -s NotoSansArabic-Regular.ttf
+          FONT_LICENSE="/usr/share/doc/fonts-noto-core/copyright"
+          test -s "$FONT_LICENSE"
+          cp "$FONT_LICENSE" assets/FONT-LICENSE.txt
+          ls -l Noto*Regular.ttf assets/FONT-LICENSE.txt
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      - name: Install application test dependencies
+        run: python -m pip install -r requirements.txt
+
       - name: Compile Python sources
         run: python -m compileall -q .
 
-      - name: Test order book parser
+      - name: Run full regression suite
         run: python -m unittest discover -s tests -v
 
       - name: Verify app version matches Buildozer package version
@@ -149,6 +165,36 @@ jobs:
               symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
+      - name: Read-only Tabdeal trade broadcast probe
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_stream_probe import probe_broadcast
+
+          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=15)
+          Path("trade-stream-probe-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          if not report["connected"]:
+              raise SystemExit("Public trade broadcast connection was not established")
+          if report["messages"] and report["valid_trades"] == 0:
+              raise SystemExit("Messages arrived but none matched the observed strict schema")
+          PY
+
+      - name: Upload redacted trade-stream probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-stream-probe-report
+          path: trade-stream-probe-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip setuptools wheel
@@ -182,6 +228,7 @@ jobs:
           import ast
           import os
           import arabic_reshaper
+          from bidi.algorithm import get_display
           from fontTools.ttLib import TTFont
 
           arabic_candidates = ["NotoSansArabic-Regular.ttf", "NotoNaskhArabic-Regular.ttf"]
@@ -215,24 +262,38 @@ jobs:
           if missing_latin:
               raise SystemExit("Runtime font missing Latin glyphs: " +
                                " ".join("U+%04X" % cp for cp in missing_latin))
+          sample = "فارسی آزمایش پشتیبانی"
+          shaped = arabic_reshaper.reshape(sample)
+          displayed = get_display(shaped, base_dir="R")
+          forms = {ord(ch) for ch in displayed
+                   if 0xFB50 <= ord(ch) <= 0xFDFF or 0xFE70 <= ord(ch) <= 0xFEFF}
+          if not forms or not forms.issubset(arabic_cmap):
+              raise SystemExit("Persian reshape+bidi runtime font smoke test failed")
           print("Unified runtime font OK:", arabic_path,
                 "Persian glyphs:", len(arabic_checked),
-                "Latin/digit glyphs:", len(required_latin))
+                "Latin/digit glyphs:", len(required_latin),
+                "RTL sample glyphs:", len(forms))
           PY
 
       - name: Build APK
         run: buildozer -v android debug
 
-      - name: Verify both runtime fonts are packaged in APK
+      - name: Verify both runtime fonts and RTL libraries are packaged in APK
         run: |
           set -eu
           APK="$(find bin -maxdepth 1 -name '*.apk' -print -quit)"
           test -n "$APK"
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf$'
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSans-Regular\.ttf$'
-          echo "Both Arabic and Latin runtime fonts are packaged in the APK."
+          tar -tf /tmp/private.tar > /tmp/private-files.txt
+          grep -E "(^|/)NotoSansArabic-Regular[.]ttf$" /tmp/private-files.txt
+          grep -E "(^|/)NotoSans-Regular[.]ttf$" /tmp/private-files.txt
+          grep -E "(^|/)assets/FONT-LICENSE[.]txt$" /tmp/private-files.txt
+          # python-for-android may flatten or byte-compile vendored modules.
+          # Verify the distinctive module paths without assuming a .py layout.
+          grep -F "arabic_reshaper" /tmp/private-files.txt
+          grep -E "(^|/)bidi/.*algorithm.*[.]pyc?$" /tmp/private-files.txt
+          echo "Arabic/Latin fonts, font license and both RTL shaping libraries are packaged in the APK."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

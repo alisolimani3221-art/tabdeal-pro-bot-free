@@ -7,7 +7,8 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 - Current REST snapshot of best bid/ask and order book (not a continuous trade stream).
 - Conservative position-risk calculations (technical signals are disabled until a verified Tabdeal candle feed is available).
 - Persian UI font bundling and RTL support in the Android build.
-- A conservative paper-trading engine is included as a separately tested module. The Android automatic scanner is deliberately disabled until a verified candle/trade-data feed is available; no real exchange orders are submitted.
+- A read-only WebSocket probe observed a redacted Tabdeal trade-event schema; this is empirical, not an official inner-message contract. See `TRADE_STREAM_SCHEMA.md`.
+- A conservative paper-trading engine is included as a separately tested module. The Android automatic scanner is deliberately disabled until trade ordering, gap recovery and candle construction are verified; no real exchange orders are submitted.
 
 ## Build APK
 1. Open the **Actions** tab.

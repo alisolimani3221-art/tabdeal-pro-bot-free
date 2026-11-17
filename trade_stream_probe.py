@@ -6,8 +6,10 @@ exchange documentation only guarantees the outer {"trade": {...}} envelope.
 """
 import json
 import math
+import re
 import time
 import threading
+from datetime import datetime, timezone
 
 BROADCAST_URL = "wss://api1.tabdeal.org/special_margin/broadcast/"
 DEFAULT_SYMBOL = "AEVO_USDT"
@@ -16,7 +18,7 @@ MAX_MESSAGE_BYTES = 65536
 ALIASES = {
     "price": ("price", "p", "tradePrice", "dealPrice"),
     "quantity": ("quantity", "qty", "q", "volume", "amount"),
-    "timestamp": ("timestamp", "time", "T", "tradeTime", "ts"),
+    "timestamp": ("timestamp", "time", "T", "tradeTime", "ts", "updated"),
 }
 
 
@@ -31,6 +33,42 @@ def _finite_positive(value):
     if not math.isfinite(number) or number <= 0:
         return None
     return number
+
+
+def _parse_timestamp_ms(value):
+    """Parse epoch seconds/milliseconds or timezone-aware ISO-8601 timestamps."""
+    timestamp_ms = None
+    if isinstance(value, str) and not value.strip().replace(".", "", 1).isdigit():
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        utc_value = parsed.astimezone(timezone.utc)
+        delta = utc_value - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        timestamp_ms = (
+            delta.days * 86_400_000
+            + delta.seconds * 1000
+            + delta.microseconds // 1000
+        )
+    else:
+        numeric = _finite_positive(value)
+        if numeric is None:
+            return None
+        scaled = numeric if numeric >= 100_000_000_000 else numeric * 1000
+        if not math.isfinite(scaled):
+            return None
+        timestamp_ms = int(scaled)
+
+    now_ms = int(time.time() * 1000)
+    if (timestamp_ms <= 0 or timestamp_ms >= 10_000_000_000_000
+            or timestamp_ms > now_ms + 5 * 60 * 1000):
+        return None
+    return timestamp_ms
 
 
 def _reject_duplicate_keys(pairs):
@@ -52,7 +90,8 @@ def _first(mapping, names):
 def parse_trade_message(message, expected_symbol=None):
     """Return normalized trade or a safe diagnostic; never guess missing fields."""
     if expected_symbol is not None and (
-            not isinstance(expected_symbol, str) or not expected_symbol.strip()):
+            not isinstance(expected_symbol, str)
+            or not re.fullmatch(r"[A-Za-z0-9]+_USDT", expected_symbol)):
         return {"ok": False, "reason": "invalid_expected_symbol"}
     if isinstance(message, bytes):
         if len(message) > MAX_MESSAGE_BYTES:
@@ -82,33 +121,48 @@ def parse_trade_message(message, expected_symbol=None):
                 "top_level_keys": sorted(str(k) for k in payload.keys())[:20]}
 
     symbol = trade.get("symbol") or trade.get("s") or payload.get("symbol")
-    if symbol is not None and expected_symbol and str(symbol).upper() != expected_symbol.upper():
-        return {"ok": False, "reason": "symbol_mismatch"}
+    if symbol is not None:
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z0-9]+_USDT", symbol, re.IGNORECASE):
+            return {"ok": False, "reason": "invalid_symbol"}
+        if expected_symbol and symbol.upper() != expected_symbol.upper():
+            return {"ok": False, "reason": "symbol_mismatch"}
     price = _finite_positive(_first(trade, ALIASES["price"]))
     quantity = _finite_positive(_first(trade, ALIASES["quantity"]))
-    timestamp = _finite_positive(_first(trade, ALIASES["timestamp"]))
-    if price is None or quantity is None or timestamp is None:
+    raw_timestamp = _first(trade, ALIASES["timestamp"])
+    timestamp_ms = _parse_timestamp_ms(raw_timestamp)
+    if price is None or quantity is None or raw_timestamp is None:
         return {"ok": False, "reason": "trade_schema_unrecognized",
                 "trade_keys": sorted(str(k) for k in trade.keys())[:30]}
-    # Accept seconds or milliseconds, but reject values that overflow during
-    # seconds-to-milliseconds conversion before converting to int.
-    timestamp_value = timestamp if timestamp >= 100000000000 else timestamp * 1000
-    if not math.isfinite(timestamp_value):
+    if timestamp_ms is None:
         return {"ok": False, "reason": "invalid_timestamp"}
-    timestamp_ms = int(timestamp_value)
-    # Reject implausible future values and float magnitudes that cannot
-    # represent a meaningful exchange event timestamp.
-    if timestamp_ms <= 0 or timestamp_ms >= 10_000_000_000_000:
-        return {"ok": False, "reason": "invalid_timestamp"}
-    return {"ok": True, "symbol": str(symbol or expected_symbol or ""),
-            "price": price, "quantity": quantity, "timestamp_ms": timestamp_ms}
+
+    sequence = trade.get("sequence")
+    if sequence is not None:
+        if (isinstance(sequence, bool) or not isinstance(sequence, (int, float))
+                or sequence < 0 or sequence > 9_223_372_036_854_775_807):
+            return {"ok": False, "reason": "invalid_sequence"}
+        if isinstance(sequence, float) and (
+                not math.isfinite(sequence) or not sequence.is_integer()):
+            return {"ok": False, "reason": "invalid_sequence"}
+        sequence = int(sequence)
+    side_name = trade.get("side_name")
+    if side_name is not None and not isinstance(side_name, str):
+        return {"ok": False, "reason": "invalid_side_name"}
+
+    result = {"ok": True, "symbol": str(symbol or expected_symbol or ""),
+              "price": price, "quantity": quantity, "timestamp_ms": timestamp_ms}
+    if sequence is not None:
+        result["sequence"] = sequence
+    if side_name is not None:
+        result["side_name"] = side_name.strip().lower()
+    return result
 
 
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     """Connect once, send plain-text symbol on open, and observe public trades."""
-    parts = symbol.split("_") if isinstance(symbol, str) else []
-    if (len(parts) != 2 or not parts[0].isalnum() or parts[1] != "USDT"):
-        raise ValueError("symbol must be a USDT futures symbol such as AEVO_USDT")
+    if (not isinstance(symbol, str) or len(symbol) > 32
+            or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
+        raise ValueError("symbol must be an ASCII USDT futures symbol such as AEVO_USDT")
     if isinstance(timeout_seconds, bool):
         raise ValueError("timeout_seconds must be a finite positive number")
     try:

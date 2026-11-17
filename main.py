@@ -33,10 +33,9 @@ from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
-from kivy.resources import resource_add_path, resource_find
+from kivy.resources import resource_add_path
 from market_symbols import select_market_symbol, list_market_symbols
-from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
-from paper_trader import PaperTradingEngine
+from risk_analysis import calculate_position_risk, recommend_leverage
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -162,7 +161,7 @@ def fa_plain(text):
         return value
     try:
         if arabic_reshaper is not None and get_display is not None:
-            return get_display(arabic_reshaper.reshape(value))
+            return get_display(arabic_reshaper.reshape(value), base_dir="R")
     except Exception:
         pass
     return value
@@ -175,7 +174,7 @@ def fa(text):
         return value
     try:
         if arabic_reshaper is not None and get_display is not None:
-            value = get_display(arabic_reshaper.reshape(value))
+            value = get_display(arabic_reshaper.reshape(value), base_dir="R")
             # Kivy Label markup lets a mixed RTL/LTR sentence use the correct
             # font for each run instead of asking the Arabic font for Latin glyphs.
             value = re.sub(
@@ -188,6 +187,30 @@ def fa(text):
     except Exception:
         pass
     return value
+
+
+def rtl_runtime_status():
+    """Return a compact runtime check for the actual Persian shaping pipeline."""
+    if FONT_LOAD_ERROR:
+        return "persian_font=FAIL; " + FONT_LOAD_ERROR[:180]
+    if arabic_reshaper is None or get_display is None:
+        return "rtl_libraries=FAIL; reshaper_or_bidi_unavailable"
+    try:
+        sample = "فارسی آزمایش پشتیبانی"
+        shaped = arabic_reshaper.reshape(sample)
+        displayed = get_display(shaped, base_dir="R")
+        forms = [
+            ord(char) for char in displayed
+            if 0xFB50 <= ord(char) <= 0xFDFF
+            or 0xFE70 <= ord(char) <= 0xFEFF
+        ]
+        if not forms:
+            return "rtl_libraries=PARTIAL; no_presentation_forms"
+        return "rtl_libraries=OK; shaping=OK; font=" + str(FONT_NAME)
+    except Exception as exc:
+        return "rtl_libraries=ERROR; {}: {}".format(
+            type(exc).__name__, str(exc)[:120]
+        )
 
 
 class FuturesAnalyzerApp(App):
@@ -351,7 +374,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.analysis)
 
         content.add_widget(self.make_label(
-            "این نسخه هیچ سفارش واقعی ثبت نمی‌کند؛ معامله‌گر خودکار فقط در حالت آزمایشی شبیه‌سازی می‌کند.",
+            "معامله‌گر خودکار در این نسخه غیرفعال است و هیچ سفارش واقعی یا شبیه‌سازی معامله اجرا نمی‌شود.",
             size=13, color=(1, 0.68, 0.35, 1), height=dp(66)))
         scroll.add_widget(content)
         root.add_widget(scroll)
@@ -539,7 +562,7 @@ class FuturesAnalyzerApp(App):
             results["best_bid"], results["best_ask"] = bid, ask
             results["bids"] = bids[:5]
             results["asks"] = asks[:5]
-            results["mid_price"] = (bid + ask) / 2
+            results["mid_price"] = bid / 2.0 + ask / 2.0
             results["depth_diagnostic"] = "HTTP 200; bids={}; asks={}; parsed=OK".format(len(bids), len(asks))
 
             # The documented public Futures REST API currently exposes
@@ -940,6 +963,7 @@ class FuturesAnalyzerApp(App):
             "فونت فارسی: " + font_status,
             "فونت لاتین: " + latin_status,
             "وضعیت بارگذاری فونت: " + (FONT_LOAD_ERROR or "OK"),
+            "آزمایش راست‌به‌چپ: " + rtl_runtime_status(),
             "نماد انتخاب‌شده: " + str(self.current_symbol),
             "دفتر سفارش: " + depth_status,
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),

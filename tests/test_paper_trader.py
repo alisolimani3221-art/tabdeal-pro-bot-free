@@ -80,7 +80,7 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIsNone(rank_signal(setup(symbol="BTC_BTC")))
 
     def test_rejects_malformed_and_empty_symbols(self):
-        for symbol in ("", "USDT", "AAA-USDT", "AAA/USDT", "_USDT"):
+        for symbol in ("", "USDT", "AAA-USDT", "AAA/USDT", "_USDT", "AAA__USDT", "A_AAA_USDT", "AAA USDT"):
             with self.subTest(symbol=symbol):
                 self.assertIsNone(rank_signal(setup(symbol=symbol)))
 
