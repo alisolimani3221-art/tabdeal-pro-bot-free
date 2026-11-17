@@ -101,6 +101,11 @@ class OrderBookTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     parse_order_book(payload)
 
+    def test_rejects_best_prices_that_overflow_midpoint_arithmetic(self):
+        payload = {"bids": [["1e308", "1"]], "asks": [["1.7e308", "1"]]}
+        with self.assertRaisesRegex(ValueError, "arithmetic"):
+            parse_order_book(payload)
+
     def test_accepts_locked_book_at_equal_best_prices(self):
         bids, asks = parse_order_book({"bids": [["10", "1"]], "asks": [["10", "2"]]})
         self.assertEqual(bids[0][0], asks[0][0])
