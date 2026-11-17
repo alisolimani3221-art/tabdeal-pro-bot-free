@@ -14,8 +14,13 @@ def _number(value):
 
 def _levels(raw):
     if isinstance(raw, dict):
-        # Some providers encode levels as {price: quantity}.
-        raw = list(raw.items())
+        # A single object level: {"price": "...", "qty": "..."}.
+        level_keys = {"price", "p", "qty", "quantity", "amount", "q"}
+        if level_keys.intersection(raw):
+            raw = [raw]
+        else:
+            # Some providers encode levels as {price: quantity}.
+            raw = list(raw.items())
     if not isinstance(raw, (list, tuple)):
         return []
 
@@ -47,17 +52,26 @@ def parse_order_book(payload):
     for _ in range(6):
         if not isinstance(current, dict):
             break
-        if any(key in current for key in ("bids", "asks", "b", "a")):
-            break
+
+        has_sides = any(key in current for key in ("bids", "asks", "b", "a"))
+        if has_sides:
+            bids = _levels(current.get("bids", current.get("b", [])))
+            asks = _levels(current.get("asks", current.get("a", [])))
+            if bids and asks:
+                break
+
         nested = None
         for key in ("data", "result", "payload"):
             candidate = current.get(key)
-            if candidate is not None and candidate is not current:
+            if isinstance(candidate, dict) and candidate is not current:
                 nested = candidate
                 break
         if nested is None:
             break
         current = nested
+    else:
+        bids = _levels(current.get("bids", current.get("b", []))) if isinstance(current, dict) else []
+        asks = _levels(current.get("asks", current.get("a", []))) if isinstance(current, dict) else []
 
     if not isinstance(current, dict):
         raise ValueError("depth response is not an order-book object")
