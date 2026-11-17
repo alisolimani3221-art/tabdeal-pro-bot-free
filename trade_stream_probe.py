@@ -6,6 +6,7 @@ exchange documentation only guarantees the outer {"trade": {...}} envelope.
 """
 import json
 import math
+import re
 import time
 import threading
 
@@ -52,7 +53,8 @@ def _first(mapping, names):
 def parse_trade_message(message, expected_symbol=None):
     """Return normalized trade or a safe diagnostic; never guess missing fields."""
     if expected_symbol is not None and (
-            not isinstance(expected_symbol, str) or not expected_symbol.strip()):
+            not isinstance(expected_symbol, str)
+            or not re.fullmatch(r"[A-Za-z0-9]+_USDT", expected_symbol)):
         return {"ok": False, "reason": "invalid_expected_symbol"}
     if isinstance(message, bytes):
         if len(message) > MAX_MESSAGE_BYTES:
@@ -82,8 +84,11 @@ def parse_trade_message(message, expected_symbol=None):
                 "top_level_keys": sorted(str(k) for k in payload.keys())[:20]}
 
     symbol = trade.get("symbol") or trade.get("s") or payload.get("symbol")
-    if symbol is not None and expected_symbol and str(symbol).upper() != expected_symbol.upper():
-        return {"ok": False, "reason": "symbol_mismatch"}
+    if symbol is not None:
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z0-9]+_USDT", symbol, re.IGNORECASE):
+            return {"ok": False, "reason": "invalid_symbol"}
+        if expected_symbol and symbol.upper() != expected_symbol.upper():
+            return {"ok": False, "reason": "symbol_mismatch"}
     price = _finite_positive(_first(trade, ALIASES["price"]))
     quantity = _finite_positive(_first(trade, ALIASES["quantity"]))
     timestamp = _finite_positive(_first(trade, ALIASES["timestamp"]))
@@ -96,9 +101,11 @@ def parse_trade_message(message, expected_symbol=None):
     if not math.isfinite(timestamp_value):
         return {"ok": False, "reason": "invalid_timestamp"}
     timestamp_ms = int(timestamp_value)
-    # Reject implausible future values and float magnitudes that cannot
-    # represent a meaningful exchange event timestamp.
-    if timestamp_ms <= 0 or timestamp_ms >= 10_000_000_000_000:
+    # Reject magnitudes outside millisecond epoch range and timestamps
+    # more than five minutes ahead of this device's clock.
+    now_ms = int(time.time() * 1000)
+    if (timestamp_ms <= 0 or timestamp_ms >= 10_000_000_000_000
+            or timestamp_ms > now_ms + 5 * 60 * 1000):
         return {"ok": False, "reason": "invalid_timestamp"}
     return {"ok": True, "symbol": str(symbol or expected_symbol or ""),
             "price": price, "quantity": quantity, "timestamp_ms": timestamp_ms}
@@ -106,9 +113,9 @@ def parse_trade_message(message, expected_symbol=None):
 
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     """Connect once, send plain-text symbol on open, and observe public trades."""
-    parts = symbol.split("_") if isinstance(symbol, str) else []
-    if (len(parts) != 2 or not parts[0].isalnum() or parts[1] != "USDT"):
-        raise ValueError("symbol must be a USDT futures symbol such as AEVO_USDT")
+    if (not isinstance(symbol, str) or len(symbol) > 32
+            or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
+        raise ValueError("symbol must be an ASCII USDT futures symbol such as AEVO_USDT")
     if isinstance(timeout_seconds, bool):
         raise ValueError("timeout_seconds must be a finite positive number")
     try:
