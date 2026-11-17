@@ -1292,8 +1292,14 @@ class FuturesAnalyzerApp(App):
             return
 
         last_processed_bucket = None
+        connected_once = False
         while not self.auto_stop_event.is_set():
             def on_open(ws):
+                nonlocal connected_once, last_processed_bucket
+                if connected_once:
+                    builder.reset_after_gap()
+                    last_processed_bucket = None
+                connected_once = True
                 ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
