@@ -71,23 +71,20 @@ class OrderBookTests(unittest.TestCase):
     def test_rejects_boolean_and_container_numbers(self):
         payload = {"bids": [[True, "1"], ["100", False], [[], "2"]],
                    "asks": [["101", "1"]]}
-        bids, asks = parse_order_book(payload)
-        self.assertEqual(bids, [])
-        self.assertEqual(asks, [(101.0, 1.0)])
+        with self.assertRaisesRegex(ValueError, "no usable bids/asks"):
+            parse_order_book(payload)
 
     def test_rejects_non_finite_and_negative_levels(self):
         payload = {"bids": [["NaN", "1"], ["99", "Infinity"], ["-1", "1"]],
                    "asks": [["101", "1"]]}
-        bids, asks = parse_order_book(payload)
-        self.assertEqual(bids, [])
-        self.assertEqual(asks, [(101.0, 1.0)])
+        with self.assertRaisesRegex(ValueError, "no usable bids/asks"):
+            parse_order_book(payload)
 
     def test_duplicate_aggregation_overflow_drops_entire_price_level(self):
         payload = {"bids": [["100", "1e308"], ["100", "1e308"]],
                    "asks": [["101", "1"]]}
-        bids, asks = parse_order_book(payload)
-        self.assertEqual(bids, [])
-        self.assertEqual(asks, [(101.0, 1.0)])
+        with self.assertRaisesRegex(ValueError, "no usable bids/asks"):
+            parse_order_book(payload)
 
     def test_api_error_is_reported(self):
         with self.assertRaisesRegex(ValueError, "depth API error 1001"):
