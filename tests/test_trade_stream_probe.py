@@ -25,6 +25,11 @@ class TradeStreamProbeTests(unittest.TestCase):
                          "trade_not_object")
         self.assertEqual(inspect_trade_message("not json")["reason"], "invalid_json")
 
+    def test_schema_inspector_rejects_invalid_unicode(self):
+        result = inspect_trade_message('{"trade": "\ud800"}')
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "invalid_unicode")
+
     def test_schema_inspector_rejects_error_envelope(self):
         result = inspect_trade_message('{"error": "rejected"}')
         self.assertFalse(result["ok"])
