@@ -266,7 +266,7 @@ class FuturesAnalyzerApp(App):
         # a real button so the user can inspect that exact bid/ask price and size.
         book_title_button = Button(
             text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
-            font_name=FONT_NAME, markup=True, font_size=sp(17),
+            font_name=FONT_NAME, markup=True, markup=True, font_size=sp(17),
             size_hint_y=None, height=dp(42),
             background_normal="", background_color=(0.08, 0.28, 0.42, 1),
             color=(0.35, 0.78, 1, 1),
@@ -310,7 +310,7 @@ class FuturesAnalyzerApp(App):
         self.analysis_metrics.font_name = NUMERIC_FONT_NAME
 
         self.smart_analysis_button = Button(
-            text=fa("تحلیل هوشمند و پیشنهاد معامله"), font_name=FONT_NAME,
+            text=fa("تحلیل هوشمند و پیشنهاد معامله"), font_name=FONT_NAME, markup=True,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.12, 0.38, 0.58, 1),
             color=(1, 1, 1, 1),
@@ -320,14 +320,14 @@ class FuturesAnalyzerApp(App):
         self.latest_technical_analysis = None
         content.add_widget(self.analysis_metrics)
 
-        self.risk_button = Button(text=fa("محاسبه مدیریت ریسک"), font_name=FONT_NAME, font_size=sp(16),
+        self.risk_button = Button(text=fa("محاسبه مدیریت ریسک"), font_name=FONT_NAME, markup=True, font_size=sp(16),
                                   size_hint_y=None, height=dp(48), background_normal="",
                                   background_color=(0.12, 0.48, 0.38, 1), color=(1, 1, 1, 1))
         self.risk_button.bind(on_press=self.open_risk_calculator)
         content.add_widget(self.risk_button)
 
         self.auto_trader_button = Button(
-            text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME,
+            text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME, markup=True,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.42, 0.30, 0.12, 1),
             color=(1, 1, 1, 1))
@@ -351,7 +351,7 @@ class FuturesAnalyzerApp(App):
         scroll.add_widget(content)
         root.add_widget(scroll)
 
-        self.check_button = Button(text=fa("بررسی اتصال"), font_name=FONT_NAME, font_size=sp(17),
+        self.check_button = Button(text=fa("بررسی اتصال"), font_name=FONT_NAME, markup=True, font_size=sp(17),
                                    size_hint_y=None, height=dp(54), background_normal="",
                                    background_color=(0.08, 0.42, 0.68, 1), color=(1, 1, 1, 1))
         self.check_button.bind(on_press=self.show_status)
@@ -359,7 +359,7 @@ class FuturesAnalyzerApp(App):
 
         # Dedicated diagnostics entry point, available before any network check.
         self.diagnostics_button = Button(
-            text=fa("مرکز عیب‌یابی"), font_name=FONT_NAME, font_size=sp(15),
+            text=fa("مرکز عیب‌یابی"), font_name=FONT_NAME, markup=True, font_size=sp(15),
             size_hint_y=None, height=dp(46), background_normal="",
             background_color=(0.20, 0.25, 0.34, 1), color=(1, 1, 1, 1),
         )
@@ -369,7 +369,7 @@ class FuturesAnalyzerApp(App):
         return root
 
     def make_label(self, text, size=15, color=(1, 1, 1, 1), height=dp(48)):
-        return Label(markup=True, text=fa(text), font_name=font_for_text(text), font_size=sp(size), color=color,
+        return Label(text=fa(text), font_name=font_for_text(text), font_size=sp(size), color=color,
                      size_hint_y=None, height=height, halign="center", valign="middle",
                      text_size=(Window.width - dp(40), None))
 
@@ -579,7 +579,7 @@ class FuturesAnalyzerApp(App):
         body.add_widget(self.make_label("سمت سفارش: " + side, size=16, height=dp(42)))
         body.add_widget(self.make_label("قیمت: " + parts[0], size=15, height=dp(38)))
         body.add_widget(self.make_label("مقدار: " + parts[1], size=15, height=dp(38)))
-        close_button = Button(text=fa("بستن"), font_name=FONT_NAME,
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True,
                               size_hint_y=None, height=dp(44))
         popup = Popup(title=fa("جزئیات ردیف دفتر سفارش"),
                       title_font=FONT_NAME, content=body,
@@ -596,7 +596,7 @@ class FuturesAnalyzerApp(App):
         report.bind(minimum_height=report.setter("height"))
 
         def add_line(text, size=15, height=dp(42), color=(0.94, 0.96, 1, 1), font=FONT_NAME):
-            label = Label(markup=True, text=fa(text), font_name=font, markup=True, font_size=sp(size),
+            label = Label(text=fa(text), font_name=font, markup=True, markup=True, font_size=sp(size),
                           color=color, size_hint_y=None, height=height,
                           halign="center", valign="middle",
                           text_size=(Window.width * 0.82, None))
@@ -652,7 +652,7 @@ class FuturesAnalyzerApp(App):
         report_scroll = ScrollView(do_scroll_x=False)
         report_scroll.add_widget(report)
         body.add_widget(report_scroll)
-        close_button = Button(text=fa("بستن"), font_name=FONT_NAME,
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True,
                               size_hint_y=None, height=dp(46))
         body.add_widget(close_button)
         popup = Popup(title=fa("تحلیل هوشمند بازار"), title_font=FONT_NAME,
@@ -917,7 +917,7 @@ class FuturesAnalyzerApp(App):
         message = message.replace("API پینگ", "پینگ بازار")
         message = message.replace("نماد BTCUSDT", "نماد معاملاتی بیت‌کوین")
         message_label = Label(
-            markup=True, text=fa(message), font_name=FONT_NAME, font_size=sp(15),
+            text=fa(message), font_name=FONT_NAME, markup=True, font_size=sp(15),
             halign="center", valign="middle", size_hint=(1, None),
             text_size=(Window.width * 0.80, None)
         )
@@ -945,7 +945,7 @@ class FuturesAnalyzerApp(App):
         report_scroll.add_widget(report_content)
         body.add_widget(report_scroll)
 
-        close_button = Button(text=fa("متوجه شدم"), font_name=FONT_NAME, size_hint_y=None, height=dp(46))
+        close_button = Button(text=fa("متوجه شدم"), font_name=FONT_NAME, markup=True, size_hint_y=None, height=dp(46))
         body.add_widget(close_button)
         popup = Popup(title=fa(popup_title), title_font=FONT_NAME, content=body,
                       size_hint=(0.94, 0.78), auto_dismiss=False)
