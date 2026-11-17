@@ -549,12 +549,19 @@ class FuturesAnalyzerApp(App):
                 results["market_info_error"] = "{}: {}".format(
                     type(info_exc).__name__, str(info_exc)[:260]
                 )
-                # Do not stop here: /depth can succeed even when the metadata
-                # endpoint has a transient TLS/network failure.
-                if not re.fullmatch(r"[A-Z0-9]+_?USDT", str(market_symbol)):
-                    market_symbol = "BTC_USDT"
+                # Fail closed: a syntactically plausible ticker is not proof
+                # that the contract exists or is active. Never query depth for
+                # an unverified/stale symbol when exchangeInfo is unavailable.
+                market_symbol = None
+
+            if not market_symbol:
+                results["market_symbol"] = "UNVERIFIED"
+                raise RuntimeError(
+                    "Futures symbol could not be verified because exchangeInfo was unavailable"
+                )
 
             results["market_symbol"] = market_symbol
+            results["symbol_verified"] = True
             depth = get_response("/depth", params={"symbol": market_symbol, "limit": 5}, timeout=25)
             results["depth_http"] = depth.status_code
             results["depth_url"] = depth.url
