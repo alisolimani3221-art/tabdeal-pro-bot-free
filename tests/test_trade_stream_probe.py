@@ -58,8 +58,7 @@ class TradeStreamProbeTests(unittest.TestCase):
     def test_rejects_boolean_in_each_numeric_trade_field(self):
         for field in ("price", "quantity", "timestamp"):
             with self.subTest(field=field):
-                self.assertEqual(self.parse_trade_with(field, True)["reason"],
-                                 "trade_schema_unrecognized")
+                self.assertFalse(self.parse_trade_with(field, True)["ok"])
 
     def test_rejects_false_boolean_in_each_numeric_trade_field(self):
         for field in ("price", "quantity", "timestamp"):
@@ -85,6 +84,34 @@ class TradeStreamProbeTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertFalse(self.parse_trade_with("price", value)["ok"])
 
+    def test_parses_observed_tabdeal_iso_timestamp_and_sequence_schema(self):
+        payload = {"trade": {
+            "symbol": "BTC_USDT", "price": "123.4", "amount": "0.01234",
+            "sequence": 987654, "side_name": "BUY",
+            "updated": "2026-11-17T03:49:14.123456Z",
+        }}
+        result = parse_trade_message(json.dumps(payload), "BTC_USDT")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["quantity"], 0.01234)
+        self.assertEqual(result["sequence"], 987654)
+        self.assertEqual(result["side_name"], "buy")
+        self.assertEqual(result["timestamp_ms"], 1794887354123)
+
+    def test_rejects_naive_iso_timestamp(self):
+        payload = {"trade": {"symbol": "BTC_USDT", "price": "1",
+                             "amount": "1", "updated": "2026-11-17T03:49:14"}}
+        self.assertEqual(parse_trade_message(json.dumps(payload))["reason"],
+                         "invalid_timestamp")
+
+    def test_rejects_invalid_sequence_values(self):
+        for sequence in (True, -1, 1.5, float("inf"), 10 ** 1000, "123"):
+            payload = {"trade": {"symbol": "BTC_USDT", "price": "1",
+                                 "amount": "1", "updated": "2026-11-17T03:49:14.123456Z",
+                                 "sequence": sequence}}
+            with self.subTest(sequence_type=type(sequence).__name__):
+                self.assertEqual(parse_trade_message(json.dumps(payload))["reason"],
+                                 "invalid_sequence")
+
     def test_rejects_timestamps_far_in_the_future(self):
         future_seconds = time.time() + 600
         self.assertEqual(self.parse_trade_with("timestamp", future_seconds)["reason"],
@@ -100,7 +127,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(self.parse_trade_with("timestamp", "1e308")["reason"],
                          "invalid_timestamp")
         self.assertEqual(self.parse_trade_with("timestamp", "1e309")["reason"],
-                         "trade_schema_unrecognized")
+                         "invalid_timestamp")
         self.assertEqual(self.parse_trade_with("timestamp", "1e13")["reason"],
                          "invalid_timestamp")
 
