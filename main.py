@@ -36,6 +36,7 @@ from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path
 from market_symbols import select_market_symbol, list_market_symbols
 from risk_analysis import calculate_position_risk, recommend_leverage
+from market_format import format_market_value
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -645,15 +646,15 @@ class FuturesAnalyzerApp(App):
                 leverage_plan["volatility_pct"], leverage_plan["reason"]),
                 size=12, height=dp(48), font=FONT_NAME)
             add_line("ریسک پیشنهادی هر معامله: حداکثر 0.5% سرمایه", size=13)
-            add_line("قیمت مبنا: {:,.6f}".format(price), font=FONT_NAME)
-            add_line("RSI 14: {:.1f}    SMA20: {:,.6f}".format(
-                float(technical["rsi14"]), float(technical["sma20"])),
+            add_line("قیمت مبنا: {}".format(format_market_value(price)), font=FONT_NAME)
+            add_line("RSI 14: {:.1f}    SMA20: {}".format(
+                float(technical["rsi14"]), format_market_value(technical["sma20"])),
                 size=13, font=NUMERIC_FONT_NAME)
-            add_line("SMA50: {:,.6f}    ATR14: {:,.6f}".format(
-                float(technical["sma50"]), atr), size=13, font=NUMERIC_FONT_NAME)
+            add_line("SMA50: {}    ATR14: {}".format(
+                format_market_value(technical["sma50"]), format_market_value(atr)), size=13, font=NUMERIC_FONT_NAME)
             if stop is not None and target is not None and stop > 0 and target > 0:
-                add_line("حد ضرر تخمینی: {:,.6f}".format(stop), font=FONT_NAME)
-                add_line("هدف سود تخمینی: {:,.6f}".format(target), font=FONT_NAME)
+                add_line("حد ضرر تخمینی: {}".format(format_market_value(stop)), font=FONT_NAME)
+                add_line("هدف سود تخمینی: {}".format(format_market_value(target)), font=FONT_NAME)
                 add_line("نسبت سود به زیان هدف: 2 به 1", size=14)
             else:
                 add_line("برای این وضعیت حد ضرر و هدف معامله پیشنهاد نمی‌شود.", size=13)
@@ -696,7 +697,7 @@ class FuturesAnalyzerApp(App):
 
         # Keep field labels Persian-only; avoid mixed RTL/LTR unit strings.
         add_field("capital", "سرمایه به تتر", "{:.2f}".format(self.capital_usdt))
-        add_field("entry", "قیمت ورود (تخمین دفتر سفارش)", "{:.2f}".format(self.latest_market_price) if self.latest_market_price else "")
+        add_field("entry", "قیمت ورود (تخمین دفتر سفارش)", format_market_value(self.latest_market_price) if self.latest_market_price else "")
         add_field("risk", "ریسک هر معامله", "1")
         add_field("stop", "فاصله حد ضرر", "1")
         add_field("leverage", "اهرم (حداکثر 3)", "3")
@@ -771,13 +772,13 @@ class FuturesAnalyzerApp(App):
                 except OSError:
                     pass
                 result_rows["risk"].text = "{:.2f}".format(result["risk_amount"])
-                result_rows["quantity"].text = "{:.8f}".format(result["quantity"])
+                result_rows["quantity"].text = format_market_value(result["quantity"])
                 result_rows["notional"].text = "{:.2f}".format(result["notional"])
                 result_rows["margin"].text = "{:.2f}".format(result["margin_estimate"])
-                result_rows["stop_buy"].text = "{:.2f}".format(result["stop_price_long"])
-                result_rows["stop_sell"].text = "{:.2f}".format(result["stop_price_short"])
-                result_rows["target_buy"].text = "{:.2f}".format(result["target_price_long"])
-                result_rows["target_sell"].text = "{:.2f}".format(result["target_price_short"])
+                result_rows["stop_buy"].text = format_market_value(result["stop_price_long"])
+                result_rows["stop_sell"].text = format_market_value(result["stop_price_short"])
+                result_rows["target_buy"].text = format_market_value(result["target_price_long"])
+                result_rows["target_sell"].text = format_market_value(result["target_price_short"])
                 if result["margin_estimate"] > capital_value:
                     result_note.text = fa(
                         "هشدار: وجه تضمین تخمینی از سرمایه واردشده بیشتر است؛ این حجم قابل اجرا نیست."
@@ -825,9 +826,9 @@ class FuturesAnalyzerApp(App):
             # Switch to Roboto only for actual ASCII numeric values.
             for value_label in (self.price_value, self.bid_value, self.ask_value):
                 value_label.font_name = NUMERIC_FONT_NAME
-            self.price_value.text = "{:,.2f}".format(results["mid_price"])
-            self.bid_value.text = "{:,.2f}".format(results["best_bid"])
-            self.ask_value.text = "{:,.2f}".format(results["best_ask"])
+            self.price_value.text = format_market_value(results["mid_price"])
+            self.bid_value.text = format_market_value(results["best_bid"])
+            self.ask_value.text = format_market_value(results["best_ask"])
         else:
             # Persian failure/placeholder text must never be rendered with Roboto.
             for value_label in (self.price_value, self.bid_value, self.ask_value):
@@ -844,8 +845,8 @@ class FuturesAnalyzerApp(App):
             for index, row_button in enumerate(row_buttons):
                 if book_ok and index < len(levels):
                     level_price, level_qty = levels[index]
-                    row_button.text = "{:.2f}       {:.6f}".format(
-                        float(level_price), float(level_qty)
+                    row_button.text = "{}       {}".format(
+                        format_market_value(level_price), format_market_value(level_qty)
                     )
                     row_button.disabled = False
                     row_button.background_color = (0.10, 0.18, 0.20, 1) if row_buttons is self.bid_rows else (0.22, 0.13, 0.13, 1)
@@ -860,11 +861,13 @@ class FuturesAnalyzerApp(App):
             message = (
                 "وضعیت سایت: {}\nپینگ بازار: کد {}\nاطلاعات بازار: کد {}\n"
                 "دفتر سفارش: کد {}\nنماد معاملاتی: {}\n"
-                "بهترین خرید: {:,.2f}\nبهترین فروش: {:,.2f}\n"
-                "قیمت میانی تقریبی: {:,.2f}"
+                "بهترین خرید: {}\nبهترین فروش: {}\n"
+                "قیمت میانی تقریبی: {}"
             ).format(website_status, results["market_ping"], results["market_info"],
                      results["depth_status"], results["market_symbol"],
-                     results["best_bid"], results["best_ask"], results["mid_price"])
+                     format_market_value(results["best_bid"]),
+                     format_market_value(results["best_ask"]),
+                     format_market_value(results["mid_price"]))
             popup_title = "دریافت داده بازار موفق"
         else:
             self.connection.text = fa("دریافت کامل داده بازار برقرار نشد")
