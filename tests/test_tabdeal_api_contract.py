@@ -51,7 +51,7 @@ class TabdealApiContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 for forbidden in ("api_key", "api_secret", "new_order", "create_order"):
                     self.assertNotIn(forbidden, source)
-                self.assertNotRegex(source, r"\\.(post|put|delete)\\s*\\(")
+                self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
 
     def test_server_monitor_does_not_create_paper_trading_signals_or_orders(self):
         source = self.read("server_paper_trader.py")
