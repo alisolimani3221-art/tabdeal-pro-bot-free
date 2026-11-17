@@ -35,6 +35,22 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn("معامله‌گر خودکار در این نسخه غیرفعال است", source)
         self.assertNotIn("فقط در حالت آزمایشی شبیه‌سازی می‌کند", source)
 
+    def test_observed_trade_schema_is_documented_without_enabling_signals(self):
+        doc = self.read("TRADE_STREAM_SCHEMA.md")
+        source = self.read("main.py")
+        self.assertIn("side_name", doc)
+        self.assertIn("updated", doc)
+        self.assertIn("No candle aggregation has been enabled", doc)
+        self.assertIn("run_auto_paper_scanner", source)
+        self.assertIn("هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود", source)
+
+    def test_ci_runs_optional_redacted_trade_stream_probe(self):
+        workflow = self.read(".github/workflows/android.yml")
+        self.assertIn("Read-only Tabdeal trade broadcast probe", workflow)
+        self.assertIn("continue-on-error: true", workflow)
+        self.assertIn("trade-stream-probe-report.json", workflow)
+        self.assertIn("Upload redacted trade-stream probe report", workflow)
+
     def test_public_trade_probe_is_read_only_and_has_no_credentials(self):
         source = self.read("trade_stream_probe.py")
         self.assertIn("BROADCAST_URL", source)
