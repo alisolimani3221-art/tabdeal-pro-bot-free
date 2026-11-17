@@ -46,7 +46,7 @@ def read_market(symbol):
     book = get_data("/depth", {"symbol": symbol, "limit": 5})
     bids, asks = parse_order_book(book)
     best_bid, best_ask = bids[0][0], asks[0][0]
-    midpoint = (best_bid + best_ask) / 2.0
+    midpoint = best_bid / 2.0 + best_ask / 2.0
     spread = best_ask - best_bid
     return best_bid, best_ask, midpoint, spread
 
