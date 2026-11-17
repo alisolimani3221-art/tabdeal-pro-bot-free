@@ -7,6 +7,9 @@ it never logs trade values, reads credentials, or submits orders.
 import argparse
 import json
 import re
+import math
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 import time
 import threading
 
@@ -50,7 +53,81 @@ def _shape(value, depth=0):
     return {"type": kind}
 
 
-def inspect_trade_message(message):
+def _decimal_profile(value):
+    if not isinstance(value, str) or not re.fullmatch(
+            r"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)", value):
+        return {"valid_decimal_string": False}
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return {"valid_decimal_string": False}
+    if not number.is_finite():
+        return {"valid_decimal_string": False}
+    fraction = value.lstrip("+-").partition(".")[2]
+    return {"valid_decimal_string": True, "positive": number > 0,
+            "decimal_places": len(fraction)}
+
+
+def _timestamp_profile(value):
+    if not isinstance(value, str):
+        return {"format": "not_string"}
+    if re.fullmatch(r"[0-9]{10}", value):
+        return {"format": "epoch_seconds_string"}
+    if re.fullmatch(r"[0-9]{13}", value):
+        return {"format": "epoch_milliseconds_string"}
+    if re.fullmatch(r"[0-9]{16}", value):
+        return {"format": "epoch_microseconds_string"}
+    if re.fullmatch(r"[0-9]{19}", value):
+        return {"format": "epoch_nanoseconds_string"}
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except (TypeError, ValueError):
+        return {"format": "other_string"}
+    fraction = re.search(r"\\.([0-9]+)", value)
+    aware = parsed.tzinfo is not None and parsed.utcoffset() is not None
+    return {"format": "iso8601_datetime", "timezone_aware": aware,
+            "fractional_digits": len(fraction.group(1)) if fraction else 0}
+
+
+def _trade_profile(trade, expected_symbol=None):
+    """Classify field formats without retaining or returning market values."""
+    profile = {}
+    for field in ("price", "amount"):
+        profile[field] = _decimal_profile(trade.get(field))
+    sequence = trade.get("sequence")
+    profile["sequence"] = {
+        "type": _type_name(sequence),
+        "finite": isinstance(sequence, (int, float)) and
+                  not isinstance(sequence, bool) and math.isfinite(sequence),
+        "integer": isinstance(sequence, int) or
+                   (isinstance(sequence, float) and math.isfinite(sequence)
+                    and sequence.is_integer()),
+    }
+    side = trade.get("side_name")
+    if isinstance(side, str):
+        normalized_side = side.strip().lower()
+        if normalized_side in ("buy", "bid", "long"):
+            side_class = "buy_like"
+        elif normalized_side in ("sell", "ask", "short"):
+            side_class = "sell_like"
+        else:
+            side_class = "unknown"
+        profile["side_name"] = {"type": "string", "classification": side_class}
+    else:
+        profile["side_name"] = {"type": _type_name(side),
+                                "classification": "not_string"}
+    symbol = trade.get("symbol")
+    profile["symbol"] = {
+        "type": _type_name(symbol),
+        "matches_requested": (symbol == expected_symbol)
+                              if expected_symbol is not None else None,
+    }
+    profile["updated"] = _timestamp_profile(trade.get("updated"))
+    return profile
+
+
+def inspect_trade_message(message, expected_symbol=None):
     """Return schema metadata only; never return raw trade values."""
     if isinstance(message, bytes):
         if len(message) > MAX_MESSAGE_BYTES:
@@ -88,7 +165,8 @@ def inspect_trade_message(message):
         return {"ok": False, "reason": "empty_trade_object",
                 "top_level_shape": _shape(payload)}
     return {"ok": True, "reason": "trade_object_observed",
-            "top_level_shape": _shape(payload), "trade_shape": _shape(trade)}
+            "top_level_shape": _shape(payload), "trade_shape": _shape(trade),
+            "trade_profile": _trade_profile(trade, expected_symbol)}
 
 
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
@@ -101,8 +179,9 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
         raise RuntimeError("websocket-client is not installed") from exc
 
     result = {"connected": False, "messages": 0, "trade_envelopes": 0,
-              "schema_observations": [], "last_diagnostic": "no_message",
-              "symbol": symbol, "connection_error": None}
+              "schema_observations": [], "field_profiles": [],
+              "last_diagnostic": "no_message", "symbol": symbol,
+              "connection_error": None}
 
     def on_open(ws):
         result["connected"] = True
@@ -110,7 +189,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
 
     def on_message(ws, message):
         result["messages"] += 1
-        observed = inspect_trade_message(message)
+        observed = inspect_trade_message(message, expected_symbol=symbol)
         result["last_diagnostic"] = observed.get("reason", "unknown")
         if observed.get("ok") and observed.get("trade_shape"):
             result["trade_envelopes"] += 1
@@ -118,6 +197,11 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
             known = {json.dumps(item, sort_keys=True) for item in result["schema_observations"]}
             if signature not in known and len(result["schema_observations"]) < 5:
                 result["schema_observations"].append(observed["trade_shape"])
+            profile_signature = json.dumps(observed["trade_profile"], sort_keys=True)
+            known_profiles = {json.dumps(item, sort_keys=True)
+                              for item in result["field_profiles"]}
+            if profile_signature not in known_profiles and len(result["field_profiles"]) < 5:
+                result["field_profiles"].append(observed["trade_profile"])
         if result["messages"] >= max_messages:
             ws.close()
 
