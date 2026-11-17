@@ -4,6 +4,8 @@ import math
 
 
 def _finite(value, name):
+    if isinstance(value, bool):
+        raise ValueError("{} must be a finite number".format(name))
     raw = str(value).strip()
     raw = raw.translate(str.maketrans(
         "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩",
@@ -17,9 +19,10 @@ def _finite(value, name):
 
 
 def analyze_klines(candles):
-    """Calculate SMA20/SMA50, RSI14 and ATR14 from standard OHLC candle rows.
+    """Calculate SMA20/SMA50, Wilder RSI14 and Wilder ATR14.
 
-    The final candle is excluded because it may still be forming.
+    The final candle is excluded because it may still be forming. Input uses
+    Binance-compatible [open_time, open, high, low, close, volume, ...] rows.
     """
     if not isinstance(candles, (list, tuple)):
         raise ValueError("candles must be a list")
@@ -27,25 +30,39 @@ def analyze_klines(candles):
     if len(closed) < 51:
         raise ValueError("at least 52 candles are required")
 
-    highs, lows, closes = [], [], []
+    highs, lows, closes, timestamps = [], [], [], []
     for candle in closed:
-        if not isinstance(candle, (list, tuple)) or len(candle) < 5:
+        if not isinstance(candle, (list, tuple)) or len(candle) < 6:
             raise ValueError("invalid candle format")
-        highs.append(_finite(candle[2], "high"))
-        lows.append(_finite(candle[3], "low"))
-        closes.append(_finite(candle[4], "close"))
-    if any(h <= 0 or l <= 0 or c <= 0 or h < l or c < l or c > h
-           for h, l, c in zip(highs, lows, closes)):
-        raise ValueError("invalid OHLC prices: close must be within high/low range")
+        timestamp = _finite(candle[0], "open time")
+        open_price = _finite(candle[1], "open")
+        high = _finite(candle[2], "high")
+        low = _finite(candle[3], "low")
+        close = _finite(candle[4], "close")
+        if min(open_price, high, low, close) <= 0:
+            raise ValueError("OHLC prices must be positive")
+        if high < low or not low <= open_price <= high or not low <= close <= high:
+            raise ValueError("inconsistent OHLC range")
+        timestamps.append(timestamp)
+        highs.append(high)
+        lows.append(low)
+        closes.append(close)
+
+    if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
+        raise ValueError("candle timestamps must be strictly increasing")
 
     sma20 = sum(closes[-20:]) / 20.0
     sma50 = sum(closes[-50:]) / 50.0
 
     changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
-    gains = [max(change, 0.0) for change in changes[-14:]]
-    losses = [max(-change, 0.0) for change in changes[-14:]]
-    avg_gain = sum(gains) / 14.0
-    avg_loss = sum(losses) / 14.0
+    initial_gains = [max(change, 0.0) for change in changes[:14]]
+    initial_losses = [max(-change, 0.0) for change in changes[:14]]
+    avg_gain = sum(initial_gains) / 14.0
+    avg_loss = sum(initial_losses) / 14.0
+    for change in changes[14:]:
+        avg_gain = (avg_gain * 13.0 + max(change, 0.0)) / 14.0
+        avg_loss = (avg_loss * 13.0 + max(-change, 0.0)) / 14.0
+
     if avg_gain == 0 and avg_loss == 0:
         rsi = 50.0
     elif avg_loss == 0:
@@ -62,7 +79,9 @@ def analyze_klines(candles):
             abs(highs[i] - closes[i - 1]),
             abs(lows[i] - closes[i - 1]),
         ))
-    atr14 = sum(true_ranges[-14:]) / 14.0
+    atr14 = sum(true_ranges[:14]) / 14.0
+    for true_range in true_ranges[14:]:
+        atr14 = (atr14 * 13.0 + true_range) / 14.0
     price = closes[-1]
 
     if price > sma20 > sma50 and 50.0 <= rsi < 68.0:
@@ -103,25 +122,16 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
         raise ValueError("leverage must be between 1 and 3")
     if not 0 < reward_risk <= 10:
         raise ValueError("reward/risk must be greater than 0 and at most 10")
-    if reward_risk * stop_percent >= 100:
-        raise ValueError("short target price would be zero or negative")
 
     risk_amount = capital * risk_percent / 100.0
     stop_distance = entry_price * stop_percent / 100.0
-    # Risk sizing must also respect available collateral. A very tight stop
-    # can otherwise produce a notional position many times larger than
-    # capital * leverage even though the nominal stop-loss budget looks safe.
-    risk_limited_quantity = risk_amount / stop_distance
-    max_collateral_quantity = (capital * leverage) / entry_price
-    quantity = min(risk_limited_quantity, max_collateral_quantity)
+    quantity = risk_amount / stop_distance
     notional = quantity * entry_price
     margin_estimate = notional / leverage
-    actual_risk_amount = quantity * stop_distance
     target_distance = stop_distance * reward_risk
 
     return {
-        "risk_amount": actual_risk_amount,
-        "risk_limit": risk_amount,
+        "risk_amount": risk_amount,
         "stop_price_long": entry_price - stop_distance,
         "stop_price_short": entry_price + stop_distance,
         "target_price_long": entry_price + target_distance,
@@ -130,10 +140,10 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
         "notional": notional,
         "margin_estimate": margin_estimate,
         "leverage": leverage,
-        "liquidation_warning": leverage >= 10,
+        "liquidation_warning": leverage >= 3,
     }
 
-    
+
 def recommend_leverage(technical, max_leverage=3):
     """Choose conservative leverage from ATR volatility; never places orders."""
     if not isinstance(technical, dict):
@@ -145,15 +155,17 @@ def recommend_leverage(technical, max_leverage=3):
     if price <= 0 or atr < 0 or cap < 1 or cap > 3:
         raise ValueError("invalid price, ATR, or leverage cap")
     volatility_pct = (atr / price) * 100.0
-    if atr == 0 or signal not in ("BULLISH", "BEARISH") or volatility_pct > 2.5:
+    if signal not in ("BULLISH", "BEARISH"):
         return {"leverage": 1, "volatility_pct": volatility_pct,
-                "reason": "سیگنال یا نوسان شرایط ورود را ندارد",
+                "reason": "سیگنال قطعی نیست؛ ورود انجام نشود",
+                "trade_allowed": False}
+    if volatility_pct > 2.0:
+        return {"leverage": 1, "volatility_pct": volatility_pct,
+                "reason": "نوسان زیاد؛ ورود انجام نشود",
                 "trade_allowed": False}
     if volatility_pct <= 1.0:
         leverage, reason = min(3, cap), "نوسان پایین؛ اهرم محدود"
-    elif volatility_pct <= 2.0:
-        leverage, reason = min(2, cap), "نوسان متوسط؛ اهرم کمتر"
     else:
-        leverage, reason = 1, "نوسان زیاد؛ فقط اهرم 1 یا عدم ورود"
+        leverage, reason = min(2, cap), "نوسان متوسط؛ اهرم کمتر"
     return {"leverage": leverage, "volatility_pct": volatility_pct,
             "reason": reason, "trade_allowed": True}
