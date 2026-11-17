@@ -508,44 +508,53 @@ class FuturesAnalyzerApp(App):
             # Do not make connectivity depend on an undocumented /time route.
             # /ping, /exchangeInfo and /depth are the verified public endpoints.
 
-            info = get_response("/exchangeInfo", timeout=25)
+            # exchangeInfo is useful for refreshing the symbol list, but it is
+            # not a prerequisite for the depth endpoint. On mobile networks one
+            # request can fail TLS while the next succeeds. Keep the last selected
+            # symbol as a safe fallback and always attempt depth independently.
+            market_symbol = requested_symbol or "BTC_USDT"
             try:
-                data = info.json()
-            except Exception as exc:
-                raise RuntimeError("/exchangeInfo returned invalid JSON: {}".format(str(exc)[:120]))
-            finally:
-                info.close()
+                info = get_response("/exchangeInfo", timeout=25)
+                try:
+                    data = info.json()
+                except Exception as exc:
+                    raise RuntimeError("/exchangeInfo returned invalid JSON: {}".format(str(exc)[:120]))
+                finally:
+                    info.close()
 
-            symbols = data
-            if isinstance(data, dict):
-                symbols = data.get("symbols")
-                if symbols is None and isinstance(data.get("data"), dict):
-                    symbols = data["data"].get("symbols")
-                if symbols is None and isinstance(data.get("data"), list):
-                    symbols = data["data"]
-            if not isinstance(symbols, list):
-                preview = str(data)[:220]
-                raise RuntimeError("/exchangeInfo HTTP 200 but unexpected response format: {}".format(preview))
-            results["market_info"] = 200
-            results["symbol_count"] = len(symbols)
-            from market_symbols import list_market_symbols
-            available_symbols = list_market_symbols(symbols)
-            if not available_symbols:
-                raise RuntimeError("/exchangeInfo contained no active USDT perpetual symbols")
-            Clock.schedule_once(
-                lambda dt, values=available_symbols: self.update_symbol_options(values), 0
-            )
-            try:
-                market_symbol = select_market_symbol(symbols, requested_symbol)
-            except ValueError:
-                # If a selected contract was delisted while the app was open,
-                # safely fall back to the first active USDT perpetual contract.
-                market_symbol = available_symbols[0]
+                symbols = data
+                if isinstance(data, dict):
+                    symbols = data.get("symbols")
+                    if symbols is None and isinstance(data.get("data"), dict):
+                        symbols = data["data"].get("symbols")
+                    if symbols is None and isinstance(data.get("data"), list):
+                        symbols = data["data"]
+                if not isinstance(symbols, list):
+                    preview = str(data)[:220]
+                    raise RuntimeError("/exchangeInfo HTTP 200 but unexpected response format: {}".format(preview))
+                results["market_info"] = 200
+                from market_symbols import list_market_symbols
+                available_symbols = list_market_symbols(symbols)
+                if not available_symbols:
+                    raise RuntimeError("/exchangeInfo contained no active USDT perpetual symbols")
+                results["symbol_count"] = len(available_symbols)
+                Clock.schedule_once(
+                    lambda dt, values=available_symbols: self.update_symbol_options(values), 0
+                )
+                try:
+                    market_symbol = select_market_symbol(symbols, requested_symbol)
+                except ValueError:
+                    market_symbol = available_symbols[0]
+            except Exception as info_exc:
+                results["market_info_error"] = "{}: {}".format(
+                    type(info_exc).__name__, str(info_exc)[:260]
+                )
+                # Do not stop here: /depth can succeed even when the metadata
+                # endpoint has a transient TLS/network failure.
+                if not re.fullmatch(r"[A-Z0-9]+_?USDT", str(market_symbol)):
+                    market_symbol = "BTC_USDT"
+
             results["market_symbol"] = market_symbol
-            results["symbol_count"] = len(available_symbols)
-
-            # Use the exact symbol returned by exchangeInfo. Tabdeal futures
-            # Preserve the exact symbol string returned by Tabdeal exchangeInfo.
             depth = get_response("/depth", params={"symbol": market_symbol, "limit": 5}, timeout=25)
             results["depth_http"] = depth.status_code
             results["depth_url"] = depth.url
@@ -558,28 +567,12 @@ class FuturesAnalyzerApp(App):
                     results["depth_diagnostic"] = (
                         "HTTP {}; non-JSON response; content-type={}; body={}".format(
                             depth.status_code, results["depth_content_type"],
-                            raw_text.replace("\n", " ")
+                            raw_text.replace("\\n", " ")
                         )
                     )
                     raise RuntimeError("depth endpoint returned non-JSON data")
             finally:
                 depth.close()
-
-            # Accept the common API wrappers without assuming one fixed envelope.
-            payload = book
-            for _ in range(4):
-                if not isinstance(payload, dict):
-                    break
-                if "bids" in payload or "asks" in payload:
-                    break
-                nested = payload.get("data")
-                if nested is None:
-                    nested = payload.get("result")
-                if nested is None:
-                    nested = payload.get("payload")
-                if nested is None or nested is payload:
-                    break
-                payload = nested
 
             from orderbook import parse_order_book
             bids, asks = parse_order_book(book)
@@ -949,7 +942,7 @@ class FuturesAnalyzerApp(App):
 
         # Technical diagnostics are ASCII-only and therefore rendered with Roboto.
         diagnostic_parts = []
-        for key in ("depth_diagnostic", "ping_error", "market_error"):
+        for key in ("depth_diagnostic", "ping_error", "market_info_error", "market_error"):
             value = results.get(key)
             if value:
                 diagnostic_parts.append("{}: {}".format(key, str(value)))
