@@ -27,7 +27,7 @@ def load_assistant_rtl_text():
     )
     isolated = ast.Module(body=[node], type_ignores=[])
     namespace = {
-        "contains_arabic": lambda value: any("\\u0600" <= ch <= "\\u06ff" for ch in str(value)),
+        "contains_arabic": lambda value: any(0x0600 <= ord(ch) <= 0x06ff for ch in str(value)),
         "arabic_reshaper": SimpleNamespace(reshape=lambda value: "SHAPED:" + value),
     }
     exec(compile(isolated, "main.py", "exec"), namespace)
