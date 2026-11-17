@@ -146,6 +146,18 @@ class MarketSymbolTests(unittest.TestCase):
     def test_deduplicates_compact_and_underscored_symbols(self):
         self.assertEqual(list_market_symbols(["BTCUSDT", "BTC_USDT"]), ["BTCUSDT"])
 
+    def test_notcoin_usdt_symbol_is_preserved_when_exchange_lists_it(self):
+        symbols = [{"symbol": "NOT_USDT", "quoteAsset": "USDT",
+                    "status": "TRADING", "contractType": "PERPETUAL"}]
+        self.assertEqual(list_market_symbols(symbols), ["NOT_USDT"])
+        self.assertEqual(select_market_symbol(symbols, "NOT_USDT"), "NOT_USDT")
+
+    def test_requested_symbol_must_exist_in_exchange_info(self):
+        symbols = [{"symbol": "BTC_USDT", "quoteAsset": "USDT",
+                    "status": "TRADING", "contractType": "PERPETUAL"}]
+        with self.assertRaisesRegex(ValueError, "NOT_USDT was not found"):
+            select_market_symbol(symbols, "NOT_USDT")
+
     def test_rejects_malformed_market_symbols_instead_of_sanitizing_them(self):
         malformed = ["BTC/USDT", "BTC-USDT", "BTC__USDT", "BTC USDT", "_USDT", "BTC_USDT!"]
         self.assertEqual(list_market_symbols(malformed), [])
