@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'main.py'
+      - 'market_format.py'
       - 'trade_stream_probe.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
