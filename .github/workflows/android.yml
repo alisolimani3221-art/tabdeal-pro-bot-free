@@ -149,6 +149,12 @@ jobs:
               symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
+      - name: Observe live Tabdeal Futures trade schema (read-only)
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          python trade_stream_probe.py --symbol BTC_USDT --timeout 25 --max-messages 10
+
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip setuptools wheel
