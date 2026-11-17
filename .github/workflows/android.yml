@@ -156,7 +156,16 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         run: |
-          python trade_stream_probe.py --symbol BTC_USDT --timeout 25 --max-messages 10
+          python trade_stream_probe.py --symbol BTC_USDT --timeout 25 --max-messages 10 --output trade_schema_report.json --require-trade
+
+      - name: Preserve redacted trade schema diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-schema-diagnostic
+          path: trade_schema_report.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Install Buildozer
         run: |
