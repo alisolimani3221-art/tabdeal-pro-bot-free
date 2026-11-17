@@ -36,11 +36,11 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(result["reason"], "trade_not_object")
         self.assertNotIn("trade_shape", result)
 
-    def test_empty_trade_object_is_observed_but_not_schema_confirmed(self):
+    def test_empty_trade_object_is_not_a_trade_observation(self):
         result = inspect_trade_message('{"trade": {}}')
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["reason"], "trade_object_observed")
-        self.assertEqual(result["trade_shape"], {"type": "object", "keys": {}})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "empty_trade_object")
+        self.assertNotIn("trade_shape", result)
 
     def test_probe_does_not_count_null_trade_as_observed(self):
         class FakeWebSocketApp:
