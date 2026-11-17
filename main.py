@@ -881,12 +881,13 @@ class FuturesAnalyzerApp(App):
             self.connection.text = fa("اتصال API بازار و دریافت دفتر سفارش برقرار است")
             self.connection.color = (0.35, 0.9, 0.55, 1)
             message = (
-                "وضعیت سایت: {}\nپینگ بازار: کد {}\nاطلاعات بازار: کد {}\n"
-                "دفتر سفارش: کد {}\nنماد معاملاتی: {}\n"
-                "بهترین خرید: {}\nبهترین فروش: {}\n"
+                "وضعیت سایت: {}\\nپینگ بازار: {}\\nاطلاعات بازار: {}\\n"
+                "دفتر سفارش: کد {}\\nنماد معاملاتی: {}\\n"
+                "بهترین خرید: {}\\nبهترین فروش: {}\\n"
                 "قیمت میانی تقریبی: {}"
-            ).format(website_status, results["market_ping"], results["market_info"],
-                     results["depth_status"], results["market_symbol"],
+            ).format(website_status, results.get("market_ping", "ناموفق؛ غیرمسدودکننده"),
+                     results.get("market_info", "ناموفق؛ نماد انتخاب‌شده استفاده شد"),
+                     results["depth_status"], results.get("market_symbol", "نامشخص"),
                      format_market_value(results["best_bid"]),
                      format_market_value(results["best_ask"]),
                      format_market_value(results["mid_price"]))
