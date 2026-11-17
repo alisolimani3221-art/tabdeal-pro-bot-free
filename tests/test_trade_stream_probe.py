@@ -20,6 +20,34 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertNotIn("123.45", json.dumps(result))
         self.assertNotIn("BTC_USDT", json.dumps(result))
 
+    def test_real_trade_field_profile_is_redacted_and_classified(self):
+        payload = {"trade": {"price": "123.4500", "amount": "0.250",
+                             "sequence": 12345, "side_name": "BUY",
+                             "symbol": "BTC_USDT",
+                             "updated": "2026-11-17T00:35:14.123Z"}}
+        result = inspect_trade_message(json.dumps(payload),
+                                       expected_symbol="BTC_USDT")
+        self.assertTrue(result["ok"])
+        profile = result["trade_profile"]
+        self.assertTrue(profile["price"]["valid_decimal_string"])
+        self.assertEqual(profile["price"]["decimal_places"], 4)
+        self.assertTrue(profile["amount"]["positive"])
+        self.assertTrue(profile["sequence"]["integer"])
+        self.assertEqual(profile["side_name"]["classification"], "buy_like")
+        self.assertTrue(profile["symbol"]["matches_requested"])
+        self.assertEqual(profile["updated"]["format"], "iso8601_datetime")
+        self.assertTrue(profile["updated"]["timezone_aware"])
+        rendered = json.dumps(result)
+        for secret in ("123.4500", "0.250", "12345", "BTC_USDT",
+                       "2026-11-17T00:35:14.123Z", "BUY"):
+            self.assertNotIn(secret, rendered)
+
+    def test_timestamp_classifier_recognizes_epoch_milliseconds_shape(self):
+        payload = {"trade": {"updated": "1700000000123"}}
+        result = inspect_trade_message(json.dumps(payload))
+        self.assertEqual(result["trade_profile"]["updated"]["format"],
+                         "epoch_milliseconds_string")
+
     def test_schema_inspector_rejects_unknown_or_invalid_envelopes(self):
         self.assertEqual(inspect_trade_message('{"trade": null}')["reason"],
                          "trade_not_object")
