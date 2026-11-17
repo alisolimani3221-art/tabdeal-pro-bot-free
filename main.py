@@ -161,7 +161,7 @@ def fa_plain(text):
         return value
     try:
         if arabic_reshaper is not None and get_display is not None:
-            return get_display(arabic_reshaper.reshape(value))
+            return get_display(arabic_reshaper.reshape(value), base_dir="R")
     except Exception:
         pass
     return value
@@ -174,7 +174,7 @@ def fa(text):
         return value
     try:
         if arabic_reshaper is not None and get_display is not None:
-            value = get_display(arabic_reshaper.reshape(value))
+            value = get_display(arabic_reshaper.reshape(value), base_dir="R")
             # Kivy Label markup lets a mixed RTL/LTR sentence use the correct
             # font for each run instead of asking the Arabic font for Latin glyphs.
             value = re.sub(
@@ -187,6 +187,30 @@ def fa(text):
     except Exception:
         pass
     return value
+
+
+def rtl_runtime_status():
+    """Return a compact runtime check for the actual Persian shaping pipeline."""
+    if FONT_LOAD_ERROR:
+        return "persian_font=FAIL; " + FONT_LOAD_ERROR[:180]
+    if arabic_reshaper is None or get_display is None:
+        return "rtl_libraries=FAIL; reshaper_or_bidi_unavailable"
+    try:
+        sample = "فارسی آزمایش پشتیبانی"
+        shaped = arabic_reshaper.reshape(sample)
+        displayed = get_display(shaped, base_dir="R")
+        forms = [
+            ord(char) for char in displayed
+            if 0xFB50 <= ord(char) <= 0xFDFF
+            or 0xFE70 <= ord(char) <= 0xFEFF
+        ]
+        if not forms:
+            return "rtl_libraries=PARTIAL; no_presentation_forms"
+        return "rtl_libraries=OK; shaping=OK; font=" + str(FONT_NAME)
+    except Exception as exc:
+        return "rtl_libraries=ERROR; {}: {}".format(
+            type(exc).__name__, str(exc)[:120]
+        )
 
 
 class FuturesAnalyzerApp(App):
@@ -939,6 +963,7 @@ class FuturesAnalyzerApp(App):
             "فونت فارسی: " + font_status,
             "فونت لاتین: " + latin_status,
             "وضعیت بارگذاری فونت: " + (FONT_LOAD_ERROR or "OK"),
+            "آزمایش راست‌به‌چپ: " + rtl_runtime_status(),
             "نماد انتخاب‌شده: " + str(self.current_symbol),
             "دفتر سفارش: " + depth_status,
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
