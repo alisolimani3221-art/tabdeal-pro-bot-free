@@ -46,8 +46,6 @@ FONT_CANDIDATES = [
     # Use Noto Sans Arabic as the app-wide default: Kivy widgets that implicitly
     # request Roboto (buttons, spinners, popup titles, text inputs) must also
     # receive Persian glyphs, not only labels explicitly styled as Persian.
-    # Prefer Noto Sans Arabic: it covers Arabic/Persian and Latin UI text
-    # in one face, avoiding mixed-font fallback for symbols and prices.
     os.path.join(BASE_DIR, "NotoSansArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "assets", "NotoSansArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "NotoNaskhArabic-Regular.ttf"),
@@ -57,15 +55,7 @@ FONT_CANDIDATES = [
     "/system/fonts/NotoSansArabic-Regular.ttf",
 ]
 FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.isfile(p)), None)
-LATIN_FONT_CANDIDATES = [
-    os.path.join(BASE_DIR, "NotoSans-Regular.ttf"),
-    os.path.join(BASE_DIR, "assets", "NotoSans-Regular.ttf"),
-]
-LATIN_FONT_PATH = next((p for p in LATIN_FONT_CANDIDATES if os.path.isfile(p)), None)
 FONT_LOAD_ERROR = None
-FONT_NAME = "Roboto"
-NUMERIC_FONT_NAME = "Roboto"
-
 if FONT_PATH:
     try:
         resource_add_path(os.path.dirname(FONT_PATH))
@@ -76,29 +66,57 @@ if FONT_PATH:
             fn_italic=FONT_PATH,
             fn_bolditalic=FONT_PATH,
         )
+        # Kivy widgets such as Popup titles, Spinner dropdown rows and some
+        # Buttons use the built-in "Roboto" default unless font_name is set.
+        # Register the bundled Arabic-capable Noto face under that default
+        # name too, so Persian glyphs never fall back to tofu squares.
+        LabelBase.register(
+            name="Roboto",
+            fn_regular=FONT_PATH,
+            fn_bold=FONT_PATH,
+            fn_italic=FONT_PATH,
+            fn_bolditalic=FONT_PATH,
+        )
         FONT_NAME = "PersianNoto"
     except Exception as exc:
         FONT_LOAD_ERROR = "{}: {}".format(type(exc).__name__, str(exc))
+        FONT_NAME = "Roboto"
+else:
+    FONT_LOAD_ERROR = "No bundled or Android system Noto Arabic font was found."
+    FONT_NAME = "Roboto"
 
-# Keep Latin letters, digits and punctuation in a Latin-capable face.
-# Never register an Arabic-only font as Roboto: that creates tofu squares.
+# Use a separate Noto Sans Latin face for ASCII-only content (tickers,
+# English diagnostics, prices and numeric inputs). Persian/mixed RTL text keeps
+# the Arabic-capable face to avoid glyph fallback inconsistencies on Android.
+LATIN_FONT_CANDIDATES = [
+    os.path.join(BASE_DIR, "NotoSans-Regular.ttf"),
+    os.path.join(BASE_DIR, "assets", "NotoSans-Regular.ttf"),
+    "/system/fonts/Roboto-Regular.ttf",
+]
+LATIN_FONT_PATH = next((p for p in LATIN_FONT_CANDIDATES if os.path.isfile(p)), None)
 if LATIN_FONT_PATH:
     try:
         resource_add_path(os.path.dirname(LATIN_FONT_PATH))
         LabelBase.register(
-            name="Roboto",
+            name="LatinNoto",
             fn_regular=LATIN_FONT_PATH,
             fn_bold=LATIN_FONT_PATH,
             fn_italic=LATIN_FONT_PATH,
             fn_bolditalic=LATIN_FONT_PATH,
         )
-    except Exception as exc:
-        FONT_LOAD_ERROR = "{}: {}".format(type(exc).__name__, str(exc))
+        NUMERIC_FONT_NAME = "LatinNoto"
+    except Exception:
+        NUMERIC_FONT_NAME = "Roboto"
+else:
+    NUMERIC_FONT_NAME = "Roboto"
 
-if not FONT_PATH:
-    FONT_LOAD_ERROR = "No bundled or Android system Noto Arabic font was found."
-if not LATIN_FONT_PATH:
-    FONT_LOAD_ERROR = (FONT_LOAD_ERROR or "") + " No bundled Latin font was found."
+
+# Android/Kivy can render the same screen with different fallback fonts when
+# Latin and Arabic labels use separate font faces. That inconsistency can
+# produce tofu/square glyphs in tickers, digits, Spinner rows and popup controls.
+# Use the verified bundled Arabic-capable Noto face for EVERY widget; these
+# Noto fonts include the ASCII letters, digits and punctuation used in BTC_USDT.
+NUMERIC_FONT_NAME = FONT_NAME
 
 
 def font_for_text(text):
