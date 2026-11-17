@@ -49,7 +49,10 @@ def _levels(raw):
                 continue
             price, quantity = _number(price), _number(quantity)
             if price > 0 and quantity > 0:
-                totals[price] = totals.get(price, 0.0) + quantity
+                combined = totals.get(price, 0.0) + quantity
+                if not math.isfinite(combined):
+                    continue
+                totals[price] = combined
         except (TypeError, ValueError, OverflowError):
             continue
     return list(totals.items())
