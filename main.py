@@ -1003,7 +1003,7 @@ class FuturesAnalyzerApp(App):
                 Clipboard.copy(report_text)
                 copy_button.text = fa("گزارش کپی شد")
             except Exception as exc:
-                copy_button.text = fa("خطا در کپی: ") + type(exc).__name__
+                copy_button.text = fa("خطا در کپی: " + type(exc).__name__)
         copy_button.bind(on_press=copy_report)
         actions.add_widget(copy_button)
         actions.add_widget(close_button)
