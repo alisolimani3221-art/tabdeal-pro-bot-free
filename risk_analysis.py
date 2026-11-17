@@ -118,24 +118,33 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
         raise ValueError("risk percent must be greater than 0 and at most 5")
     if not 0 < stop_percent < 100:
         raise ValueError("stop percent must be greater than 0 and below 100")
-    if not 1 <= leverage <= 3:
-        raise ValueError("leverage must be between 1 and 3")
+    if not leverage.is_integer() or not 1 <= leverage <= 3:
+        raise ValueError("leverage must be an integer between 1 and 3")
     if not 0 < reward_risk <= 10:
         raise ValueError("reward/risk must be greater than 0 and at most 10")
 
-    risk_amount = capital * risk_percent / 100.0
+    risk_limit = capital * risk_percent / 100.0
     stop_distance = entry_price * stop_percent / 100.0
-    quantity = risk_amount / stop_distance
-    notional = quantity * entry_price
+    # First size from the risk budget, then cap notional to available
+    # collateral times leverage. Recompute actual risk after the cap.
+    desired_quantity = risk_limit / stop_distance
+    max_notional = capital * leverage
+    notional = min(desired_quantity * entry_price, max_notional)
+    quantity = notional / entry_price
+    risk_amount = quantity * stop_distance
     margin_estimate = notional / leverage
     target_distance = stop_distance * reward_risk
+    target_price_short = entry_price - target_distance
+    if entry_price - stop_distance <= 0 or target_price_short <= 0:
+        raise ValueError("stop and target prices must remain positive")
 
     return {
         "risk_amount": risk_amount,
+        "risk_limit": risk_limit,
         "stop_price_long": entry_price - stop_distance,
         "stop_price_short": entry_price + stop_distance,
         "target_price_long": entry_price + target_distance,
-        "target_price_short": entry_price - target_distance,
+        "target_price_short": target_price_short,
         "quantity": quantity,
         "notional": notional,
         "margin_estimate": margin_estimate,
@@ -152,7 +161,8 @@ def recommend_leverage(technical, max_leverage=3):
     price = _finite(technical.get("price"), "price")
     atr = _finite(technical.get("atr14"), "atr14")
     cap = int(_finite(max_leverage, "max_leverage"))
-    if price <= 0 or atr < 0 or cap < 1 or cap > 3:
+    if (price <= 0 or atr <= 0 or cap < 1 or cap > 3
+            or not _finite(max_leverage, "max_leverage").is_integer()):
         raise ValueError("invalid price, ATR, or leverage cap")
     volatility_pct = (atr / price) * 100.0
     if signal not in ("BULLISH", "BEARISH"):
