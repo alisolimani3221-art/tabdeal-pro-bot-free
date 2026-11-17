@@ -95,6 +95,7 @@ LATIN_FONT_CANDIDATES = [
     "/system/fonts/Roboto-Regular.ttf",
 ]
 LATIN_FONT_PATH = next((p for p in LATIN_FONT_CANDIDATES if os.path.isfile(p)), None)
+LATIN_FONT_LOAD_ERROR = None
 if LATIN_FONT_PATH:
     try:
         resource_add_path(os.path.dirname(LATIN_FONT_PATH))
@@ -106,10 +107,12 @@ if LATIN_FONT_PATH:
             fn_bolditalic=LATIN_FONT_PATH,
         )
         NUMERIC_FONT_NAME = "LatinNoto"
-    except Exception:
+    except Exception as exc:
         NUMERIC_FONT_NAME = "Roboto"
+        LATIN_FONT_LOAD_ERROR = "{}: {}".format(type(exc).__name__, str(exc)[:180])
 else:
     NUMERIC_FONT_NAME = "Roboto"
+    LATIN_FONT_LOAD_ERROR = "No bundled or Android system Latin font file was found."
 
 
 # Keep the Arabic-capable face for Persian and the bundled Latin face for
@@ -161,7 +164,7 @@ def fa(text):
         def latin_run(match):
             run = (match.group(0).replace("&", "&amp;")
                    .replace("[", "&bl;").replace("]", "&br;"))
-            return "[font=LatinNoto]{}[/font]".format(run)
+            return "[font={}]{}[/font]".format(NUMERIC_FONT_NAME, run)
         return re.sub(r"[\x20-\x7e]+", latin_run, value)
     except Exception as exc:
         RTL_RUNTIME_ERROR = "{}: {}".format(type(exc).__name__, str(exc)[:180])
@@ -174,6 +177,8 @@ def rtl_diagnostic():
         return "persian_font=FAIL; {}".format(FONT_LOAD_ERROR)
     if not FONT_PATH:
         return "persian_font=FAIL; no supported font file was found"
+    if LATIN_FONT_LOAD_ERROR:
+        return "latin_font=FAIL; {}".format(LATIN_FONT_LOAD_ERROR)
     if arabic_reshaper is None or get_display is None:
         return "rtl_libraries=FAIL; {}".format(
             RTL_IMPORT_ERROR or "arabic-reshaper/python-bidi unavailable"
