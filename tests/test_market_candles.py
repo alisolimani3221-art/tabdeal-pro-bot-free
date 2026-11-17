@@ -13,9 +13,10 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_builds_ohlcv_from_valid_trades(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        builder.add_trade(self.trade(100, 1, 100, 2, 1))
-        builder.add_trade(self.trade(100, 20, 105, 3, 2))
-        builder.add_trade(self.trade(101, 1, 102, 4, 3))
+        builder.add_trade(self.trade(99, 1, 99, 1, 1))  # partial first bucket
+        builder.add_trade(self.trade(100, 1, 100, 2, 2))
+        builder.add_trade(self.trade(100, 20, 105, 3, 3))
+        builder.add_trade(self.trade(101, 1, 102, 4, 4))
         rows = builder.candles_for_analysis()
         self.assertEqual(rows[0], [6_000_000, 100.0, 105.0, 100.0, 105.0, 5.0])
         self.assertEqual(rows[1], [6_060_000, 102.0, 102.0, 102.0, 102.0, 4.0])
@@ -46,7 +47,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_ready_requires_51_closed_and_one_forming_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 152):
+        for minute in range(100, 153):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         self.assertEqual(len(builder.candles_for_analysis()), 52)
@@ -59,6 +60,16 @@ class TradeCandleBuilderTests(unittest.TestCase):
         builder.add_trade(self.trade(154))
         self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), 0)
+
+    def test_reconnect_reset_discards_all_warmup_data(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))
+        builder.add_trade(self.trade(101))
+        self.assertEqual(len(builder.closed), 0)
+        builder.reset_after_gap()
+        self.assertEqual(len(builder.closed), 0)
+        self.assertIsNone(builder.current)
+        self.assertFalse(builder.is_ready)
 
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
