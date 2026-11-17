@@ -67,7 +67,16 @@ def _unwrap(payload):
             break
         bids, asks = _field(current, _BIDS), _field(current, _ASKS)
         if bids is not None or asks is not None:
-            return current
+            # Some gateways include empty outer arrays while the actual book
+            # is nested in data/result. Prefer a usable outer book; otherwise
+            # continue into the wrapper before reporting an empty snapshot.
+            if _levels(bids) and _levels(asks):
+                return current
+            nested = _field(current, _ENVELOPES)
+            if nested is None or nested is current:
+                return current
+            current = nested
+            continue
         code = _field(current, ("code", "errorCode"))
         message = _field(current, ("msg", "message", "error"))
         if code not in (None, 0, "0", "OK", "ok", 200, "200"):
