@@ -74,7 +74,7 @@ class UiFontAssignmentTests(unittest.TestCase):
 
     def test_font_workflow_verifies_both_fonts_inside_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn("Verify both runtime fonts are packaged in APK", workflow)
+        self.assertIn("Verify both runtime fonts and RTL libraries are packaged in APK", workflow)
         self.assertIn("assets/private.tar", workflow)
         self.assertIn("Upload APK", workflow)
 
