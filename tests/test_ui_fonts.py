@@ -67,6 +67,10 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("NotoSansArabic-Regular.ttf", workflow)
         self.assertIn("NotoSans-Regular.ttf", workflow)
 
+    def test_workflow_concurrency_is_scoped_per_branch(self):
+        workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
+        self.assertIn("tabdeal-free-apk-build-${{ github.ref }}", workflow)
+
     def test_font_workflow_verifies_rtl_libraries_inside_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
         self.assertIn("vendor/arabic_reshaper/__init__[.]py", workflow)
