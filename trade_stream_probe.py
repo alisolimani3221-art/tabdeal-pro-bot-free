@@ -98,8 +98,8 @@ def _trade_profile(trade, expected_symbol=None):
     sequence = trade.get("sequence")
     profile["sequence"] = {
         "type": _type_name(sequence),
-        "finite": isinstance(sequence, (int, float)) and
-                  not isinstance(sequence, bool) and math.isfinite(sequence),
+        "finite": (isinstance(sequence, int) and not isinstance(sequence, bool)) or
+                  (isinstance(sequence, float) and math.isfinite(sequence)),
         "integer": isinstance(sequence, int) or
                    (isinstance(sequence, float) and math.isfinite(sequence)
                     and sequence.is_integer()),
