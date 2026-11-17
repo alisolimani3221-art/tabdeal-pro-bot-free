@@ -256,42 +256,12 @@ jobs:
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
           tar -tf /tmp/private.tar > /tmp/private-files.txt
-          grep -E '(^|/)NotoSansArabic-Regular[.]ttf$' /tmp/private-files.txt
-          grep -E '(^|/)NotoSans-Regular[.]ttf          grep -E '(^|/)vendor/bidi/algorithm[.]py$' /tmp/private-files.txt
-          echo "Arabic/Latin fonts and both RTL shaping libraries are packaged in the APK."
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Futures-Analyzer-APK
-          path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 7
- /tmp/private-files.txt
-          grep -E '(^|/)assets/FONT-LICENSE[.]txt          grep -E '(^|/)vendor/bidi/algorithm[.]py$' /tmp/private-files.txt
-          echo "Arabic/Latin fonts and both RTL shaping libraries are packaged in the APK."
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Futures-Analyzer-APK
-          path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 7
- /tmp/private-files.txt
-          grep -E '(^|/)vendor/arabic_reshaper/__init__[.]py          grep -E '(^|/)vendor/bidi/algorithm[.]py$' /tmp/private-files.txt
-          echo "Arabic/Latin fonts and both RTL shaping libraries are packaged in the APK."
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Futures-Analyzer-APK
-          path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 7
- /tmp/private-files.txt
-          grep -E '(^|/)vendor/bidi/algorithm[.]py$' /tmp/private-files.txt
-          echo "Arabic/Latin fonts and both RTL shaping libraries are packaged in the APK."
+          grep -E "(^|/)NotoSansArabic-Regular[.]ttf$" /tmp/private-files.txt
+          grep -E "(^|/)NotoSans-Regular[.]ttf$" /tmp/private-files.txt
+          grep -E "(^|/)assets/FONT-LICENSE[.]txt$" /tmp/private-files.txt
+          grep -E "(^|/)vendor/arabic_reshaper/__init__[.]py$" /tmp/private-files.txt
+          grep -E "(^|/)vendor/bidi/algorithm[.]py$" /tmp/private-files.txt
+          echo "Arabic/Latin fonts, font license and both RTL shaping libraries are packaged in the APK."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
