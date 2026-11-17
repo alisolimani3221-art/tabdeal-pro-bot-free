@@ -62,5 +62,11 @@ class UiFontAssignmentTests(unittest.TestCase):
         )
 
 
+    def test_android_font_workflow_checks_real_arabic_codepoints(self):
+        workflow = pathlib.Path(".github/workflows/android.yml").read_text(encoding="utf-8")
+        self.assertIn('"\\u0600"', workflow)
+        self.assertIn('"\\u06ff"', workflow)
+        self.assertNotIn('"\\\\u0600"', workflow)
+
 if __name__ == "__main__":
     unittest.main()
