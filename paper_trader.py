@@ -19,7 +19,10 @@ def rank_signal(technical):
     if signal not in ("BULLISH", "BEARISH"):
         return None
     symbol = str(technical.get("symbol", "")).strip()
-    if not symbol or not symbol.replace("_", "").upper().endswith("USDT"):
+    normalized_symbol = symbol.replace("_", "").upper()
+    if (not symbol or not normalized_symbol.isalnum()
+            or not normalized_symbol.endswith("USDT")
+            or len(normalized_symbol) <= 4):
         return None
     try:
         price = _positive(technical["price"], "price")

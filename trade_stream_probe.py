@@ -21,6 +21,9 @@ ALIASES = {
 
 
 def _finite_positive(value):
+    # bool is a subclass of int in Python; reject it before float conversion.
+    if isinstance(value, bool):
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -28,6 +31,15 @@ def _finite_positive(value):
     if not math.isfinite(number) or number <= 0:
         return None
     return number
+
+
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
 
 
 def _first(mapping, names):
@@ -39,14 +51,25 @@ def _first(mapping, names):
 
 def parse_trade_message(message, expected_symbol=None):
     """Return normalized trade or a safe diagnostic; never guess missing fields."""
+    if expected_symbol is not None and (
+            not isinstance(expected_symbol, str) or not expected_symbol.strip()):
+        return {"ok": False, "reason": "invalid_expected_symbol"}
     if isinstance(message, bytes):
         if len(message) > MAX_MESSAGE_BYTES:
             return {"ok": False, "reason": "message_too_large"}
-        message = message.decode("utf-8", errors="strict")
-    if not isinstance(message, str) or len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
+        try:
+            message = message.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return {"ok": False, "reason": "invalid_utf8"}
+    if not isinstance(message, str):
         return {"ok": False, "reason": "invalid_or_oversized_message"}
     try:
-        payload = json.loads(message)
+        if len(message.encode("utf-8", errors="strict")) > MAX_MESSAGE_BYTES:
+            return {"ok": False, "reason": "message_too_large"}
+    except UnicodeEncodeError:
+        return {"ok": False, "reason": "invalid_utf8"}
+    try:
+        payload = json.loads(message, object_pairs_hook=_reject_duplicate_keys)
     except (TypeError, ValueError):
         return {"ok": False, "reason": "invalid_json"}
     if not isinstance(payload, dict):
@@ -67,9 +90,15 @@ def parse_trade_message(message, expected_symbol=None):
     if price is None or quantity is None or timestamp is None:
         return {"ok": False, "reason": "trade_schema_unrecognized",
                 "trade_keys": sorted(str(k) for k in trade.keys())[:30]}
-    # Accept seconds or milliseconds, but normalize to milliseconds.
-    timestamp_ms = int(timestamp if timestamp >= 100000000000 else timestamp * 1000)
-    if timestamp_ms <= 0:
+    # Accept seconds or milliseconds, but reject values that overflow during
+    # seconds-to-milliseconds conversion before converting to int.
+    timestamp_value = timestamp if timestamp >= 100000000000 else timestamp * 1000
+    if not math.isfinite(timestamp_value):
+        return {"ok": False, "reason": "invalid_timestamp"}
+    timestamp_ms = int(timestamp_value)
+    # Reject implausible future values and float magnitudes that cannot
+    # represent a meaningful exchange event timestamp.
+    if timestamp_ms <= 0 or timestamp_ms >= 10_000_000_000_000:
         return {"ok": False, "reason": "invalid_timestamp"}
     return {"ok": True, "symbol": str(symbol or expected_symbol or ""),
             "price": price, "quantity": quantity, "timestamp_ms": timestamp_ms}
@@ -77,8 +106,17 @@ def parse_trade_message(message, expected_symbol=None):
 
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     """Connect once, send plain-text symbol on open, and observe public trades."""
-    if not isinstance(symbol, str) or not symbol.endswith("_USDT") or not symbol.replace("_", "").isalnum():
+    parts = symbol.split("_") if isinstance(symbol, str) else []
+    if (len(parts) != 2 or not parts[0].isalnum() or parts[1] != "USDT"):
         raise ValueError("symbol must be a USDT futures symbol such as AEVO_USDT")
+    if isinstance(timeout_seconds, bool):
+        raise ValueError("timeout_seconds must be a finite positive number")
+    try:
+        timeout_value = float(timeout_seconds)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("timeout_seconds must be a finite positive number")
+    if not math.isfinite(timeout_value) or timeout_value <= 0:
+        raise ValueError("timeout_seconds must be a finite positive number")
     try:
         import websocket
     except ImportError as exc:
@@ -109,7 +147,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         BROADCAST_URL, on_open=on_open, on_message=on_message, on_error=on_error
     )
     started = time.monotonic()
-    timeout = threading.Timer(max(1, int(timeout_seconds)), app.close)
+    timeout = threading.Timer(max(1, int(timeout_value)), app.close)
     timeout.daemon = True
     timeout.start()
     try:

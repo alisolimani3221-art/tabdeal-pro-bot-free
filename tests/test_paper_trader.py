@@ -27,11 +27,35 @@ class PaperTraderTests(unittest.TestCase):
     def test_stop_closes_position_and_records_net_result(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
-        stopped = dict(setup(price=98.0))
-        result = engine.process_scan([stopped])
+        result = engine.process_scan([dict(setup(price=98.0), signal="NEUTRAL")])
         self.assertTrue(any(e["event"] == "CLOSED" for e in result["events"]))
         self.assertIsNone(result["open_position"])
         self.assertEqual(engine.closed_trades[-1]["reason"], "STOP")
+        self.assertAlmostEqual(engine.closed_trades[-1]["net_pnl"],
+                               engine.closed_trades[-1]["gross_pnl"]
+                               - engine.closed_trades[-1]["fees_entry"]
+                               - engine.closed_trades[-1]["fees_exit"])
+
+    def test_target_closes_long_position(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        result = engine.process_scan([dict(setup(price=103.0), signal="NEUTRAL")])
+        self.assertEqual(result["events"][0]["event"], "CLOSED")
+        self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
+
+    def test_stop_closes_short_position(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup(signal="BEARISH")])
+        result = engine.process_scan([dict(setup(price=102.0, signal="BEARISH"),
+                                           signal="NEUTRAL")])
+        self.assertEqual(result["events"][0]["trade"]["reason"], "STOP")
+
+    def test_target_closes_short_position(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup(signal="BEARISH")])
+        result = engine.process_scan([dict(setup(price=97.0, signal="BEARISH"),
+                                           signal="NEUTRAL")])
+        self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
 
     def test_does_not_reopen_on_same_scan_after_stop(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
@@ -45,17 +69,20 @@ class PaperTraderTests(unittest.TestCase):
         engine = PaperTradingEngine(capital=8, fee_rate=0.01, slippage_rate=0)
         result = engine.process_scan([setup()])
         if result["open_position"]:
-            self.assertLessEqual(
-                result["open_position"]["notional"] /
-                result["open_position"]["leverage"],
-                result["cash"]
-            )
+            self.assertLessEqual(result["open_position"]["notional"] /
+                                 result["open_position"]["leverage"],
+                                 result["cash"])
 
     def test_rejects_volatility_above_two_percent(self):
         self.assertIsNone(rank_signal(dict(setup(), atr14=2.1)))
 
     def test_rejects_non_usdt_symbol(self):
         self.assertIsNone(rank_signal(setup(symbol="BTC_BTC")))
+
+    def test_rejects_malformed_and_empty_symbols(self):
+        for symbol in ("", "USDT", "AAA-USDT", "AAA/USDT", "_USDT"):
+            with self.subTest(symbol=symbol):
+                self.assertIsNone(rank_signal(setup(symbol=symbol)))
 
     def test_rejects_non_list_scan_input_safely(self):
         engine = PaperTradingEngine(capital=8)
@@ -83,6 +110,41 @@ class PaperTraderTests(unittest.TestCase):
             PaperTradingEngine(capital=8, risk_percent=1)
         with self.assertRaises(ValueError):
             PaperTradingEngine(capital=8, max_leverage=5)
+
+    def test_rejects_invalid_capital_and_risk_parameters(self):
+        for kwargs in ({"capital": 0}, {"capital": True}, {"risk_percent": 0},
+                       {"risk_percent": float("nan")}, {"fee_rate": 0},
+                       {"fee_rate": 0.06}, {"slippage_rate": -0.1},
+                       {"slippage_rate": 0.02}):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises((ValueError, TypeError)):
+                    PaperTradingEngine(**kwargs)
+
+    def test_rejects_boolean_and_nonfinite_candidate_values(self):
+        for field, value in (("price", True), ("sma20", float("inf")),
+                             ("sma50", float("nan")), ("atr14", False),
+                             ("rsi14", True), ("rsi14", float("inf"))):
+            with self.subTest(field=field, value=value):
+                self.assertIsNone(rank_signal(dict(setup(), **{field: value})))
+
+    def test_rejects_missing_technical_fields(self):
+        for field in ("price", "sma20", "sma50", "rsi14", "atr14"):
+            candidate = setup()
+            candidate.pop(field)
+            with self.subTest(field=field):
+                self.assertIsNone(rank_signal(candidate))
+
+    def test_candidate_ordering_prefers_higher_score(self):
+        engine = PaperTradingEngine(capital=8)
+        result = engine.process_scan([setup("AAA_USDT"), setup("BBB_USDT", price=100)])
+        self.assertTrue(result["candidates"])
+        self.assertEqual(result["open_position"]["symbol"],
+                         result["candidates"][0]["symbol"])
+
+    def test_engine_never_exposes_live_order_method(self):
+        engine = PaperTradingEngine(capital=8)
+        self.assertFalse(hasattr(engine, "create_order"))
+        self.assertFalse(hasattr(engine, "new_order"))
 
 
 if __name__ == "__main__":

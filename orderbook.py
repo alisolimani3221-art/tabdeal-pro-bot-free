@@ -38,6 +38,7 @@ def _levels(raw):
     if not isinstance(raw, (list, tuple)):
         return []
     totals = {}
+    invalid_prices = set()
     for item in raw:
         try:
             if isinstance(item, dict):
@@ -48,8 +49,13 @@ def _levels(raw):
             else:
                 continue
             price, quantity = _number(price), _number(quantity)
-            if price > 0 and quantity > 0:
-                totals[price] = totals.get(price, 0.0) + quantity
+            if price > 0 and quantity > 0 and price not in invalid_prices:
+                combined = totals.get(price, 0.0) + quantity
+                if not math.isfinite(combined):
+                    totals.pop(price, None)
+                    invalid_prices.add(price)
+                    continue
+                totals[price] = combined
         except (TypeError, ValueError, OverflowError):
             continue
     return list(totals.items())

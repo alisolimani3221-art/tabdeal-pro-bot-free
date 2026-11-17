@@ -2,10 +2,13 @@ import json
 import unittest
 
 from orderbook import parse_order_book
-from market_symbols import select_market_symbol
+from market_symbols import list_market_symbols, select_market_symbol
 
 
 class OrderBookTests(unittest.TestCase):
+    def valid_book(self):
+        return {"bids": [["100", "2"]], "asks": [["101", "3"]]}
+
     def test_tabdeal_documented_shape_and_sorting(self):
         bids, asks = parse_order_book({
             "lastUpdateId": 123,
@@ -22,9 +25,8 @@ class OrderBookTests(unittest.TestCase):
 
     def test_nested_json_string(self):
         data = {"bids": [["10", "2"]], "asks": [["11", "3"]]}
-        bids, asks = parse_order_book({"code": 0, "data": json.dumps(data)})
-        self.assertEqual(bids, [(10.0, 2.0)])
-        self.assertEqual(asks, [(11.0, 3.0)])
+        self.assertEqual(parse_order_book({"code": 0, "data": json.dumps(data)}),
+                         ([(10.0, 2.0)], [(11.0, 3.0)]))
 
     def test_case_insensitive_object_levels(self):
         bids, asks = parse_order_book({
@@ -66,17 +68,48 @@ class OrderBookTests(unittest.TestCase):
         self.assertEqual(bids, [(100.0, 2.0)])
         self.assertEqual(asks, [(102.0, 3.0)])
 
+    def test_rejects_boolean_and_container_numbers(self):
+        payload = {"bids": [[True, "1"], ["100", False], [[], "2"]],
+                   "asks": [["101", "1"]]}
+        with self.assertRaisesRegex(ValueError, "no usable bids/asks"):
+            parse_order_book(payload)
+
+    def test_rejects_non_finite_and_negative_levels(self):
+        payload = {"bids": [["NaN", "1"], ["99", "Infinity"], ["-1", "1"]],
+                   "asks": [["101", "1"]]}
+        with self.assertRaisesRegex(ValueError, "no usable bids/asks"):
+            parse_order_book(payload)
+
+    def test_duplicate_aggregation_overflow_drops_entire_price_level(self):
+        payload = {"bids": [["100", "1e308"], ["100", "1e308"]],
+                   "asks": [["101", "1"]]}
+        with self.assertRaisesRegex(ValueError, "no usable bids/asks"):
+            parse_order_book(payload)
+
     def test_api_error_is_reported(self):
         with self.assertRaisesRegex(ValueError, "depth API error 1001"):
             parse_order_book({"code": 1001, "msg": "invalid symbol", "data": {}})
 
     def test_rejects_empty_and_crossed_books(self):
-        with self.assertRaises(ValueError):
-            parse_order_book({"bids": [], "asks": []})
-        with self.assertRaises(ValueError):
-            parse_order_book({"bids": [["12", "1"]], "asks": [["11", "1"]]})
-        with self.assertRaises(ValueError):
-            parse_order_book({"bids": [["nan", "1"]], "asks": [["11", "1"]]})
+        for payload in (
+            {"bids": [], "asks": []},
+            {"bids": [["12", "1"]], "asks": [["11", "1"]]},
+            {"bids": [["nan", "1"]], "asks": [["11", "1"]]},
+            {"bids": [["10", "1"]], "asks": []},
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    parse_order_book(payload)
+
+    def test_accepts_locked_book_at_equal_best_prices(self):
+        bids, asks = parse_order_book({"bids": [["10", "1"]], "asks": [["10", "2"]]})
+        self.assertEqual(bids[0][0], asks[0][0])
+
+    def test_rejects_non_object_payload(self):
+        for payload in (None, [], "bad", 1):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    parse_order_book(payload)
 
 
 class MarketSymbolTests(unittest.TestCase):
@@ -90,6 +123,26 @@ class MarketSymbolTests(unittest.TestCase):
     def test_rejects_missing_symbol(self):
         with self.assertRaises(ValueError):
             select_market_symbol([{"symbol": "ETH_USDT"}])
+
+    def test_filters_inactive_non_usdt_and_non_perpetual(self):
+        symbols = [
+            {"symbol": "AAA_USDT", "quoteAsset": "USDT", "status": "TRADING",
+             "contractType": "PERPETUAL"},
+            {"symbol": "BBB_USDT", "quoteAsset": "USDT", "status": "BREAK"},
+            {"symbol": "CCC_BTC", "quoteAsset": "BTC", "status": "TRADING"},
+            {"symbol": "DDD_USDT", "quoteAsset": "USDT", "status": "TRADING",
+             "contractType": "CURRENT_QUARTER"},
+        ]
+        self.assertEqual(list_market_symbols(symbols), ["AAA_USDT"])
+
+    def test_deduplicates_compact_and_underscored_symbols(self):
+        self.assertEqual(list_market_symbols(["BTCUSDT", "BTC_USDT"]), ["BTCUSDT"])
+
+    def test_rejects_non_list_exchange_info(self):
+        for value in (None, {}, "BTC_USDT"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    list_market_symbols(value)
 
 
 if __name__ == "__main__":
