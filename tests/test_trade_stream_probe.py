@@ -76,6 +76,10 @@ class TradeStreamProbeTests(unittest.TestCase):
     def test_rejects_timestamp_that_overflows_millisecond_conversion(self):
         self.assertEqual(self.parse_trade_with("timestamp", "1e308")["reason"],
                          "invalid_timestamp")
+        self.assertEqual(self.parse_trade_with("timestamp", "1e309")["reason"],
+                         "trade_schema_unrecognized")
+        self.assertEqual(self.parse_trade_with("timestamp", "1e13")["reason"],
+                         "invalid_timestamp")
 
     def test_rejects_invalid_utf8_bytes_without_raising(self):
         result = parse_trade_message(b'{"trade":\xff}')
@@ -90,7 +94,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(result, {"ok": False, "reason": "message_too_large"})
 
     def test_rejects_lone_surrogate_text_without_raising(self):
-        result = parse_trade_message('{"trade":"\\ud800"}')
+        result = parse_trade_message('{"trade":"' + chr(0xD800) + '"}')
         self.assertEqual(result, {"ok": False, "reason": "invalid_utf8"})
 
     def test_rejects_non_string_message_types(self):
