@@ -125,17 +125,26 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
 
     risk_limit = capital * risk_percent / 100.0
     stop_distance = entry_price * stop_percent / 100.0
+    max_notional = capital * leverage
+    if not all(math.isfinite(value) and value > 0 for value in
+               (risk_limit, stop_distance, max_notional)):
+        raise ValueError("risk inputs exceed the supported numeric range")
     # First size from the risk budget, then cap notional to available
     # collateral times leverage. Recompute actual risk after the cap.
     desired_quantity = risk_limit / stop_distance
-    max_notional = capital * leverage
-    notional = min(desired_quantity * entry_price, max_notional)
+    desired_notional = desired_quantity * entry_price
+    notional = min(desired_notional, max_notional)
     quantity = notional / entry_price
     risk_amount = quantity * stop_distance
     margin_estimate = notional / leverage
     target_distance = stop_distance * reward_risk
     target_price_short = entry_price - target_distance
-    if entry_price - stop_distance <= 0 or target_price_short <= 0:
+    computed = (desired_quantity, desired_notional, notional, quantity,
+                risk_amount, margin_estimate, target_distance, target_price_short)
+    if not all(math.isfinite(value) for value in computed):
+        raise ValueError("risk calculation exceeds the supported numeric range")
+    if (quantity <= 0 or notional <= 0 or margin_estimate <= 0
+            or entry_price - stop_distance <= 0 or target_price_short <= 0):
         raise ValueError("stop and target prices must remain positive")
 
     return {
