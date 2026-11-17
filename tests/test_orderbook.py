@@ -57,6 +57,24 @@ class OrderBookTests(unittest.TestCase):
 
 
 
+    def test_empty_outer_sides_fall_back_to_nested_book(self):
+        bids, asks = parse_order_book({
+            "bids": None,
+            "asks": None,
+            "data": {"bids": [["100", "2"]], "asks": [["101", "3"]]},
+        })
+        self.assertEqual(bids, [(100.0, 2.0)])
+        self.assertEqual(asks, [(101.0, 3.0)])
+
+    def test_single_object_level_is_supported(self):
+        bids, asks = parse_order_book({
+            "bids": {"price": "100", "qty": "2"},
+            "asks": {"price": "101", "qty": "3"},
+        })
+        self.assertEqual(bids, [(100.0, 2.0)])
+        self.assertEqual(asks, [(101.0, 3.0)])
+
+
 class MarketSymbolTests(unittest.TestCase):
     def test_resolves_tabdeal_underscore_symbol(self):
         symbols = [{"symbol": "ETH_USDT"}, {"symbol": "BTC_USDT"}]
