@@ -112,17 +112,11 @@ else:
     NUMERIC_FONT_NAME = "Roboto"
 
 
-# Android/Kivy can render the same screen with different fallback fonts when
-# Latin and Arabic labels use separate font faces. That inconsistency can
-# produce tofu/square glyphs in tickers, digits, Spinner rows and popup controls.
-# Use the verified bundled Arabic-capable Noto face for EVERY widget; these
-# Noto fonts include the ASCII letters, digits and punctuation used in BTC_USDT.
-NUMERIC_FONT_NAME = FONT_NAME
-
-
+# Keep the Arabic-capable face for Persian and the bundled Latin face for
+# ASCII-only labels. Mixed Persian/Latin strings are split by fa() using Kivy
+# markup so each run is rendered by a font with the required glyph coverage.
 def font_for_text(text):
-    """Use one bundled font for all scripts to prevent Android tofu glyphs."""
-    return FONT_NAME
+    return FONT_NAME if contains_arabic(text) else NUMERIC_FONT_NAME
 
 
 TABDEAL_WEBSITE = "https://tabdeal.org/"
@@ -162,7 +156,13 @@ def fa(text):
         RTL_RUNTIME_ERROR = RTL_IMPORT_ERROR or "RTL libraries unavailable"
         return value
     try:
-        return get_display(arabic_reshaper.reshape(value), base_dir="R")
+        value = get_display(arabic_reshaper.reshape(value), base_dir="R")
+        # Use the Latin font for ASCII runs inside mixed Persian/English labels.
+        def latin_run(match):
+            run = (match.group(0).replace("&", "&amp;")
+                   .replace("[", "&bl;").replace("]", "&br;"))
+            return "[font=LatinNoto]{}[/font]".format(run)
+        return re.sub(r"[\\x20-\\x7e]+", latin_run, value)
     except Exception as exc:
         RTL_RUNTIME_ERROR = "{}: {}".format(type(exc).__name__, str(exc)[:180])
         return value
@@ -265,7 +265,7 @@ class FuturesAnalyzerApp(App):
         # Tappable order-book header refreshes live data. Each level is also
         # a real button so the user can inspect that exact bid/ask price and size.
         book_title_button = Button(
-            text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
+            markup=True, text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
             font_name=FONT_NAME, font_size=sp(17),
             size_hint_y=None, height=dp(42),
             background_normal="", background_color=(0.08, 0.28, 0.42, 1),
@@ -369,7 +369,7 @@ class FuturesAnalyzerApp(App):
         return root
 
     def make_label(self, text, size=15, color=(1, 1, 1, 1), height=dp(48)):
-        return Label(text=fa(text), font_name=font_for_text(text), font_size=sp(size), color=color,
+        return Label(markup=True, text=fa(text), font_name=font_for_text(text), font_size=sp(size), color=color,
                      size_hint_y=None, height=height, halign="center", valign="middle",
                      text_size=(Window.width - dp(40), None))
 
@@ -596,7 +596,7 @@ class FuturesAnalyzerApp(App):
         report.bind(minimum_height=report.setter("height"))
 
         def add_line(text, size=15, height=dp(42), color=(0.94, 0.96, 1, 1), font=FONT_NAME):
-            label = Label(text=fa(text), font_name=font, font_size=sp(size),
+            label = Label(markup=True, text=fa(text), font_name=font, font_size=sp(size),
                           color=color, size_hint_y=None, height=height,
                           halign="center", valign="middle",
                           text_size=(Window.width * 0.82, None))
@@ -917,7 +917,7 @@ class FuturesAnalyzerApp(App):
         message = message.replace("API پینگ", "پینگ بازار")
         message = message.replace("نماد BTCUSDT", "نماد معاملاتی بیت‌کوین")
         message_label = Label(
-            text=fa(message), font_name=FONT_NAME, font_size=sp(15),
+            markup=True, text=fa(message), font_name=FONT_NAME, font_size=sp(15),
             halign="center", valign="middle", size_hint=(1, None),
             text_size=(Window.width * 0.80, None)
         )
