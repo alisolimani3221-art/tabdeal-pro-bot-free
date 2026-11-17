@@ -91,8 +91,11 @@ class UiFontAssignmentTests(unittest.TestCase):
 
     def test_font_workflow_verifies_rtl_libraries_inside_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn("vendor/arabic_reshaper/(__init__[.]py|__pycache__/__init__[^/]*[.]pyc)", workflow)
-        self.assertIn("vendor/bidi/(algorithm[.]py|__pycache__/algorithm[^/]*[.]pyc)", workflow)
+        # python-for-android installs recipe-built modules into its bundled
+        # site-packages tree; they are not guaranteed to retain the pip
+        # --target vendor/ prefix inside assets/private.tar.
+        self.assertIn('grep -F "arabic_reshaper" /tmp/private-files.txt', workflow)
+        self.assertIn('grep -E "((^|/)bidi/.*algorithm.*[.]pyc?$)" /tmp/private-files.txt', workflow)
 
     def test_font_workflow_verifies_both_fonts_inside_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
