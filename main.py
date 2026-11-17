@@ -170,13 +170,16 @@ def fa_plain(text):
     return value
 
 def assistant_rtl_text(text):
-    """Shape Arabic-script glyphs; let Kivy's RTL layout handle paragraph order."""
+    """Resolve Persian shaping and bidi order once before a neutral-direction Kivy widget."""
     value = str(text)
     if not contains_arabic(value):
         return value
     try:
-        if arabic_reshaper is not None:
-            return arabic_reshaper.reshape(value)
+        if arabic_reshaper is not None and get_display is not None:
+            # get_display returns presentation-form glyphs in visual order.
+            # Assistant widgets must then use base_direction='ltr' so Kivy
+            # does not apply a second RTL reorder to the already-resolved text.
+            return get_display(arabic_reshaper.reshape(value), base_dir="R")
     except Exception:
         pass
     return value
@@ -738,7 +741,7 @@ class FuturesAnalyzerApp(App):
         question_input = TextInput(
             text=assistant_rtl_text("این تصویر محدود دفتر سفارش چه نکاتی را نشان می‌دهد؟"),
             multiline=True, font_name=FONT_NAME, size_hint_y=None, height=dp(92),
-            halign="right", base_direction="rtl"
+            halign="right", base_direction="ltr"
         )
         body.add_widget(question_input)
         result_scroll = ScrollView(do_scroll_x=False)
