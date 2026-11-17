@@ -1,11 +1,28 @@
-"""Normalize Tabdeal futures depth payloads into sorted numeric price/quantity levels."""
-
+"""Strictly normalize Tabdeal Futures depth payloads into price/quantity levels."""
+import json
 import math
+
+_ENVELOPES = ("data", "result", "payload", "orderBook", "orderbook", "depth")
+_BIDS = ("bids", "b", "buy", "buys")
+_ASKS = ("asks", "a", "sell", "sells")
+
+
+def _field(mapping, names):
+    lowered = {str(key).lower(): key for key in mapping}
+    for name in names:
+        key = lowered.get(name.lower())
+        if key is not None and mapping[key] is not None:
+            return mapping[key]
+    return None
 
 
 def _number(value):
-    if isinstance(value, bool) or value is None:
+    if value is None or isinstance(value, bool):
         raise ValueError("missing numeric value")
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            raise ValueError("empty numeric value")
     number = float(value)
     if not math.isfinite(number):
         raise ValueError("non-finite numeric value")
@@ -14,76 +31,69 @@ def _number(value):
 
 def _levels(raw):
     if isinstance(raw, dict):
-        # A single object level: {"price": "...", "qty": "..."}.
-        level_keys = {"price", "p", "qty", "quantity", "amount", "q"}
-        if level_keys.intersection(raw):
+        if _field(raw, ("price", "p", "bidPrice", "askPrice")) is not None:
             raw = [raw]
         else:
-            # Some providers encode levels as {price: quantity}.
             raw = list(raw.items())
     if not isinstance(raw, (list, tuple)):
         return []
-
-    result = []
+    totals = {}
     for item in raw:
         try:
             if isinstance(item, dict):
-                price = item.get("price", item.get("p"))
-                quantity = item.get(
-                    "qty", item.get("quantity", item.get("amount", item.get("q")))
-                )
+                price = _field(item, ("price", "p", "bidPrice", "askPrice"))
+                quantity = _field(item, ("qty", "quantity", "amount", "q", "size", "volume", "baseQty"))
             elif isinstance(item, (list, tuple)) and len(item) >= 2:
                 price, quantity = item[0], item[1]
             else:
                 continue
-
-            price = _number(price)
-            quantity = _number(quantity)
+            price, quantity = _number(price), _number(quantity)
             if price > 0 and quantity > 0:
-                result.append((price, quantity))
+                totals[price] = totals.get(price, 0.0) + quantity
         except (TypeError, ValueError, OverflowError):
             continue
-    return result
+    return list(totals.items())
+
+
+def _unwrap(payload):
+    current = payload
+    for _ in range(8):
+        if isinstance(current, str):
+            try:
+                current = json.loads(current)
+            except (TypeError, ValueError):
+                break
+        if not isinstance(current, dict):
+            break
+        bids, asks = _field(current, _BIDS), _field(current, _ASKS)
+        if bids is not None or asks is not None:
+            return current
+        code = _field(current, ("code", "errorCode"))
+        message = _field(current, ("msg", "message", "error"))
+        if code not in (None, 0, "0", "OK", "ok", 200, "200"):
+            raise ValueError("depth API error {}: {}".format(code, message or "no message"))
+        nested = _field(current, _ENVELOPES)
+        if nested is None or nested is current:
+            break
+        current = nested
+    return current
 
 
 def parse_order_book(payload):
-    """Return (bids, asks), best price first; accept common API envelopes."""
-    current = payload
-    for _ in range(6):
-        if not isinstance(current, dict):
-            break
-
-        has_sides = any(key in current for key in ("bids", "asks", "b", "a"))
-        if has_sides:
-            bids = _levels(current.get("bids", current.get("b", [])))
-            asks = _levels(current.get("asks", current.get("a", [])))
-            if bids and asks:
-                break
-
-        nested = None
-        for key in ("data", "result", "payload"):
-            candidate = current.get(key)
-            if isinstance(candidate, dict) and candidate is not current:
-                nested = candidate
-                break
-        if nested is None:
-            break
-        current = nested
-    else:
-        bids = _levels(current.get("bids", current.get("b", []))) if isinstance(current, dict) else []
-        asks = _levels(current.get("asks", current.get("a", []))) if isinstance(current, dict) else []
-
+    """Return sorted (bids, asks); reject empty, malformed and crossed books."""
+    current = _unwrap(payload)
     if not isinstance(current, dict):
         raise ValueError("depth response is not an order-book object")
-
-    bids = _levels(current.get("bids", current.get("b", [])))
-    asks = _levels(current.get("asks", current.get("a", [])))
-    bids.sort(key=lambda level: level[0], reverse=True)
-    asks.sort(key=lambda level: level[0])
-
+    bids = _levels(_field(current, _BIDS) or [])
+    asks = _levels(_field(current, _ASKS) or [])
+    bids.sort(key=lambda item: item[0], reverse=True)
+    asks.sort(key=lambda item: item[0])
     if not bids or not asks:
-        keys = ", ".join(sorted(str(key) for key in current))
-        raise ValueError("depth response has no usable bids/asks (keys: {})".format(keys))
+        raise ValueError(
+            "depth response has no usable bids/asks (bids={}, asks={}, keys={})".format(
+                len(bids), len(asks), ", ".join(sorted(str(key) for key in current)) or "none"
+            )
+        )
     if asks[0][0] < bids[0][0]:
         raise ValueError("crossed order book: best ask is below best bid")
     return bids, asks
