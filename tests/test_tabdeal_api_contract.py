@@ -28,21 +28,29 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn("/exchangeInfo", source)
         self.assertIn("/depth", source)
 
-    def test_android_app_does_not_enable_unverified_candle_signals(self):
+    def test_android_paper_simulator_uses_verified_trade_candles_only(self):
         source = self.read("main.py")
-        self.assertIn("run_auto_paper_scanner", source)
-        self.assertIn("هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود", source)
-        self.assertIn("معامله‌گر خودکار در این نسخه غیرفعال است", source)
-        self.assertNotIn("فقط در حالت آزمایشی شبیه‌سازی می‌کند", source)
+        self.assertIn("TradeCandleBuilder", source)
+        self.assertIn("PaperTradingEngine", source)
+        self.assertIn("parse_trade_message", source)
+        self.assertIn("builder.reset_after_gap()", source)
+        self.assertIn("risk_percent=0.5", source)
+        self.assertIn("max_leverage=3", source)
+        self.assertIn("هیچ سفارش واقعی ارسال نمی‌شود", source)
+        self.assertNotIn("/klines", source)
+        self.assertNotIn("fapi.binance.com", source)
 
-    def test_observed_trade_schema_is_documented_without_enabling_signals(self):
+    def test_observed_trade_schema_and_candle_safety_are_documented(self):
         doc = self.read("TRADE_STREAM_SCHEMA.md")
         source = self.read("main.py")
+        candle_code = self.read("market_candles.py")
         self.assertIn("side_name", doc)
         self.assertIn("updated", doc)
-        self.assertIn("No candle aggregation has been enabled", doc)
-        self.assertIn("run_auto_paper_scanner", source)
-        self.assertIn("هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود", source)
+        self.assertIn("one-minute", doc.lower())
+        self.assertIn("data gap", doc.lower())
+        self.assertIn("discard_next_close", candle_code)
+        self.assertIn("TradeCandleBuilder", source)
+        self.assertIn("هیچ سفارش واقعی ارسال نمی‌شود", source)
 
     def test_ci_runs_optional_redacted_trade_stream_probe(self):
         workflow = self.read(".github/workflows/android.yml")
