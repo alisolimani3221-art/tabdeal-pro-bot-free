@@ -19,7 +19,6 @@ on:
       - '.env.paper.example'
       - 'README.md'
       - 'SERVER_PAPER_TRADING.md'
-      - 'requirements.txt'
       - 'tests/**'
       - '.github/workflows/android.yml'
 
