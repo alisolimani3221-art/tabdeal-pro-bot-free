@@ -27,7 +27,7 @@ class FontRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("else NUMERIC_FONT_NAME", match.group("body"))
 
     def test_mixed_text_routes_ascii_runs_to_latin_font(self):
-        self.assertIn("[font=LatinNoto]{}[/font]", TEXT)
+        self.assertIn('"[font={}]{}[/font]".format(NUMERIC_FONT_NAME, run)', TEXT)
         self.assertIn('replace("[", "&bl;")', TEXT)
         self.assertIn('replace("]", "&br;")', TEXT)
         self.assertIn('r"[\\x20-\\x7e]+"', TEXT)
