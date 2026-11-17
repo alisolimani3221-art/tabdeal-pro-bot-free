@@ -176,7 +176,7 @@ jobs:
 
           report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=15)
           Path("trade-stream-probe-report.json").write_text(
-              json.dumps(report, sort_keys=True, indent=2) + "\\n",
+              json.dumps(report, sort_keys=True, indent=2),
               encoding="utf-8",
           )
           print(json.dumps(report, sort_keys=True))
