@@ -91,8 +91,8 @@ class UiFontAssignmentTests(unittest.TestCase):
 
     def test_font_workflow_verifies_rtl_libraries_inside_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn("vendor/arabic_reshaper/__init__[.]py", workflow)
-        self.assertIn("vendor/bidi/algorithm[.]py", workflow)
+        self.assertIn("vendor/arabic_reshaper/(__init__[.]py|__pycache__/__init__[^/]*[.]pyc)", workflow)
+        self.assertIn("vendor/bidi/(algorithm[.]py|__pycache__/algorithm[^/]*[.]pyc)", workflow)
 
     def test_font_workflow_verifies_both_fonts_inside_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
