@@ -128,17 +128,20 @@ def parse_trade_message(message, expected_symbol=None):
             return {"ok": False, "reason": "symbol_mismatch"}
     price = _finite_positive(_first(trade, ALIASES["price"]))
     quantity = _finite_positive(_first(trade, ALIASES["quantity"]))
-    timestamp_ms = _parse_timestamp_ms(_first(trade, ALIASES["timestamp"]))
-    if price is None or quantity is None or timestamp_ms is None:
-        reason = "invalid_timestamp" if timestamp_ms is None else "trade_schema_unrecognized"
-        return {"ok": False, "reason": reason,
+    raw_timestamp = _first(trade, ALIASES["timestamp"])
+    timestamp_ms = _parse_timestamp_ms(raw_timestamp)
+    if price is None or quantity is None or raw_timestamp is None:
+        return {"ok": False, "reason": "trade_schema_unrecognized",
                 "trade_keys": sorted(str(k) for k in trade.keys())[:30]}
+    if timestamp_ms is None:
+        return {"ok": False, "reason": "invalid_timestamp"}
 
     sequence = trade.get("sequence")
     if sequence is not None:
-        if (isinstance(sequence, bool) or not isinstance(sequence, (int, float))
-                or not math.isfinite(sequence) or sequence < 0
-                or not float(sequence).is_integer()):
+        if isinstance(sequence, bool) or not isinstance(sequence, (int, float)) or sequence < 0:
+            return {"ok": False, "reason": "invalid_sequence"}
+        if isinstance(sequence, float) and (
+                not math.isfinite(sequence) or not sequence.is_integer()):
             return {"ok": False, "reason": "invalid_sequence"}
         sequence = int(sequence)
     side_name = trade.get("side_name")
