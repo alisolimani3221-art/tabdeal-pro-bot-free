@@ -35,6 +35,9 @@ def analyze_klines(candles):
         if not isinstance(candle, (list, tuple)) or len(candle) < 6:
             raise ValueError("invalid candle format")
         timestamp = _finite(candle[0], "open time")
+        volume = _finite(candle[5], "volume")
+        if timestamp < 0 or volume < 0:
+            raise ValueError("candle timestamp and volume must be nonnegative")
         open_price = _finite(candle[1], "open")
         high = _finite(candle[2], "high")
         low = _finite(candle[3], "low")
@@ -174,6 +177,8 @@ def recommend_leverage(technical, max_leverage=3):
             or not _finite(max_leverage, "max_leverage").is_integer()):
         raise ValueError("invalid price, ATR, or leverage cap")
     volatility_pct = (atr / price) * 100.0
+    if not math.isfinite(volatility_pct):
+        raise ValueError("volatility is outside the supported numeric range")
     if signal not in ("BULLISH", "BEARISH"):
         return {"leverage": 1, "volatility_pct": volatility_pct,
                 "reason": "سیگنال قطعی نیست؛ ورود انجام نشود",
