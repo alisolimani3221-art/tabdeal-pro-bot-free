@@ -3,6 +3,7 @@ import sys
 import json
 import re
 import threading
+import time
 import requests
 import certifi
 
@@ -452,16 +453,36 @@ class FuturesAnalyzerApp(App):
         results = {}
 
         def get_response(path, params=None, timeout=22):
+            # Mobile TLS connections can occasionally end before the server
+            # sends headers (SSLEOFError). Retry transient transport failures
+            # with a fresh connection; certificate verification stays enabled.
             url = FUTURES_API + path
-            response = session.get(url, params=params, timeout=timeout, verify=certifi.where())
-            results[path.strip("/").replace("/", "_") + "_status"] = response.status_code
-            if not response.ok:
-                detail = response.text[:500].replace("\n", " ")
-                results["depth_diagnostic"] = "HTTP {} {} body={}".format(
-                    response.status_code, response.url, detail
-                ) if path == "/depth" else results.get("depth_diagnostic")
-                raise RuntimeError("{} returned HTTP {}: {}".format(path, response.status_code, detail))
-            return response
+            last_error = None
+            for attempt in range(3):
+                try:
+                    response = session.get(
+                        url, params=params, timeout=timeout,
+                        verify=certifi.where(), headers={"Connection": "close"}
+                    )
+                    results[path.strip("/").replace("/", "_") + "_status"] = response.status_code
+                    if not response.ok:
+                        detail = response.text[:500].replace("\\n", " ")
+                        if path == "/depth":
+                            results["depth_diagnostic"] = "HTTP {} {} body={}".format(
+                                response.status_code, response.url, detail
+                            )
+                        response.close()
+                        raise RuntimeError("{} returned HTTP {}: {}".format(path, response.status_code, detail))
+                    return response
+                except (requests.exceptions.ConnectionError,
+                        requests.exceptions.SSLError,
+                        requests.exceptions.Timeout) as exc:
+                    last_error = exc
+                    if attempt < 2:
+                        time.sleep(1.0 * (attempt + 1))
+            raise RuntimeError("{}: ارتباط امن برقرار نشد پس از 3 تلاش: {}".format(
+                path, "{}: {}".format(type(last_error).__name__, str(last_error)[:220])
+            ))
 
         try:
             try:
@@ -473,9 +494,16 @@ class FuturesAnalyzerApp(App):
                 results["website_error"] = "{}: {}".format(type(exc).__name__, str(exc)[:180])
 
             # These are Tabdeal's documented public Futures read-only endpoints.
-            ping = get_response("/ping")
-            ping.close()
-            results["market_ping"] = 200
+            try:
+                ping = get_response("/ping", timeout=12)
+                ping.close()
+                results["market_ping"] = 200
+            except Exception as ping_exc:
+                # /ping is only a health probe. A transient failure must not
+                # prevent independent exchangeInfo and depth requests.
+                results["ping_error"] = "{}: {}".format(
+                    type(ping_exc).__name__, str(ping_exc)[:260]
+                )
 
             # Do not make connectivity depend on an undocumented /time route.
             # /ping, /exchangeInfo and /depth are the verified public endpoints.
@@ -806,9 +834,10 @@ class FuturesAnalyzerApp(App):
         self.symbol_spinner.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
         website_status = results.get("website", results.get("website_error", "ناموفق"))
+        # The ping endpoint is advisory only. Real market availability
+        # is established by exchangeInfo plus a successfully parsed depth book.
         market_ok = (
-            "market_ping" in results and 200 <= results["market_ping"] < 400
-            and "market_info" in results and 200 <= results["market_info"] < 400
+            "market_info" in results and 200 <= results["market_info"] < 400
             and "depth_status" in results and 200 <= results["depth_status"] < 400
             and "mid_price" in results
         )
@@ -874,7 +903,7 @@ class FuturesAnalyzerApp(App):
             self.connection.color = (1, 0.55, 0.4, 1)
             message = "سایت: {}\nپینگ بازار: {}\nاطلاعات بازار: {}\nدفتر سفارش: {}\nجزئیات: {}".format(
                 results.get("website", results.get("website_error", "ناموفق")),
-                results.get("market_ping", "ناموفق"),
+                results.get("market_ping", "ناموفق (بررسی سلامت؛ غیرمسدودکننده)"),
                 results.get("market_info", "ناموفق"),
                 results.get("depth_status", "ناموفق"),
                 results.get("market_error", results.get("website_error", "پاسخ کامل دریافت نشد")))
@@ -920,7 +949,7 @@ class FuturesAnalyzerApp(App):
 
         # Technical diagnostics are ASCII-only and therefore rendered with Roboto.
         diagnostic_parts = []
-        for key in ("depth_diagnostic", "market_error"):
+        for key in ("depth_diagnostic", "ping_error", "market_error"):
             value = results.get(key)
             if value:
                 diagnostic_parts.append("{}: {}".format(key, str(value)))
@@ -974,7 +1003,7 @@ class FuturesAnalyzerApp(App):
             "معامله‌گر آزمایشی: " + ("RUNNING" if auto_running else "STOPPED"),
             "آخرین بررسی: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
         ]
-        for key in ("website", "market_ping", "market_info", "depth_status",
+        for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
                     "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
             if key in results:
