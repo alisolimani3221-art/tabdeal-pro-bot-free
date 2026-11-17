@@ -169,6 +169,18 @@ def fa_plain(text):
         pass
     return value
 
+def assistant_rtl_text(text):
+    """Shape Arabic-script glyphs; let Kivy's RTL layout handle paragraph order."""
+    value = str(text)
+    if not contains_arabic(value):
+        return value
+    try:
+        if arabic_reshaper is not None:
+            return arabic_reshaper.reshape(value)
+    except Exception:
+        pass
+    return value
+
 
 def fa(text):
     """Shape Persian text and mark Latin runs to use the Latin-capable font."""
@@ -724,16 +736,17 @@ class FuturesAnalyzerApp(App):
         body.add_widget(key_input)
         body.add_widget(self.make_label("پرسش درباره وضعیت بازار", size=14, height=dp(34)))
         question_input = TextInput(
-            text="این تصویر محدود دفتر سفارش چه نکاتی را نشان می‌دهد؟",
-            multiline=True, font_name=FONT_NAME, size_hint_y=None, height=dp(92)
+            text=assistant_rtl_text("این تصویر محدود دفتر سفارش چه نکاتی را نشان می‌دهد؟"),
+            multiline=True, font_name=FONT_NAME, size_hint_y=None, height=dp(92),
+            halign="right", base_direction="rtl"
         )
         body.add_widget(question_input)
         result_scroll = ScrollView(do_scroll_x=False)
         result_label = Label(
-            text="پاسخ هوش مصنوعی اینجا نمایش داده می‌شود.",
+            text=assistant_rtl_text("پاسخ هوش مصنوعی اینجا نمایش داده می‌شود."),
             font_name=FONT_NAME, markup=False, font_size=sp(13),
             color=(0.92, 0.95, 1, 1), size_hint_y=None,
-            halign="right", valign="top",
+            halign="right", valign="top", base_direction="rtl",
             text_size=(Window.width * 0.82, None)
         )
         result_label.bind(texture_size=lambda widget, size: setattr(widget, "height", max(dp(90), size[1] + dp(18))))
@@ -756,10 +769,10 @@ class FuturesAnalyzerApp(App):
             gemini_credential = key_input.text.strip()
             question = question_input.text.strip()
             if not gemini_credential:
-                result_label.text = fa_plain("ابتدا کلید Gemini را وارد کنید.")
+                result_label.text = assistant_rtl_text("ابتدا کلید Gemini را وارد کنید.")
                 return
             if not question:
-                result_label.text = fa_plain("پرسش را وارد کنید.")
+                result_label.text = assistant_rtl_text("پرسش را وارد کنید.")
                 return
             snapshot = getattr(self, "last_diagnostic_results", {}) or {}
             bids = snapshot.get("bids") or []
@@ -783,7 +796,7 @@ class FuturesAnalyzerApp(App):
             key_input.text = ""
             ask_button.disabled = True
             ask_button.text = fa("در حال دریافت پاسخ...")
-            result_label.text = fa_plain("در حال ارتباط با Gemini...")
+            result_label.text = assistant_rtl_text("در حال ارتباط با Gemini...")
             def worker():
                 try:
                     message = analyze_with_gemini(gemini_credential, question, context)
@@ -792,7 +805,7 @@ class FuturesAnalyzerApp(App):
                 def finish(_dt):
                     ask_button.disabled = False
                     ask_button.text = fa("ارسال پرسش")
-                    result_label.text = fa_plain(message)
+                    result_label.text = assistant_rtl_text(message)
                 Clock.schedule_once(finish, 0)
             threading.Thread(target=worker, daemon=True).start()
 
