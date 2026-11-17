@@ -55,7 +55,7 @@ def _shape(value, depth=0):
 
 def _decimal_profile(value):
     if not isinstance(value, str) or not re.fullmatch(
-            r"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)", value):
+            r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)", value):
         return {"valid_decimal_string": False}
     try:
         number = Decimal(value)
@@ -84,7 +84,7 @@ def _timestamp_profile(value):
         parsed = datetime.fromisoformat(normalized)
     except (TypeError, ValueError):
         return {"format": "other_string"}
-    fraction = re.search(r"\\.([0-9]+)", value)
+    fraction = re.search(r"\.([0-9]+)", value)
     aware = parsed.tzinfo is not None and parsed.utcoffset() is not None
     return {"format": "iso8601_datetime", "timezone_aware": aware,
             "fractional_digits": len(fraction.group(1)) if fraction else 0}
