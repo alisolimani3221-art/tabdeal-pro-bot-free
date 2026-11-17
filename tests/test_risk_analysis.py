@@ -1,6 +1,6 @@
 import unittest
 
-from risk_analysis import analyze_klines, calculate_position_risk
+from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 
 
 class RiskAnalysisTests(unittest.TestCase):
@@ -62,6 +62,38 @@ class RiskAnalysisTests(unittest.TestCase):
     def test_analysis_rejects_insufficient_data(self):
         with self.assertRaises(ValueError):
             analyze_klines([[0, 1, 2, 0.5, 1.5, 1]] * 10)
+
+
+    def test_analysis_rejects_inconsistent_ohlc(self):
+        candles = []
+        for i in range(55):
+            close = 100 + i
+            candles.append([i, close - 1, close + 1, close - 2, close, 1])
+        candles.append([55, 1000, 2000, 1, 1500, 1])
+        candles[10] = [10, 105, 104, 103, 103.5, 1]
+        with self.assertRaises(ValueError):
+            analyze_klines(candles)
+
+    def test_analysis_rejects_non_increasing_timestamps(self):
+        candles = []
+        for i in range(55):
+            close = 100 + i
+            candles.append([i, close - 1, close + 1, close - 2, close, 1])
+        candles.append([55, 1000, 2000, 1, 1500, 1])
+        candles[20][0] = candles[19][0]
+        with self.assertRaises(ValueError):
+            analyze_klines(candles)
+
+    def test_high_volatility_disables_trade(self):
+        result = recommend_leverage(
+            {"signal": "BULLISH", "price": 100, "atr14": 2.1}, 3
+        )
+        self.assertEqual(result["leverage"], 1)
+        self.assertFalse(result["trade_allowed"])
+
+    def test_liquidation_warning_matches_three_x_cap(self):
+        result = calculate_position_risk(1000, 1, 50000, 2, 3, 2)
+        self.assertTrue(result["liquidation_warning"])
 
 
 if __name__ == "__main__":
