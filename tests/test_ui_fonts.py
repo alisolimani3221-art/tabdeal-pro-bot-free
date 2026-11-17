@@ -52,6 +52,16 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("NUMERIC_FONT_NAME = FONT_NAME", source)
         self.assertIn("def font_for_text(text):", source)
 
+    def test_persian_bidi_direction_is_explicitly_right_to_left(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn('get_display(arabic_reshaper.reshape(value), base_dir="R")', source)
+
+    def test_runtime_diagnostics_exercise_actual_rtl_pipeline(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("def rtl_runtime_status():", source)
+        self.assertIn('get_display(shaped, base_dir="R")', source)
+        self.assertIn("rtl_runtime_status()", source)
+
     def test_plain_persian_text_uses_arabic_shaping_helper(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("def contains_arabic(text):", source)
