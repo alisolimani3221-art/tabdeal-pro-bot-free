@@ -9,6 +9,7 @@ on:
       - 'ai_assistant.py'
       - 'market_format.py'
       - 'trade_stream_probe.py'
+      - 'market_candles.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
       - 'orderbook.py'
