@@ -154,7 +154,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
 
     result = {"connected": False, "messages": 0, "trade_envelopes": 0,
               "schema_observations": [], "last_diagnostic": "no_message",
-              "symbol": symbol}
+              "symbol": symbol, "connection_error": None}
 
     def on_open(ws):
         result["connected"] = True
@@ -175,6 +175,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
 
     def on_error(ws, error):
         result["last_diagnostic"] = "websocket_error:" + type(error).__name__
+        result["connection_error"] = type(error).__name__
 
     app = websocket.WebSocketApp(
         BROADCAST_URL, on_open=on_open, on_message=on_message, on_error=on_error
@@ -185,9 +186,18 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
     timer.start()
     try:
         app.run_forever(ping_interval=20, ping_timeout=10)
+    except Exception as exc:
+        result["connection_error"] = type(exc).__name__
+        result["last_diagnostic"] = "websocket_exception:" + type(exc).__name__
     finally:
         timer.cancel()
     result["elapsed_seconds"] = round(time.monotonic() - started, 2)
+    if result["trade_envelopes"] > 0:
+        result["probe_status"] = "observed_trade_object"
+    elif result["connected"]:
+        result["probe_status"] = "connected_no_trade_object"
+    else:
+        result["probe_status"] = "connection_failed"
     result["schema_confirmed"] = False
     result["note"] = (
         "Schema metadata only. Review observed fields and types before enabling "
@@ -201,8 +211,21 @@ if __name__ == "__main__":
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL)
     parser.add_argument("--timeout", type=int, default=20)
     parser.add_argument("--max-messages", type=int, default=20)
+    parser.add_argument("--output", default=None,
+                        help="Optional path for a redacted JSON diagnostic report")
+    parser.add_argument("--require-trade", action="store_true",
+                        help="Exit non-zero unless a trade object was observed")
     args = parser.parse_args()
-    print(json.dumps(
-        probe_broadcast(args.symbol, args.timeout, args.max_messages),
-        ensure_ascii=False, sort_keys=True
-    ))
+    if args.timeout < 1 or args.max_messages < 1:
+        parser.error("--timeout and --max-messages must be positive integers")
+    report = probe_broadcast(args.symbol, args.timeout, args.max_messages)
+    rendered = json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2)
+    if args.output:
+        from pathlib import Path
+        output_path = Path(args.output)
+        temporary_path = output_path.with_name(output_path.name + ".tmp")
+        temporary_path.write_text(rendered + "\\n", encoding="utf-8")
+        temporary_path.replace(output_path)
+    print(rendered)
+    if args.require_trade and report["trade_envelopes"] == 0:
+        raise SystemExit(2)
