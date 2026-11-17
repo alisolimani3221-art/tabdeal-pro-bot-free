@@ -44,6 +44,15 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertNotIn("new_order", source.lower())
         self.assertNotIn("create_order", source.lower())
 
+    def test_all_runtime_components_are_read_only_and_have_no_credentials(self):
+        for name in ("main.py", "multi_bot.py", "server_paper_trader.py",
+                     "trade_stream_probe.py", "paper_trader.py"):
+            source = self.read(name).lower()
+            with self.subTest(name=name):
+                for forbidden in ("api_key", "api_secret", "new_order", "create_order"):
+                    self.assertNotIn(forbidden, source)
+                self.assertNotRegex(source, r"\\.(post|put|delete)\\s*\\(")
+
     def test_server_monitor_does_not_create_paper_trading_signals_or_orders(self):
         source = self.read("server_paper_trader.py")
         self.assertIn("/depth", source)
