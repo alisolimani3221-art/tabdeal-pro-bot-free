@@ -145,11 +145,20 @@ def normalize_digits(value):
     return str(value).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
 
 
+def contains_arabic(text):
+    """Return whether text contains Arabic-script code points."""
+    return any(
+        0x0600 <= ord(char) <= 0x06FF
+        or 0x0750 <= ord(char) <= 0x077F
+        or 0x08A0 <= ord(char) <= 0x08FF
+        for char in str(text)
+    )
+
+
 def fa_plain(text):
     """Shape Persian text for widgets that do not support Kivy markup."""
     value = str(text)
-    if not any("\\u0600" <= char <= "\\u06ff" or "\\u0750" <= char <= "\\u077f"
-               or "\\u08a0" <= char <= "\\u08ff" for char in value):
+    if not contains_arabic(value):
         return value
     try:
         if arabic_reshaper is not None and get_display is not None:
@@ -162,8 +171,7 @@ def fa_plain(text):
 def fa(text):
     """Shape Persian text and mark Latin runs to use the Latin-capable font."""
     value = str(text)
-    if not any("\u0600" <= char <= "\u06ff" or "\u0750" <= char <= "\u077f"
-               or "\u08a0" <= char <= "\u08ff" for char in value):
+    if not contains_arabic(value):
         return value
     try:
         if arabic_reshaper is not None and get_display is not None:
