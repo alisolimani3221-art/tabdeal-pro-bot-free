@@ -48,6 +48,19 @@ class GeminiAssistantTests(unittest.TestCase):
         self.assertNotIn("MUST_NOT_APPEAR", prompt)
         self.assertNotIn("api_key", prompt)
 
+    def test_prompt_includes_only_explicit_closed_candle_indicators(self):
+        prompt = ai_assistant.build_prompt(
+            "تحلیل تکنیکال چیست؟",
+            {"symbol": "BTC_USDT", "data_kind": "one-minute closed trade-candle indicators",
+             "sma20": 100.5, "sma50": 99.5, "rsi14": 55.2,
+             "atr14": 1.2, "signal": "BULLISH", "closed_candles": 51,
+             "api_secret": "MUST_NOT_APPEAR"}
+        )
+        self.assertIn("100.5", prompt)
+        self.assertIn("BULLISH", prompt)
+        self.assertNotIn("MUST_NOT_APPEAR", prompt)
+        self.assertNotIn("api_secret", prompt)
+
     def test_rejects_empty_question(self):
         with self.assertRaises(ValueError):
             ai_assistant.build_prompt(" ", {"symbol": "BTC_USDT"})
