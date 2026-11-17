@@ -32,6 +32,8 @@ class TabdealApiContractTests(unittest.TestCase):
         source = self.read("main.py")
         self.assertIn("run_auto_paper_scanner", source)
         self.assertIn("هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود", source)
+        self.assertIn("معامله‌گر خودکار در این نسخه غیرفعال است", source)
+        self.assertNotIn("فقط در حالت آزمایشی شبیه‌سازی می‌کند", source)
 
     def test_public_trade_probe_is_read_only_and_has_no_credentials(self):
         source = self.read("trade_stream_probe.py")
