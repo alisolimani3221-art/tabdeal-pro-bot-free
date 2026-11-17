@@ -1,7 +1,11 @@
 import json
+import sys
+import types
 import unittest
+from unittest.mock import patch
 
-from trade_stream_probe import inspect_trade_message, parse_trade_message
+from trade_stream_probe import (inspect_trade_message, parse_trade_message,
+                                probe_broadcast)
 
 
 class TradeStreamProbeTests(unittest.TestCase):
@@ -42,6 +46,49 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["reason"], "trade_object_observed")
         self.assertEqual(result["trade_shape"], {"type": "object", "keys": {}})
+
+    def test_probe_does_not_count_null_trade_as_observed(self):
+        class FakeWebSocketApp:
+            def __init__(self, url, on_open, on_message, on_error):
+                self.on_open = on_open
+                self.on_message = on_message
+            def run_forever(self, **kwargs):
+                self.on_open(self)
+                self.on_message(self, '{"trade": null}')
+            def send(self, value):
+                self.sent = value
+            def close(self):
+                pass
+
+        fake_module = types.SimpleNamespace(WebSocketApp=FakeWebSocketApp)
+        with patch.dict(sys.modules, {"websocket": fake_module}):
+            report = probe_broadcast(timeout_seconds=2, max_messages=1)
+        self.assertTrue(report["connected"])
+        self.assertEqual(report["messages"], 1)
+        self.assertEqual(report["trade_envelopes"], 0)
+        self.assertEqual(report["probe_status"], "connected_no_trade_object")
+        self.assertFalse(report["schema_confirmed"])
+
+    def test_probe_records_object_but_never_confirms_schema(self):
+        class FakeWebSocketApp:
+            def __init__(self, url, on_open, on_message, on_error):
+                self.on_open = on_open
+                self.on_message = on_message
+            def run_forever(self, **kwargs):
+                self.on_open(self)
+                self.on_message(self, '{"trade": {"field": "secret-value"}}')
+            def send(self, value):
+                self.sent = value
+            def close(self):
+                pass
+
+        fake_module = types.SimpleNamespace(WebSocketApp=FakeWebSocketApp)
+        with patch.dict(sys.modules, {"websocket": fake_module}):
+            report = probe_broadcast(timeout_seconds=2, max_messages=1)
+        self.assertEqual(report["trade_envelopes"], 1)
+        self.assertEqual(report["probe_status"], "observed_trade_object")
+        self.assertFalse(report["schema_confirmed"])
+        self.assertNotIn("secret-value", json.dumps(report))
 
     def test_millisecond_timestamp_is_preserved(self):
         payload = {"trade": {"s": "AEVO_USDT", "p": "2",
