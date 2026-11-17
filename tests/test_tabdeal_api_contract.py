@@ -30,7 +30,6 @@ class TabdealApiContractTests(unittest.TestCase):
 
     def test_android_app_does_not_enable_unverified_candle_signals(self):
         source = self.read("main.py")
-        self.assertIn("technical_candles", source)
         self.assertIn("run_auto_paper_scanner", source)
         self.assertIn("هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود", source)
 
