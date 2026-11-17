@@ -165,6 +165,36 @@ jobs:
               symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
+      - name: Read-only Tabdeal trade broadcast probe
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_stream_probe import probe_broadcast
+
+          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=15)
+          Path("trade-stream-probe-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2) + "\\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          if not report["connected"]:
+              raise SystemExit("Public trade broadcast connection was not established")
+          if report["messages"] and report["valid_trades"] == 0:
+              raise SystemExit("Messages arrived but none matched the observed strict schema")
+          PY
+
+      - name: Upload redacted trade-stream probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-stream-probe-report
+          path: trade-stream-probe-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip setuptools wheel
