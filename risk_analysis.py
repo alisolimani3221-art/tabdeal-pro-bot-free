@@ -30,7 +30,7 @@ def analyze_klines(candles):
     if len(closed) < 51:
         raise ValueError("at least 52 candles are required")
 
-    highs, lows, closes, timestamps = [], [], [], []
+    opens, highs, lows, closes, timestamps = [], [], [], [], []
     for candle in closed:
         if not isinstance(candle, (list, tuple)) or len(candle) < 6:
             raise ValueError("invalid candle format")
@@ -47,6 +47,7 @@ def analyze_klines(candles):
         if high < low or not low <= open_price <= high or not low <= close <= high:
             raise ValueError("inconsistent OHLC range")
         timestamps.append(timestamp)
+        opens.append(open_price)
         highs.append(high)
         lows.append(low)
         closes.append(close)
@@ -96,6 +97,9 @@ def analyze_klines(candles):
 
     return {
         "price": price,
+        "candle_open": opens[-1],
+        "candle_high": highs[-1],
+        "candle_low": lows[-1],
         "sma20": sma20,
         "sma50": sma50,
         "rsi14": rsi,
