@@ -50,6 +50,14 @@ class OrderBookTests(unittest.TestCase):
         self.assertEqual(bids, [(10.0, 2.0)])
         self.assertEqual(asks, [(11.0, 3.0)])
 
+    def test_empty_outer_arrays_fall_back_to_nested(self):
+        bids, asks = parse_order_book({
+            "bids": [], "asks": [],
+            "data": {"bids": [["10", "2"]], "asks": [["11", "3"]]},
+        })
+        self.assertEqual(bids, [(10.0, 2.0)])
+        self.assertEqual(asks, [(11.0, 3.0)])
+
     def test_ignores_zero_and_invalid_levels(self):
         bids, asks = parse_order_book({
             "bids": [["101", "0"], ["100", "2"], ["nan", "1"]],
