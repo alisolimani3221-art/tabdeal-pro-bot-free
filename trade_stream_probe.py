@@ -78,8 +78,12 @@ def parse_trade_message(message, expected_symbol=None):
     if price is None or quantity is None or timestamp is None:
         return {"ok": False, "reason": "trade_schema_unrecognized",
                 "trade_keys": sorted(str(k) for k in trade.keys())[:30]}
-    # Accept seconds or milliseconds, but normalize to milliseconds.
-    timestamp_ms = int(timestamp if timestamp >= 100000000000 else timestamp * 1000)
+    # Accept seconds or milliseconds, but reject values that overflow during
+    # seconds-to-milliseconds conversion before converting to int.
+    timestamp_value = timestamp if timestamp >= 100000000000 else timestamp * 1000
+    if not math.isfinite(timestamp_value):
+        return {"ok": False, "reason": "invalid_timestamp"}
+    timestamp_ms = int(timestamp_value)
     if timestamp_ms <= 0:
         return {"ok": False, "reason": "invalid_timestamp"}
     return {"ok": True, "symbol": str(symbol or expected_symbol or ""),
