@@ -6,6 +6,7 @@ it never logs trade values, reads credentials, or submits orders.
 """
 import argparse
 import json
+import re
 import time
 import threading
 
@@ -58,7 +59,13 @@ def inspect_trade_message(message):
             message = message.decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             return {"ok": False, "reason": "invalid_utf8"}
-    if not isinstance(message, str) or len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
+    if not isinstance(message, str):
+        return {"ok": False, "reason": "invalid_or_oversized_message"}
+    try:
+        message_size = len(message.encode("utf-8", errors="strict"))
+    except UnicodeEncodeError:
+        return {"ok": False, "reason": "invalid_unicode"}
+    if message_size > MAX_MESSAGE_BYTES:
         return {"ok": False, "reason": "invalid_or_oversized_message"}
     try:
         payload = json.loads(message)
@@ -81,70 +88,9 @@ def inspect_trade_message(message):
             "top_level_shape": _shape(payload), "trade_shape": _shape(trade)}
 
 
-def _finite_positive(value):
-    try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if number != number or number in (float("inf"), float("-inf")) or number <= 0:
-        return None
-    return number
-
-
-# These aliases are retained only for isolated parser unit tests. They are NOT
-# treated as the exchange contract until a live observation confirms them.
-ALIASES = {
-    "price": ("price", "p", "tradePrice", "dealPrice"),
-    "quantity": ("quantity", "qty", "q", "volume", "amount"),
-    "timestamp": ("timestamp", "time", "T", "tradeTime", "ts"),
-}
-
-
-def _first(mapping, names):
-    for name in names:
-        if name in mapping and mapping[name] is not None:
-            return mapping[name]
-    return None
-
-
-def parse_trade_message(message, expected_symbol=None):
-    """Legacy candidate parser for unit tests; not enabled for candle creation."""
-    if isinstance(message, bytes):
-        if len(message) > MAX_MESSAGE_BYTES:
-            return {"ok": False, "reason": "message_too_large"}
-        message = message.decode("utf-8", errors="strict")
-    if not isinstance(message, str) or len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
-        return {"ok": False, "reason": "invalid_or_oversized_message"}
-    try:
-        payload = json.loads(message)
-    except (TypeError, ValueError):
-        return {"ok": False, "reason": "invalid_json"}
-    if not isinstance(payload, dict):
-        return {"ok": False, "reason": "payload_not_object"}
-    if "error" in payload:
-        return {"ok": False, "reason": "exchange_error"}
-    trade = payload.get("trade")
-    if not isinstance(trade, dict):
-        return {"ok": False, "reason": "missing_trade_object"}
-    symbol = trade.get("symbol") or trade.get("s") or payload.get("symbol")
-    if symbol is not None and expected_symbol and str(symbol).upper() != expected_symbol.upper():
-        return {"ok": False, "reason": "symbol_mismatch"}
-    price = _finite_positive(_first(trade, ALIASES["price"]))
-    quantity = _finite_positive(_first(trade, ALIASES["quantity"]))
-    timestamp = _finite_positive(_first(trade, ALIASES["timestamp"]))
-    if price is None or quantity is None or timestamp is None:
-        return {"ok": False, "reason": "trade_schema_unrecognized"}
-    timestamp_ms = int(timestamp if timestamp >= 100000000000 else timestamp * 1000)
-    if timestamp_ms <= 0:
-        return {"ok": False, "reason": "invalid_timestamp"}
-    return {"ok": True, "symbol": str(symbol or expected_symbol or ""),
-            "price": price, "quantity": quantity, "timestamp_ms": timestamp_ms}
-
-
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=20, max_messages=20):
     """Connect to public broadcast and collect schema-only observations."""
-    if (not isinstance(symbol, str) or not symbol.endswith("_USDT")
-            or not symbol.replace("_", "").isalnum()):
+    if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
         raise ValueError("symbol must look like BTC_USDT")
     try:
         import websocket
