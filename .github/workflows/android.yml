@@ -149,6 +149,9 @@ jobs:
               symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
+      - name: Install WebSocket probe dependency
+        run: python -m pip install websocket-client==1.8.0
+
       - name: Observe live Tabdeal Futures trade schema (read-only)
         continue-on-error: true
         timeout-minutes: 2
