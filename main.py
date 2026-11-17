@@ -798,6 +798,17 @@ class FuturesAnalyzerApp(App):
                 })
             else:
                 context["data_kind"] = "no verified market snapshot available"
+            technical = getattr(self, "latest_technical_analysis", None)
+            if isinstance(technical, dict) and technical.get("symbol") == context["symbol"]:
+                context.update({
+                    "data_kind": "one-minute closed trade-candle indicators plus latest order-book snapshot",
+                    "sma20": technical.get("sma20"),
+                    "sma50": technical.get("sma50"),
+                    "rsi14": technical.get("rsi14"),
+                    "atr14": technical.get("atr14"),
+                    "signal": technical.get("signal"),
+                    "closed_candles": technical.get("closed_candles"),
+                })
             # Do not retain the credential in a widget or settings file.
             key_input.text = ""
             ask_button.disabled = True
