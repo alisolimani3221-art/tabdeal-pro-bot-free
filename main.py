@@ -786,13 +786,9 @@ class FuturesAnalyzerApp(App):
             result_label.text = fa_plain("در حال ارتباط با Gemini...")
             def worker():
                 try:
-                    answer = analyze_with_gemini(api_key, question, context)
-                    message = answer
+                    message = analyze_with_gemini(api_key, question, context)
                 except Exception as exc:
                     message = str(exc)[:500]
-                finally:
-                    # Drop the local reference as soon as the request completes.
-                    pass
                 def finish(_dt):
                     ask_button.disabled = False
                     ask_button.text = fa("ارسال پرسش")
