@@ -1,5 +1,6 @@
 """Conservative paper-trading engine. It never sends exchange orders."""
 import math
+import re
 
 
 def _positive(value, name):
@@ -19,10 +20,8 @@ def rank_signal(technical):
     if signal not in ("BULLISH", "BEARISH"):
         return None
     symbol = str(technical.get("symbol", "")).strip()
-    normalized_symbol = symbol.replace("_", "").upper()
-    if (not symbol or not normalized_symbol.isalnum()
-            or not normalized_symbol.endswith("USDT")
-            or len(normalized_symbol) <= 4):
+    normalized_symbol = symbol.upper()
+    if not re.fullmatch(r"[A-Z0-9]+_?USDT", normalized_symbol):
         return None
     try:
         price = _positive(technical["price"], "price")
@@ -37,7 +36,7 @@ def rank_signal(technical):
     if not math.isfinite(rsi) or not 0 <= rsi <= 100:
         return None
     volatility_pct = atr / price * 100.0
-    if volatility_pct > 2.0:
+    if not math.isfinite(volatility_pct) or volatility_pct > 2.0:
         return None
     if signal == "BULLISH" and not (price > sma20 > sma50 and 50 <= rsi < 68):
         return None
@@ -46,6 +45,8 @@ def rank_signal(technical):
     trend_strength = abs(sma20 - sma50) / price * 100.0
     momentum_strength = abs(rsi - 50.0) / 18.0
     score = trend_strength * 10.0 + momentum_strength - volatility_pct * 0.5
+    if not math.isfinite(score):
+        return None
     return {"symbol": symbol, "side": signal,
             "price": price, "atr": atr, "rsi": rsi,
             "volatility_pct": volatility_pct, "score": score}
