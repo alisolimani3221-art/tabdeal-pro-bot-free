@@ -1,23 +1,27 @@
 import os
 import sys
 import json
-import re
 import threading
 import requests
 import certifi
 
 APP_VERSION = "1.8"
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
     sys.path.insert(0, VENDOR_DIR)
 
+RTL_IMPORT_ERROR = None
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display
-except Exception:
+except Exception as exc:
     arabic_reshaper = None
     get_display = None
+    RTL_IMPORT_ERROR = "{}: {}".format(type(exc).__name__, str(exc)[:180])
+
+RTL_RUNTIME_ERROR = None
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -29,30 +33,27 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
-from kivy.uix.spinner import Spinner, SpinnerOption
+from kivy.uix.spinner import Spinner
 from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path, resource_find
 from market_symbols import select_market_symbol, list_market_symbols
-from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
+from risk_analysis import calculate_position_risk, recommend_leverage
 from paper_trader import PaperTradingEngine
 
 # Resolve the bundled font from both the app directory and Kivy resources.
-# Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
-# covers Persian letters and Latin digits in one face; also check Android's
-# system Noto font locations as a last-resort fallback.
+# Preserve Noto Sans Arabic as the primary face because it was the
+# previously working Android UI font. Noto Naskh is only a fallback.
+# The build workflow must package the same primary file that runtime selects.
 FONT_CANDIDATES = [
-    # Use Noto Sans Arabic as the app-wide default: Kivy widgets that implicitly
-    # request Roboto (buttons, spinners, popup titles, text inputs) must also
-    # receive Persian glyphs, not only labels explicitly styled as Persian.
     os.path.join(BASE_DIR, "NotoSansArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "assets", "NotoSansArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "NotoNaskhArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "assets", "NotoNaskhArabic-Regular.ttf"),
+    "/system/fonts/NotoSansArabic-Regular.ttf",
     "/system/fonts/NotoNaskhArabicUI-Regular.ttf",
     "/system/fonts/NotoNaskhArabic-Regular.ttf",
-    "/system/fonts/NotoSansArabic-Regular.ttf",
 ]
 FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.isfile(p)), None)
 FONT_LOAD_ERROR = None
@@ -94,6 +95,7 @@ LATIN_FONT_CANDIDATES = [
     "/system/fonts/Roboto-Regular.ttf",
 ]
 LATIN_FONT_PATH = next((p for p in LATIN_FONT_CANDIDATES if os.path.isfile(p)), None)
+LATIN_FONT_LOAD_ERROR = None
 if LATIN_FONT_PATH:
     try:
         resource_add_path(os.path.dirname(LATIN_FONT_PATH))
@@ -105,35 +107,19 @@ if LATIN_FONT_PATH:
             fn_bolditalic=LATIN_FONT_PATH,
         )
         NUMERIC_FONT_NAME = "LatinNoto"
-    except Exception:
+    except Exception as exc:
         NUMERIC_FONT_NAME = "Roboto"
+        LATIN_FONT_LOAD_ERROR = "{}: {}".format(type(exc).__name__, str(exc)[:180])
 else:
     NUMERIC_FONT_NAME = "Roboto"
+    LATIN_FONT_LOAD_ERROR = "No bundled or Android system Latin font file was found."
 
 
-# Android/Kivy can render the same screen with different fallback fonts when
-# Latin and Arabic labels use separate font faces. That inconsistency can
-# produce tofu/square glyphs in tickers, digits, Spinner rows and popup controls.
-# Use the verified bundled Arabic-capable Noto face for EVERY widget; these
-# Noto fonts include the ASCII letters, digits and punctuation used in BTC_USDT.
-NUMERIC_FONT_NAME = FONT_NAME
-
-
+# Keep the Arabic-capable face for Persian and the bundled Latin face for
+# ASCII-only labels. Mixed Persian/Latin strings are split by fa() using Kivy
+# markup so each run is rendered by a font with the required glyph coverage.
 def font_for_text(text):
-    """Choose a font with glyph coverage for the text's script."""
-    value = str(text)
-    if any("\u0600" <= ch <= "\u06ff" or "\u0750" <= ch <= "\u077f"
-           or "\u08a0" <= ch <= "\u08ff" for ch in value):
-        return FONT_NAME
-    return NUMERIC_FONT_NAME
-
-class LatinSpinnerOption(SpinnerOption):
-    """Render every market-symbol dropdown row with the bundled Latin font."""
-    def __init__(self, **kwargs):
-        kwargs.setdefault("font_name", NUMERIC_FONT_NAME)
-        kwargs.setdefault("font_size", sp(16))
-        kwargs.setdefault("color", (1, 1, 1, 1))
-        super().__init__(**kwargs)
+    return FONT_NAME if contains_arabic(text) else NUMERIC_FONT_NAME
 
 
 TABDEAL_WEBSITE = "https://tabdeal.org/"
@@ -146,48 +132,74 @@ def normalize_digits(value):
 
 
 def contains_arabic(text):
-    """Return whether text contains Arabic-script code points."""
+    """Return whether text contains Arabic-script code points used by Persian."""
     return any(
-        0x0600 <= ord(char) <= 0x06FF
-        or 0x0750 <= ord(char) <= 0x077F
-        or 0x08A0 <= ord(char) <= 0x08FF
+        "\u0600" <= char <= "\u06ff"
+        or "\u0750" <= char <= "\u077f"
+        or "\u08a0" <= char <= "\u08ff"
         for char in str(text)
     )
 
 
 def fa_plain(text):
-    """Shape Persian text for widgets that do not support Kivy markup."""
+    """Return plain non-Arabic text unchanged; Arabic text is shaped by fa()."""
     value = str(text)
     if not contains_arabic(value):
         return value
-    try:
-        if arabic_reshaper is not None and get_display is not None:
-            return get_display(arabic_reshaper.reshape(value))
-    except Exception:
-        pass
     return value
 
 
 def fa(text):
-    """Shape Persian text and mark Latin runs to use the Latin-capable font."""
+    """Shape Arabic-script text; never silently claim RTL support when unavailable."""
+    global RTL_RUNTIME_ERROR
     value = str(text)
     if not contains_arabic(value):
         return value
+    if arabic_reshaper is None or get_display is None:
+        RTL_RUNTIME_ERROR = RTL_IMPORT_ERROR or "RTL libraries unavailable"
+        return value
     try:
-        if arabic_reshaper is not None and get_display is not None:
-            value = get_display(arabic_reshaper.reshape(value))
-            # Kivy Label markup lets a mixed RTL/LTR sentence use the correct
-            # font for each run instead of asking the Arabic font for Latin glyphs.
-            value = re.sub(
-                r"[\x20-\x7e]+",
-                lambda match: "[font=Roboto]{}[/font]".format(
-                    match.group(0).replace("&", "&amp;").replace("[", "&bl;").replace("]", "&br;")
-                ),
-                value,
-            )
-    except Exception:
-        pass
-    return value
+        value = get_display(arabic_reshaper.reshape(value), base_dir="R")
+        # Use the Latin font for ASCII runs inside mixed Persian/English labels.
+        def latin_run(match):
+            run = (match.group(0).replace("&", "&amp;")
+                   .replace("[", "&bl;").replace("]", "&br;"))
+            return "[font={}]{}[/font]".format(NUMERIC_FONT_NAME, run)
+        return re.sub(r"[\x20-\x7e]+", latin_run, value)
+    except Exception as exc:
+        RTL_RUNTIME_ERROR = "{}: {}".format(type(exc).__name__, str(exc)[:180])
+        return value
+
+
+def rtl_diagnostic():
+    """Return ASCII-only runtime evidence for the Persian rendering pipeline."""
+    if FONT_LOAD_ERROR:
+        return "persian_font=FAIL; {}".format(FONT_LOAD_ERROR)
+    if not FONT_PATH:
+        return "persian_font=FAIL; no supported font file was found"
+    if LATIN_FONT_LOAD_ERROR:
+        return "latin_font=FAIL; {}".format(LATIN_FONT_LOAD_ERROR)
+    if arabic_reshaper is None or get_display is None:
+        return "rtl_libraries=FAIL; {}".format(
+            RTL_IMPORT_ERROR or "arabic-reshaper/python-bidi unavailable"
+        )
+    try:
+        sample = "فارسی آزمایش پشتیبانی"
+        shaped = arabic_reshaper.reshape(sample)
+        displayed = get_display(shaped)
+        presentation_forms = any(
+            0xFB50 <= ord(ch) <= 0xFDFF or 0xFE70 <= ord(ch) <= 0xFEFF
+            for ch in displayed
+        )
+        if not presentation_forms:
+            return "rtl_libraries=PARTIAL; Arabic shaping produced no presentation forms"
+        if RTL_RUNTIME_ERROR:
+            return "rtl_libraries=ERROR; {}".format(RTL_RUNTIME_ERROR)
+        return "rtl_libraries=OK; shaping=OK; font_name={}; font_path={}".format(
+            FONT_NAME, FONT_PATH or "NOT_FOUND"
+        )
+    except Exception as exc:
+        return "rtl_libraries=ERROR; {}: {}".format(type(exc).__name__, str(exc)[:180])
 
 
 class FuturesAnalyzerApp(App):
@@ -233,7 +245,6 @@ class FuturesAnalyzerApp(App):
             text=self.current_symbol,
             values=(self.current_symbol,),
             font_name=NUMERIC_FONT_NAME,
-            option_cls=LatinSpinnerOption,
             font_size=sp(16),
             size_hint_y=None,
             height=dp(46),
@@ -247,20 +258,20 @@ class FuturesAnalyzerApp(App):
 
         content.add_widget(self.section_title("اطلاعات بازار"))
         cards = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(142))
-        card, self.price_value = self.info_card("قیمت میانی دفتر سفارش", "هنوز دریافت نشده")
+        card, self.price_value = self.info_card("قیمت میانی بازار", "هنوز دریافت نشده")
         cards.add_widget(card)
         card, self.bid_value = self.info_card("بهترین قیمت خرید", "-")
         cards.add_widget(card)
         card, self.ask_value = self.info_card("بهترین قیمت فروش", "—")
         cards.add_widget(card)
-        cards.add_widget(self.info_card("نوع داده", "تصویر دفتر سفارش")[0])
+        cards.add_widget(self.info_card("بازه زمانی", "لحظه‌ای")[0])
         content.add_widget(cards)
 
         # Tappable order-book header refreshes live data. Each level is also
         # a real button so the user can inspect that exact bid/ask price and size.
         book_title_button = Button(
-            markup=True, text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
-            font_name=FONT_NAME, font_size=sp(17),
+            text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
+            font_name=FONT_NAME, markup=True, font_size=sp(17),
             size_hint_y=None, height=dp(42),
             background_normal="", background_color=(0.08, 0.28, 0.42, 1),
             color=(0.35, 0.78, 1, 1),
@@ -298,13 +309,13 @@ class FuturesAnalyzerApp(App):
         content.add_widget(book_grid)
 
         content.add_widget(self.section_title("تحلیل تکنیکال"))
-        self.analysis_signal = self.make_label("تحلیل تکنیکال تا زمان دسترسی به منبع معتبر کندل غیرفعال است.", size=15, height=dp(42))
+        self.analysis_signal = self.make_label("پس از دریافت کندل‌ها، روند بازار محاسبه می‌شود.", size=15, height=dp(42))
         content.add_widget(self.analysis_signal)
         self.analysis_metrics = self.make_label("SMA20: --   SMA50: --   RSI14: --   ATR14: --", size=12, height=dp(38))
         self.analysis_metrics.font_name = NUMERIC_FONT_NAME
 
         self.smart_analysis_button = Button(
-            markup=True, text=fa("تحلیل هوشمند و پیشنهاد معامله"), font_name=FONT_NAME,
+            text=fa("تحلیل هوشمند و پیشنهاد معامله"), font_name=FONT_NAME, markup=True,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.12, 0.38, 0.58, 1),
             color=(1, 1, 1, 1),
@@ -314,25 +325,14 @@ class FuturesAnalyzerApp(App):
         self.latest_technical_analysis = None
         content.add_widget(self.analysis_metrics)
 
-        self.risk_button = Button(markup=True, text=fa("محاسبه مدیریت ریسک"), font_name=FONT_NAME, font_size=sp(16),
+        self.risk_button = Button(text=fa("محاسبه مدیریت ریسک"), font_name=FONT_NAME, markup=True, font_size=sp(16),
                                   size_hint_y=None, height=dp(48), background_normal="",
                                   background_color=(0.12, 0.48, 0.38, 1), color=(1, 1, 1, 1))
         self.risk_button.bind(on_press=self.open_risk_calculator)
         content.add_widget(self.risk_button)
 
-        self.diagnostics_button = Button(
-            markup=True, text=fa("مرکز عیب‌یابی و تعمیر برنامه"), font_name=FONT_NAME,
-            font_size=sp(16), size_hint_y=None, height=dp(50),
-            background_normal="", background_color=(0.30, 0.24, 0.48, 1),
-            color=(1, 1, 1, 1))
-        self.diagnostics_button.bind(on_press=self.open_diagnostics)
-        content.add_widget(self.diagnostics_button)
-        self.last_diagnostic_results = {}
-        self.last_diagnostic_time = "هنوز اجرا نشده"
-        self.check_in_progress = False
-
         self.auto_trader_button = Button(
-            markup=True, text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME,
+            text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME, markup=True,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.42, 0.30, 0.12, 1),
             color=(1, 1, 1, 1))
@@ -356,11 +356,21 @@ class FuturesAnalyzerApp(App):
         scroll.add_widget(content)
         root.add_widget(scroll)
 
-        self.check_button = Button(markup=True, text=fa("بررسی اتصال"), font_name=FONT_NAME, font_size=sp(17),
+        self.check_button = Button(text=fa("بررسی اتصال"), font_name=FONT_NAME, markup=True, font_size=sp(17),
                                    size_hint_y=None, height=dp(54), background_normal="",
                                    background_color=(0.08, 0.42, 0.68, 1), color=(1, 1, 1, 1))
         self.check_button.bind(on_press=self.show_status)
         root.add_widget(self.check_button)
+
+        # Dedicated diagnostics entry point, available before any network check.
+        self.diagnostics_button = Button(
+            text=fa("مرکز عیب‌یابی"), font_name=FONT_NAME, markup=True, font_size=sp(15),
+            size_hint_y=None, height=dp(46), background_normal="",
+            background_color=(0.20, 0.25, 0.34, 1), color=(1, 1, 1, 1),
+        )
+        self.diagnostics_button.bind(on_press=self.open_diagnostics)
+        root.add_widget(self.diagnostics_button)
+        self.last_results = {}
         return root
 
     def make_label(self, text, size=15, color=(1, 1, 1, 1), height=dp(48)):
@@ -396,11 +406,7 @@ class FuturesAnalyzerApp(App):
             self.current_symbol = symbols[0]
 
     def show_status(self, instance):
-        if self.check_in_progress:
-            return
-        self.check_in_progress = True
         self.check_button.disabled = True
-        self.symbol_spinner.disabled = True
         self.check_button.text = fa("در حال بررسی...")
         self.connection.text = fa("در حال آزمایش سایت و API بازار فیوچرز...")
         self.analysis.text = fa("لطفاً چند لحظه صبر کنید.")
@@ -444,8 +450,15 @@ class FuturesAnalyzerApp(App):
             ping.close()
             results["market_ping"] = 200
 
-            # Do not make connectivity depend on an undocumented /time route.
-            # /ping, /exchangeInfo and /depth are the verified public endpoints.
+            server_time = get_response("/time")
+            try:
+                time_data = server_time.json()
+                results["market_time"] = 200
+                results["server_time_received"] = bool(time_data)
+            except Exception:
+                results["market_time"] = "پاسخ غیر JSON"
+            finally:
+                server_time.close()
 
             info = get_response("/exchangeInfo", timeout=25)
             try:
@@ -484,7 +497,7 @@ class FuturesAnalyzerApp(App):
             results["symbol_count"] = len(available_symbols)
 
             # Use the exact symbol returned by exchangeInfo. Tabdeal futures
-            # Preserve the exact symbol string returned by Tabdeal exchangeInfo.
+            # commonly uses BTC_USDT, not the Binance-style BTCUSDT alias.
             depth = get_response("/depth", params={"symbol": market_symbol, "limit": 5}, timeout=25)
             results["depth_http"] = depth.status_code
             results["depth_url"] = depth.url
@@ -504,24 +517,37 @@ class FuturesAnalyzerApp(App):
             finally:
                 depth.close()
 
-            # Accept the common API wrappers without assuming one fixed envelope.
-            payload = book
-            for _ in range(4):
-                if not isinstance(payload, dict):
-                    break
-                if "bids" in payload or "asks" in payload:
-                    break
-                nested = payload.get("data")
-                if nested is None:
-                    nested = payload.get("result")
-                if nested is None:
-                    nested = payload.get("payload")
-                if nested is None or nested is payload:
-                    break
-                payload = nested
+            # Preserve a bounded, ASCII-safe snapshot before parsing. This is
+            # essential when HTTP 200 contains an unexpected response envelope:
+            # the diagnostics screen must show what the exchange actually sent.
+            try:
+                results["depth_raw_preview"] = json.dumps(
+                    book, ensure_ascii=True, separators=(",", ":"), default=str
+                )[:1400]
+            except Exception as preview_exc:
+                results["depth_raw_preview"] = "unserializable response: {}".format(
+                    type(preview_exc).__name__
+                )
 
             from orderbook import parse_order_book
-            bids, asks = parse_order_book(book)
+            try:
+                bids, asks = parse_order_book(book)
+            except Exception as parse_exc:
+                root_keys = (
+                    sorted(str(key) for key in book.keys())
+                    if isinstance(book, dict) else []
+                )
+                results["depth_diagnostic"] = (
+                    "HTTP {}; JSON received; parser={} {}; root_type={}; root_keys={}"
+                ).format(
+                    depth.status_code, type(parse_exc).__name__,
+                    str(parse_exc)[:240], type(book).__name__, root_keys
+                )
+                raise RuntimeError(
+                    "depth JSON could not be parsed: {}: {}".format(
+                        type(parse_exc).__name__, str(parse_exc)[:220]
+                    )
+                )
             bid, ask = bids[0][0], asks[0][0]
             if bid <= 0 or ask <= 0 or ask < bid:
                 results["depth_diagnostic"] = "HTTP 200; invalid best prices; bid={} ask={}".format(bid, ask)
@@ -531,15 +557,17 @@ class FuturesAnalyzerApp(App):
             results["bids"] = bids[:5]
             results["asks"] = asks[:5]
             results["mid_price"] = (bid + ask) / 2
-            results["depth_diagnostic"] = "HTTP 200; bids={}; asks={}; parsed=OK".format(len(bids), len(asks))
+            results["depth_diagnostic"] = (
+                "HTTP 200; bids={}; asks={}; best_bid={}; best_ask={}; parsed=OK"
+            ).format(len(bids), len(asks), bid, ask)
 
-            # The documented public Futures REST API currently exposes
-            # ping, time, exchangeInfo and depth, but no public kline or
-            # 24h ticker endpoint. Do not substitute another exchange's paths.
-            # The order-book midpoint is an estimate, not a last-trade price.
-            results["market_price_source"] = "order_book_midpoint_estimate"
-            results["market_summary"] = None
-            results["technical_analysis"] = None
+            # This public futures deployment has not confirmed historical
+            # candles or 24h ticker endpoints. Do not probe unsupported paths;
+            # keep the verified live order book independent of analysis data.
+            results["analysis_error"] = (
+                "Historical candle and 24h ticker endpoints are not confirmed; "
+                "technical signals are disabled until a verified source is available."
+            )
 
         except Exception as exc:
             results["market_error"] = "{}: {}".format(type(exc).__name__, str(exc)[:320])
@@ -556,9 +584,9 @@ class FuturesAnalyzerApp(App):
         body.add_widget(self.make_label("سمت سفارش: " + side, size=16, height=dp(42)))
         body.add_widget(self.make_label("قیمت: " + parts[0], size=15, height=dp(38)))
         body.add_widget(self.make_label("مقدار: " + parts[1], size=15, height=dp(38)))
-        close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME,
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True,
                               size_hint_y=None, height=dp(44))
-        popup = Popup(title=fa_plain("جزئیات ردیف دفتر سفارش"),
+        popup = Popup(title=fa("جزئیات ردیف دفتر سفارش"),
                       title_font=FONT_NAME, content=body,
                       size_hint=(0.88, 0.42))
         close_button.bind(on_press=popup.dismiss)
@@ -579,12 +607,10 @@ class FuturesAnalyzerApp(App):
                           text_size=(Window.width * 0.82, None))
             report.add_widget(label)
 
-        # Render the Persian caption and Latin market symbol separately so each uses a font with the required glyphs.
-        add_line("نماد:", size=15, font=FONT_NAME)
-        add_line(self.current_symbol, size=17, font=NUMERIC_FONT_NAME)
+        add_line("نماد: " + self.current_symbol, size=16, font=FONT_NAME)
         if not technical:
-            add_line("API عمومی مستندشده تبدیل در حال حاضر داده کندل تاریخی ارائه نمی‌کند.", height=dp(70))
-            add_line("بنابراین هیچ سیگنال خرید یا فروش و هیچ ورود آزمایشی بر پایه داده حدسی صادر نمی‌شود.", size=13, color=(1, 0.72, 0.35, 1), height=dp(65))
+            add_line("ابتدا بررسی اتصال را اجرا کن تا داده کندل‌های بازار دریافت شود.", height=dp(70))
+            add_line("بدون داده کافی، پیشنهاد خرید یا فروش صادر نمی‌شود.", size=13, color=(1, 0.72, 0.35, 1), height=dp(55))
         else:
             signal = technical.get("signal", "NEUTRAL")
             price = float(technical["price"])
@@ -631,10 +657,10 @@ class FuturesAnalyzerApp(App):
         report_scroll = ScrollView(do_scroll_x=False)
         report_scroll.add_widget(report)
         body.add_widget(report_scroll)
-        close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME,
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True,
                               size_hint_y=None, height=dp(46))
         body.add_widget(close_button)
-        popup = Popup(title=fa_plain("تحلیل هوشمند بازار"), title_font=FONT_NAME,
+        popup = Popup(title=fa("تحلیل هوشمند بازار"), title_font=FONT_NAME,
                       content=body, size_hint=(0.94, 0.82))
         close_button.bind(on_press=popup.dismiss)
         popup.open()
@@ -664,7 +690,7 @@ class FuturesAnalyzerApp(App):
 
         # Keep field labels Persian-only; avoid mixed RTL/LTR unit strings.
         add_field("capital", "سرمایه به تتر", "{:.2f}".format(self.capital_usdt))
-        add_field("entry", "قیمت ورود (تخمین دفتر سفارش)", "{:.2f}".format(self.latest_market_price) if self.latest_market_price else "")
+        add_field("entry", "قیمت ورود", "{:.2f}".format(self.latest_market_price) if self.latest_market_price else "")
         add_field("risk", "ریسک هر معامله", "1")
         add_field("stop", "فاصله حد ضرر", "1")
         add_field("leverage", "اهرم (حداکثر 3)", "3")
@@ -709,15 +735,15 @@ class FuturesAnalyzerApp(App):
 
         actions = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dp(46))
-        calculate_button = Button(markup=True, text=fa("محاسبه"), font_name=FONT_NAME)
-        close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME)
+        calculate_button = Button(text=fa("محاسبه"), font_name=FONT_NAME, markup=True)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True)
         actions.add_widget(calculate_button)
         actions.add_widget(close_button)
         body.add_widget(actions)
 
         risk_scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
         risk_scroll.add_widget(body)
-        popup = Popup(title=fa_plain("مدیریت ریسک معامله"), title_font=FONT_NAME,
+        popup = Popup(title=fa("مدیریت ریسک معامله"), title_font=FONT_NAME,
                       content=risk_scroll, size_hint=(0.98, 0.94), auto_dismiss=False)
 
         def calculate(_button):
@@ -766,28 +792,48 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def show_result(self, results):
-        self.check_in_progress = False
-        self.last_diagnostic_results = dict(results)
-        self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.last_results = dict(results or {})
         self.check_button.disabled = False
-        self.symbol_spinner.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
-        website_status = results.get("website", results.get("website_error", "ناموفق"))
+        website_ok = "website" in results and 200 <= results["website"] < 400
         market_ok = (
             "market_ping" in results and 200 <= results["market_ping"] < 400
             and "market_info" in results and 200 <= results["market_info"] < 400
             and "depth_status" in results and 200 <= results["depth_status"] < 400
             and "mid_price" in results
         )
-        # No documented public REST candle/ticker feed is available.
-        # Keep all technical signals disabled until a verified trade-stream
-        # candle builder is implemented and tested.
-        self.latest_technical_analysis = None
-        self.latest_market_price = results.get("mid_price") if market_ok else None
-        self.analysis_signal.text = fa(
-            "تحلیل تکنیکال غیرفعال است؛ API عمومی مستندشده تبدیل کندل ارائه نمی‌کند."
-        )
-        self.analysis_metrics.text = "No verified candle feed; midpoint is not a candle close"
+        technical = results.get("technical_analysis")
+        self.latest_technical_analysis = technical
+        if technical:
+            self.latest_market_price = technical["price"]
+            signal_names = {
+                "BULLISH": "روند صعودی محتاطانه",
+                "BEARISH": "روند نزولی محتاطانه",
+                "NEUTRAL": "روند نامشخص؛ بهتر است صبر کنید",
+            }
+            self.analysis_signal.text = fa("نتیجه تحلیل: " + signal_names.get(technical["signal"], "نامشخص"))
+            self.analysis_metrics.text = (
+                "SMA20: {:,.2f}   SMA50: {:,.2f}\nRSI14: {:.1f}   ATR14: {:,.2f}"
+            ).format(technical["sma20"], technical["sma50"], technical["rsi14"], technical["atr14"])
+        elif results.get("market_summary"):
+            summary = results["market_summary"]
+            change = summary["change_percent"]
+            if change > 1.0:
+                summary_signal = "مومنتوم مثبت در ۲۴ ساعت گذشته"
+            elif change < -1.0:
+                summary_signal = "مومنتوم منفی در ۲۴ ساعت گذشته"
+            else:
+                summary_signal = "تغییر ۲۴ ساعته محدود؛ روند قطعی نیست"
+            self.latest_market_price = summary["last_price"]
+            self.analysis_signal.text = fa("خلاصه بازار: " + summary_signal)
+            self.analysis_metrics.text = (
+                "24h change: {:+.2f}%   High: {:,.2f}\nLow: {:,.2f}"
+            ).format(change, summary["high"], summary["low"])
+        else:
+            self.analysis_signal.text = fa(
+                "داده تاریخی تحلیل در API عمومی تبدیل در دسترس نبود."
+            )
+            self.analysis_metrics.text = "No candle or 24h ticker data"
 
         if market_ok:
             # Switch to Roboto only for actual ASCII numeric values.
@@ -822,15 +868,15 @@ class FuturesAnalyzerApp(App):
                     row_button.disabled = True
                     row_button.background_color = (0.10, 0.13, 0.18, 1)
 
-        if market_ok:
-            self.connection.text = fa("اتصال API بازار و دریافت دفتر سفارش برقرار است")
+        if website_ok and market_ok:
+            self.connection.text = fa("اتصال سایت و دریافت داده زنده بازار برقرار است")
             self.connection.color = (0.35, 0.9, 0.55, 1)
             message = (
-                "وضعیت سایت: {}\nپینگ بازار: کد {}\nاطلاعات بازار: کد {}\n"
+                "سایت: کد {}\nپینگ بازار: کد {}\nاطلاعات بازار: کد {}\n"
                 "دفتر سفارش: کد {}\nنماد معاملاتی: {}\n"
                 "بهترین خرید: {:,.2f}\nبهترین فروش: {:,.2f}\n"
                 "قیمت میانی تقریبی: {:,.2f}"
-            ).format(website_status, results["market_ping"], results["market_info"],
+            ).format(results["website"], results["market_ping"], results["market_info"],
                      results["depth_status"], results["market_symbol"],
                      results["best_bid"], results["best_ask"], results["mid_price"])
             popup_title = "دریافت داده بازار موفق"
@@ -850,8 +896,8 @@ class FuturesAnalyzerApp(App):
         # overlapped the safety notice on small screens.
         if market_ok and book_ok:
             self.analysis.text = fa(
-                "تصویر فعلی دفتر سفارش دریافت شد.\n"
-                "قیمت‌ها مربوط به همین پاسخ API هستند، نه جریان معاملات لحظه‌ای.\n"
+                "داده‌های زنده بازار دریافت شد.\n"
+                "دفتر سفارش خرید و فروش به‌روزرسانی شد.\n"
                 "گزارش کامل اتصال در پنجره جزئیات نمایش داده می‌شود."
             )
         else:
@@ -884,8 +930,8 @@ class FuturesAnalyzerApp(App):
         report_content.add_widget(message_label)
 
         # Technical diagnostics are ASCII-only and therefore rendered with Roboto.
-        diagnostic_parts = []
-        for key in ("depth_diagnostic", "market_error"):
+        diagnostic_parts = [rtl_diagnostic()]
+        for key in ("depth_diagnostic", "depth_raw_preview", "market_error"):
             value = results.get(key)
             if value:
                 diagnostic_parts.append("{}: {}".format(key, str(value)))
@@ -904,155 +950,155 @@ class FuturesAnalyzerApp(App):
         report_scroll.add_widget(report_content)
         body.add_widget(report_scroll)
 
-        close_button = Button(markup=True, text=fa("متوجه شدم"), font_name=FONT_NAME, size_hint_y=None, height=dp(46))
+        close_button = Button(text=fa("متوجه شدم"), font_name=FONT_NAME, markup=True, size_hint_y=None, height=dp(46))
         body.add_widget(close_button)
-        popup = Popup(title=fa_plain(popup_title), title_font=FONT_NAME, content=body,
+        popup = Popup(title=fa(popup_title), title_font=FONT_NAME, content=body,
                       size_hint=(0.94, 0.78), auto_dismiss=False)
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
 
     def open_diagnostics(self, instance):
-        """Show an on-device health report and let the user copy it for support."""
-        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
-        report_scroll = ScrollView(do_scroll_x=False)
-        report = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
+        """Show copyable ASCII-safe font, RTL and latest API diagnostics."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        scroll = ScrollView(do_scroll_x=False)
+        report = BoxLayout(orientation="vertical", spacing=dp(8),
+                           size_hint_y=None, padding=[0, dp(4), 0, dp(8)])
         report.bind(minimum_height=report.setter("height"))
-
-        results = getattr(self, "last_diagnostic_results", {}) or {}
-        auto_running = bool(self.auto_trader_thread and self.auto_trader_thread.is_alive())
-        font_status = "OK: " + str(FONT_PATH) if FONT_PATH else "MISSING: Persian font"
-        latin_status = "OK: " + str(LATIN_FONT_PATH) if LATIN_FONT_PATH else "MISSING: Latin font"
-        depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
-        lines = [
-            "مرکز عیب‌یابی برنامه",
-            "نسخه برنامه: " + APP_VERSION,
-            "سیستم: Android / Kivy",
-            "فونت فارسی: " + font_status,
-            "فونت لاتین: " + latin_status,
-            "وضعیت بارگذاری فونت: " + (FONT_LOAD_ERROR or "OK"),
-            "نماد انتخاب‌شده: " + str(self.current_symbol),
-            "دفتر سفارش: " + depth_status,
-            "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
-            "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
-            "معامله‌گر آزمایشی: " + ("RUNNING" if auto_running else "STOPPED"),
-            "آخرین بررسی: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
+        report.add_widget(self.make_label(
+            "گزارش وضعیت فونت و نمایش فارسی", size=16, height=dp(42)))
+        runtime_lines = [
+            "APP_VERSION={}".format(APP_VERSION),
+            "font_name={}".format(FONT_NAME),
+            "font_path={}".format(FONT_PATH or "NOT_FOUND"),
+            "font_load_error={}".format(FONT_LOAD_ERROR or "NONE"),
+            "rtl_import_error={}".format(RTL_IMPORT_ERROR or "NONE"),
+            "rtl_runtime_error={}".format(RTL_RUNTIME_ERROR or "NONE"),
+            rtl_diagnostic(),
         ]
-        for key in ("website", "market_ping", "market_info", "depth_status",
-                    "depth_http", "depth_content_type", "market_symbol",
-                    "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
-            if key in results:
-                lines.append("{}: {}".format(key, str(results[key])[:260]))
-        if not results:
-            lines.append("هنوز گزارش اتصال ثبت نشده است؛ ابتدا بررسی اتصال را اجرا کنید.")
-        report_text = "\n".join(lines)
-
-        # Render each Persian field name and its Latin/numeric value separately.
-        # A single mixed-direction Label can select the Arabic font for ASCII
-        # text too, producing tofu rectangles on some Android/Kivy devices.
-        def render_report(extra_text=""):
-            report.clear_widgets()
-            display_lines = list(lines)
-            if extra_text:
-                display_lines.append(extra_text)
-            for line in display_lines:
-                if ": " in line:
-                    field_name, field_value = line.split(": ", 1)
-                    field_label = Label(
-                        text=fa(field_name), font_name=FONT_NAME, markup=True,
-                        font_size=sp(12), size_hint=(1, None),
-                        text_size=(Window.width * 0.82, None),
-                        halign="center", valign="middle",
-                        color=(0.45, 0.78, 1, 1)
-                    )
-                    field_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(5)))
-                    report.add_widget(field_label)
-                    value_label = Label(
-                        text=fa(field_value), font_name=font_for_text(field_value), markup=True,
-                        font_size=sp(12), size_hint=(1, None),
-                        text_size=(Window.width * 0.82, None),
-                        halign="center", valign="middle",
-                        color=(0.9, 0.94, 1, 1)
-                    )
-                    value_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(7)))
-                    report.add_widget(value_label)
-                else:
-                    line_label = Label(
-                        text=fa(line), font_name=font_for_text(line), markup=True,
-                        font_size=sp(13), size_hint=(1, None),
-                        text_size=(Window.width * 0.82, None),
-                        halign="center", valign="middle",
-                        color=(0.9, 0.94, 1, 1)
-                    )
-                    line_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(8)))
-                    report.add_widget(line_label)
-
-        render_report()
-        report_scroll.add_widget(report)
-        body.add_widget(report_scroll)
+        last = getattr(self, "last_results", {}) or {}
+        for key in ("website", "market_ping", "market_info", "market_symbol",
+                    "depth_http", "depth_status", "depth_content_type",
+                    "depth_url", "depth_diagnostic", "depth_raw_preview",
+                    "market_error"):
+            if key in last:
+                runtime_lines.append("{}={}".format(key, str(last[key])[:700]))
+        report_text = "\n".join(runtime_lines)
+        # Keep the on-screen diagnostic strictly ASCII so an Android fallback
+        # font can never turn unsupported mixed-script characters into tofu.
+        display_text = report_text.encode("ascii", "backslashreplace").decode("ascii")
+        details = Label(
+            text=display_text, font_name=NUMERIC_FONT_NAME,
+            font_size=sp(11), color=(0.86, 0.90, 0.96, 1),
+            halign="left", valign="top", size_hint=(1, None),
+            text_size=(Window.width * 0.80, None),
+        )
+        details.bind(texture_size=lambda widget, size: setattr(
+            widget, "height", size[1] + dp(18)))
+        report.add_widget(details)
+        scroll.add_widget(report)
+        body.add_widget(scroll)
 
         actions = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dp(46))
-        copy_button = Button(markup=True, text=fa("کپی گزارش"), font_name=FONT_NAME)
-        check_button = Button(markup=True, text=fa("آزمایش دوباره"), font_name=FONT_NAME)
-        close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME)
-        actions.add_widget(copy_button)
-        actions.add_widget(check_button)
-        actions.add_widget(close_button)
-        body.add_widget(actions)
-        popup = Popup(title=fa_plain("مرکز عیب‌یابی"), title_font=FONT_NAME,
-                      content=body, size_hint=(0.96, 0.82))
+        copy_button = Button(text=fa("کپی گزارش"), font_name=FONT_NAME, markup=True)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True)
         def copy_report(_button):
             try:
                 Clipboard.copy(report_text)
-                render_report("گزارش کپی شد؛ آن را در گفتگو جای‌گذاری کنید.")
+                copy_button.text = fa("گزارش کپی شد")
             except Exception as exc:
-                render_report("کپی گزارش انجام نشد: " + str(exc)[:100])
-        def rerun(_button):
-            popup.dismiss()
-            self.show_status(self.check_button)
+                copy_button.text = fa("خطا در کپی: " + type(exc).__name__)
         copy_button.bind(on_press=copy_report)
-        check_button.bind(on_press=rerun)
+        actions.add_widget(copy_button)
+        actions.add_widget(close_button)
+        body.add_widget(actions)
+        popup = Popup(title=fa("مرکز عیب‌یابی"), title_font=FONT_NAME,
+                      content=body, size_hint=(0.94, 0.78))
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
+
     def open_auto_trader(self, instance):
-        """Explain why automated scanning is disabled; expose no fake controls."""
-        body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(12))
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
+        body.add_widget(self.make_label(
+            "حالت آزمایشی: فقط معاملات شبیه‌سازی می‌شوند و هیچ سفارش واقعی ارسال نمی‌شود.",
+            size=13, height=dp(62), color=(1, 0.76, 0.38, 1)))
+        fields = BoxLayout(orientation="vertical", spacing=dp(6),
+                           size_hint_y=None, height=dp(112))
+        capital_row = BoxLayout(orientation="horizontal", spacing=dp(8))
+        capital_row.add_widget(self.make_label("سرمایه آزمایشی (USDT)", size=13, height=dp(44)))
+        capital_input = TextInput(text="{:.2f}".format(self.capital_usdt),
+                                  multiline=False, input_filter="float",
+                                  font_name=NUMERIC_FONT_NAME, font_size=sp(16),
+                                  size_hint_x=0.55, size_hint_y=None, height=dp(44))
+        capital_row.add_widget(capital_input)
+        fields.add_widget(capital_row)
+        risk_row = BoxLayout(orientation="horizontal", spacing=dp(8))
+        risk_row.add_widget(self.make_label("ریسک هر معامله (حداکثر 0.5%)", size=12, height=dp(48)))
+        risk_input = TextInput(text="0.5", multiline=False, input_filter="float",
+                               font_name=NUMERIC_FONT_NAME, font_size=sp(16),
+                               size_hint_x=0.55, size_hint_y=None, height=dp(44))
+        risk_row.add_widget(risk_input)
+        fields.add_widget(risk_row)
+        body.add_widget(fields)
         self.auto_status_label = self.make_label(
-            "معامله‌گر خودکار فعلاً غیرفعال است.\n"
-            "API عمومی مستندشده تبدیل در حال حاضر کندل تاریخی یا جریان معاملات "
-            "تأییدشده‌ای برای ساخت سیگنال ارائه نمی‌کند.\n"
-            "قیمت میانی دفتر سفارش جایگزین قیمت آخرین معامله یا کندل نیست.\n"
-            "برای جلوگیری از معامله بر پایه داده حدسی، ورود و خروج خودکار فعال نشده است.\n"
-            "این نسخه هیچ سفارش واقعی به صرافی ارسال نمی‌کند.",
-            size=14, height=dp(250), color=(1, 0.76, 0.38, 1)
-        )
+            "آماده شروع؛ سرمایه اولیه پیشنهادی 8 USDT است.", size=12, height=dp(100))
         body.add_widget(self.auto_status_label)
-        close_button = Button(
-            markup=True, text=fa("بستن"), font_name=FONT_NAME,
-            size_hint_y=None, height=dp(48)
-        )
+        actions = BoxLayout(orientation="horizontal", spacing=dp(8),
+                            size_hint_y=None, height=dp(48))
+        start_button = Button(text=fa("شروع اسکن خودکار"), font_name=FONT_NAME, markup=True)
+        stop_button = Button(text=fa("توقف"), font_name=FONT_NAME, markup=True)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True)
+        actions.add_widget(start_button)
+        actions.add_widget(stop_button)
+        body.add_widget(actions)
         body.add_widget(close_button)
-        popup = Popup(
-            title=fa_plain("وضعیت معامله‌گر خودکار"),
-            title_font=FONT_NAME, content=body,
-            size_hint=(0.96, 0.72), auto_dismiss=False
-        )
+        popup = Popup(title=fa("مدیریت معامله‌گر آزمایشی"),
+                      title_font=FONT_NAME, content=body,
+                      size_hint=(0.96, 0.78), auto_dismiss=False)
+
+        def start(_button):
+            if self.auto_trader_thread and self.auto_trader_thread.is_alive():
+                self.auto_status_label.text = fa("اسکن خودکار در حال اجراست.")
+                return
+            try:
+                capital = float(normalize_digits(capital_input.text))
+                risk = float(normalize_digits(risk_input.text))
+                if not 0 < capital < 1000000000 or not 0 < risk <= 0.5:
+                    raise ValueError("invalid capital or risk")
+                self.auto_engine = PaperTradingEngine(capital=capital, risk_percent=risk, max_leverage=3)
+                self.capital_usdt = capital
+                try:
+                    with open(self.settings_path, "w", encoding="utf-8") as settings_file:
+                        json.dump({"capital_usdt": capital}, settings_file)
+                except OSError:
+                    pass
+                self.auto_stop_event.clear()
+                self.auto_status_label.text = fa("اسکن بازار شروع شد؛ همه قراردادهای فعال USDT بررسی می‌شوند.")
+                self.auto_trader_thread = threading.Thread(target=self.run_auto_paper_scanner, daemon=True)
+                self.auto_trader_thread.start()
+            except (TypeError, ValueError, OverflowError):
+                self.auto_status_label.text = fa("ورودی نامعتبر است؛ ریسک باید حداکثر 0.5 درصد باشد.")
+
+        def stop(_button):
+            self.auto_stop_event.set()
+            self.auto_status_label.text = fa("درخواست توقف ثبت شد؛ اسکن جاری متوقف می‌شود.")
+
+        start_button.bind(on_press=start)
+        stop_button.bind(on_press=stop)
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
     def run_auto_paper_scanner(self):
-        """Fail closed: no verified public Tabdeal Futures candle feed exists."""
+        """Fail closed until a verified candle feed is implemented."""
         message = (
-            "اسکن خودکار فعلاً غیرفعال است.\n"
-            "API عمومی مستندشده تبدیل کندل تاریخی ارائه نمی‌کند.\n"
-            "قیمت میانی دفتر سفارش جایگزین کندل یا قیمت آخرین معامله نیست.\n"
-            "تا زمان پیاده‌سازی و آزمایش منبع رسمی معاملات لحظه‌ای، "
-            "هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.\n"
-            "هیچ سفارش واقعی ارسال نشده است."
+            "اسکن آزمایشی شروع نشد: منبع کندل معتبر هنوز تأیید نشده است. "
+            "هیچ سیگنال یا معامله‌ای ساخته نشد."
         )
-        Clock.schedule_once(lambda dt, value=message: self.update_auto_status(value), 0)
+        Clock.schedule_once(
+            lambda dt, value=message: self.update_auto_status(value), 0
+        )
 
     def update_auto_status(self, message):
         label = getattr(self, "auto_status_label", None)
