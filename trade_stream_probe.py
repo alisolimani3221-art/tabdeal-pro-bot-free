@@ -223,7 +223,7 @@ if __name__ == "__main__":
         from pathlib import Path
         output_path = Path(args.output)
         temporary_path = output_path.with_name(output_path.name + ".tmp")
-        temporary_path.write_text(rendered + "\\n", encoding="utf-8")
+        temporary_path.write_text(rendered + "\n", encoding="utf-8")
         temporary_path.replace(output_path)
     print(rendered)
     if args.require_trade and report["trade_envelopes"] == 0:
