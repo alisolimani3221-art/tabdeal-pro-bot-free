@@ -33,10 +33,9 @@ from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
-from kivy.resources import resource_add_path, resource_find
+from kivy.resources import resource_add_path
 from market_symbols import select_market_symbol, list_market_symbols
-from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
-from paper_trader import PaperTradingEngine
+from risk_analysis import calculate_position_risk, recommend_leverage
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -351,7 +350,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.analysis)
 
         content.add_widget(self.make_label(
-            "این نسخه هیچ سفارش واقعی ثبت نمی‌کند؛ معامله‌گر خودکار فقط در حالت آزمایشی شبیه‌سازی می‌کند.",
+            "معامله‌گر خودکار در این نسخه غیرفعال است و هیچ سفارش واقعی یا شبیه‌سازی معامله اجرا نمی‌شود.",
             size=13, color=(1, 0.68, 0.35, 1), height=dp(66)))
         scroll.add_widget(content)
         root.add_widget(scroll)
@@ -539,7 +538,7 @@ class FuturesAnalyzerApp(App):
             results["best_bid"], results["best_ask"] = bid, ask
             results["bids"] = bids[:5]
             results["asks"] = asks[:5]
-            results["mid_price"] = (bid + ask) / 2
+            results["mid_price"] = bid / 2.0 + ask / 2.0
             results["depth_diagnostic"] = "HTTP 200; bids={}; asks={}; parsed=OK".format(len(bids), len(asks))
 
             # The documented public Futures REST API currently exposes
