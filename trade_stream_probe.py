@@ -21,6 +21,9 @@ ALIASES = {
 
 
 def _finite_positive(value):
+    # bool is a subclass of int in Python; reject it before float conversion.
+    if isinstance(value, bool):
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -42,9 +45,17 @@ def parse_trade_message(message, expected_symbol=None):
     if isinstance(message, bytes):
         if len(message) > MAX_MESSAGE_BYTES:
             return {"ok": False, "reason": "message_too_large"}
-        message = message.decode("utf-8", errors="strict")
-    if not isinstance(message, str) or len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
+        try:
+            message = message.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return {"ok": False, "reason": "invalid_utf8"}
+    if not isinstance(message, str):
         return {"ok": False, "reason": "invalid_or_oversized_message"}
+    try:
+        if len(message.encode("utf-8", errors="strict")) > MAX_MESSAGE_BYTES:
+            return {"ok": False, "reason": "message_too_large"}
+    except UnicodeEncodeError:
+        return {"ok": False, "reason": "invalid_utf8"}
     try:
         payload = json.loads(message)
     except (TypeError, ValueError):
