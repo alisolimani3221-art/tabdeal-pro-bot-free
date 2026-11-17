@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.12"
+APP_VERSION = "1.13"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -36,9 +36,12 @@ from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path
 from market_symbols import select_market_symbol, list_market_symbols
-from risk_analysis import calculate_position_risk, recommend_leverage
+from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from ai_assistant import analyze_with_gemini
+from market_candles import TradeCandleBuilder
+from paper_trader import PaperTradingEngine
+from trade_stream_probe import BROADCAST_URL, parse_trade_message
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -401,7 +404,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.analysis)
 
         content.add_widget(self.make_label(
-            "معامله‌گر خودکار در این نسخه غیرفعال است و هیچ سفارش واقعی یا شبیه‌سازی معامله اجرا نمی‌شود.",
+            "معامله‌گر آزمایشی فقط با داده معاملات لحظه‌ای و بدون ارسال سفارش واقعی کار می‌کند.",
             size=13, color=(1, 0.68, 0.35, 1), height=dp(66)))
         scroll.add_widget(content)
         root.add_widget(scroll)
@@ -1199,42 +1202,191 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def open_auto_trader(self, instance):
-        """Explain why automated scanning is disabled; expose no fake controls."""
-        body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(12))
+        """Show an explicitly paper-only live-trade simulation controller."""
+        body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10))
+        symbol = self.current_symbol
         self.auto_status_label = self.make_label(
-            "معامله‌گر خودکار فعلاً غیرفعال است.\n"
-            "API عمومی مستندشده تبدیل در حال حاضر کندل تاریخی یا جریان معاملات "
-            "تأییدشده‌ای برای ساخت سیگنال ارائه نمی‌کند.\n"
-            "قیمت میانی دفتر سفارش جایگزین قیمت آخرین معامله یا کندل نیست.\n"
-            "برای جلوگیری از معامله بر پایه داده حدسی، ورود و خروج خودکار فعال نشده است.\n"
-            "این نسخه هیچ سفارش واقعی به صرافی ارسال نمی‌کند.",
-            size=14, height=dp(250), color=(1, 0.76, 0.38, 1)
+            "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\\n"
+            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\\n"
+            "برای آماده‌شدن تحلیل، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده و یک کندل درحال‌تشکیل لازم است.\\n"
+            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\\n"
+            "هیچ سفارش واقعی ارسال نمی‌شود.",
+            size=13, height=dp(205), color=(1, 0.82, 0.48, 1)
         )
         body.add_widget(self.auto_status_label)
-        close_button = Button(
-            markup=True, text=fa("بستن"), font_name=FONT_NAME,
-            size_hint_y=None, height=dp(48)
-        )
-        body.add_widget(close_button)
-        popup = Popup(
-            title=fa_plain("وضعیت معامله‌گر خودکار"),
-            title_font=FONT_NAME, content=body,
-            size_hint=(0.96, 0.72), auto_dismiss=False
-        )
+        controls = BoxLayout(orientation="horizontal", spacing=dp(7),
+                             size_hint_y=None, height=dp(48))
+        start_button = Button(markup=True, text=fa("شروع آزمایش"), font_name=FONT_NAME)
+        stop_button = Button(markup=True, text=fa("توقف اضطراری"), font_name=FONT_NAME,
+                             background_normal="", background_color=(0.58, 0.16, 0.16, 1))
+        close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME)
+        controls.add_widget(start_button)
+        controls.add_widget(stop_button)
+        controls.add_widget(close_button)
+        body.add_widget(controls)
+        popup = Popup(title=fa_plain("معامله‌گر آزمایشی زنده"),
+                      title_font=FONT_NAME, content=body,
+                      size_hint=(0.96, 0.78), auto_dismiss=False)
+        self.auto_popup = popup
+        start_button.bind(on_press=lambda _button: self.start_auto_paper_trader())
+        stop_button.bind(on_press=lambda _button: self.stop_auto_paper_trader())
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
-    def run_auto_paper_scanner(self):
-        """Fail closed: no verified public Tabdeal Futures candle feed exists."""
-        message = (
-            "اسکن خودکار فعلاً غیرفعال است.\n"
-            "API عمومی مستندشده تبدیل کندل تاریخی ارائه نمی‌کند.\n"
-            "قیمت میانی دفتر سفارش جایگزین کندل یا قیمت آخرین معامله نیست.\n"
-            "تا زمان پیاده‌سازی و آزمایش منبع رسمی معاملات لحظه‌ای، "
-            "هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.\n"
-            "هیچ سفارش واقعی ارسال نشده است."
+    def start_auto_paper_trader(self):
+        """Start a one-symbol, foreground-only paper simulation; never live orders."""
+        if self.auto_trader_thread is not None and self.auto_trader_thread.is_alive():
+            self.update_auto_status("شبیه‌ساز در حال اجراست؛ برای توقف از توقف اضطراری استفاده کنید.")
+            return
+        symbol = str(self.current_symbol).upper()
+        if not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
+            self.update_auto_status("نماد انتخاب‌شده معتبر نیست؛ شروع انجام نشد.")
+            return
+        try:
+            builder = TradeCandleBuilder(symbol)
+            engine = PaperTradingEngine(
+                capital=self.capital_usdt, risk_percent=0.5, max_leverage=3
+            )
+        except Exception as exc:
+            self.update_auto_status("راه‌اندازی ناموفق: " + type(exc).__name__)
+            return
+        self.auto_stop_event.clear()
+        self.auto_engine = engine
+        self.auto_candle_builder = builder
+        self.auto_trader_thread = threading.Thread(
+            target=self._paper_stream_worker,
+            args=(symbol, builder, engine),
+            daemon=True,
         )
-        Clock.schedule_once(lambda dt, value=message: self.update_auto_status(value), 0)
+        self.auto_trader_thread.start()
+        self.update_auto_status(
+            "در حال اتصال به جریان معاملات " + symbol + ".\\n"
+            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\\n"
+            "تا تکمیل ۵۱ کندل بسته‌شده، هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.".format(
+                self.capital_usdt
+            )
+        )
+
+    def stop_auto_paper_trader(self):
+        """Emergency-stop the local paper engine and close its market stream."""
+        self.auto_stop_event.set()
+        ws = getattr(self, "auto_ws", None)
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
+        self.update_auto_status(
+            "توقف اضطراری فعال شد. شبیه‌ساز متوقف است و هیچ سفارش واقعی ارسال نشده است."
+        )
+
+    def _paper_stream_worker(self, symbol, builder, engine):
+        """Reconnect public trade stream and simulate only after gap-free warm-up."""
+        try:
+            import websocket
+        except Exception:
+            Clock.schedule_once(
+                lambda dt: self.update_auto_status("کتابخانه جریان معاملات در این نسخه در دسترس نیست."),
+                0,
+            )
+            return
+
+        last_processed_bucket = None
+        while not self.auto_stop_event.is_set():
+            def on_open(ws):
+                ws.send(symbol)
+                Clock.schedule_once(
+                    lambda dt: self.update_auto_status(
+                        "اتصال برقرار شد: " + symbol + ". در حال جمع‌آوری معاملات برای ساخت کندل‌های یک‌دقیقه‌ای."
+                    ), 0
+                )
+
+            def on_message(ws, message):
+                nonlocal last_processed_bucket
+                parsed = parse_trade_message(message, expected_symbol=symbol)
+                if not parsed.get("ok"):
+                    return
+                update = builder.add_trade(parsed)
+                if not update.get("accepted"):
+                    return
+                if update.get("gap_detected"):
+                    last_processed_bucket = None
+                    Clock.schedule_once(
+                        lambda dt: self.update_auto_status(
+                            "شکاف یا قطع داده شناسایی شد؛ برای جلوگیری از تحلیل ناقص، جمع‌آوری کندل از نو آغاز شد."
+                        ), 0
+                    )
+                    return
+                current_bucket = (builder.current or {}).get("open_time")
+                if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
+                    return
+                try:
+                    technical = analyze_klines(builder.candles_for_analysis())
+                    technical["symbol"] = symbol
+                    result = engine.process_scan([technical])
+                    last_processed_bucket = current_bucket
+                    events = result.get("events", [])
+                    event_text = ""
+                    if events:
+                        event = events[-1]
+                        if event.get("event") == "OPENED":
+                            pos = event["position"]
+                            event_text = (
+                                "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
+                            ).format(pos["symbol"], "خرید" if pos["side"] == "BULLISH" else "فروش",
+                                     pos["stop"], pos["target"], pos["leverage"])
+                        elif event.get("event") == "CLOSED":
+                            trade = event["trade"]
+                            event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
+                                trade["reason"], trade["net_pnl"]
+                            )
+                    message_text = (
+                        "شبیه‌ساز فعال | {}\\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\\n"
+                        "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\\n"
+                        "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\\n{}"
+                    ).format(symbol, technical["signal"], technical["price"],
+                             builder.status()["closed_candles"], result["equity"],
+                             result["closed_trades"], event_text)
+                    Clock.schedule_once(
+                        lambda dt, value=message_text: self.update_auto_status(value), 0
+                    )
+                except Exception as exc:
+                    Clock.schedule_once(
+                        lambda dt, value=type(exc).__name__: self.update_auto_status(
+                            "تحلیل کندل انجام نشد؛ شبیه‌ساز تا داده معتبر بعدی معامله‌ای باز نمی‌کند. علت: " + value
+                        ), 0
+                    )
+
+            def on_error(ws, error):
+                Clock.schedule_once(
+                    lambda dt: self.update_auto_status(
+                        "خطای جریان معاملات؛ تلاش برای اتصال مجدد. هیچ سفارش واقعی ارسال نمی‌شود."
+                    ), 0
+                )
+
+            app = websocket.WebSocketApp(
+                BROADCAST_URL, on_open=on_open, on_message=on_message,
+                on_error=on_error,
+            )
+            self.auto_ws = app
+            try:
+                app.run_forever(ping_interval=20, ping_timeout=10)
+            except Exception:
+                pass
+            finally:
+                self.auto_ws = None
+            if not self.auto_stop_event.is_set():
+                Clock.schedule_once(
+                    lambda dt: self.update_auto_status(
+                        "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. پس از شکاف داده، گرم‌سازی کندل دوباره لازم است."
+                    ), 0
+                )
+                self.auto_stop_event.wait(3)
+
+        Clock.schedule_once(
+            lambda dt: self.update_auto_status("شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است."),
+            0,
+        )
 
     def update_auto_status(self, message):
         label = getattr(self, "auto_status_label", None)
@@ -1245,6 +1397,12 @@ class FuturesAnalyzerApp(App):
     def on_stop(self):
         if hasattr(self, "auto_stop_event"):
             self.auto_stop_event.set()
+        ws = getattr(self, "auto_ws", None)
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
