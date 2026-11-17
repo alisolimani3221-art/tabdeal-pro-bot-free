@@ -84,7 +84,9 @@ def parse_trade_message(message, expected_symbol=None):
     if not math.isfinite(timestamp_value):
         return {"ok": False, "reason": "invalid_timestamp"}
     timestamp_ms = int(timestamp_value)
-    if timestamp_ms <= 0:
+    # Reject implausible future values and float magnitudes that cannot
+    # represent a meaningful exchange event timestamp.
+    if timestamp_ms <= 0 or timestamp_ms > 10_000_000_000_000:
         return {"ok": False, "reason": "invalid_timestamp"}
     return {"ok": True, "symbol": str(symbol or expected_symbol or ""),
             "price": price, "quantity": quantity, "timestamp_ms": timestamp_ms}
