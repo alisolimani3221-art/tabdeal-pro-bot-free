@@ -138,6 +138,20 @@ class MarketSymbolTests(unittest.TestCase):
     def test_deduplicates_compact_and_underscored_symbols(self):
         self.assertEqual(list_market_symbols(["BTCUSDT", "BTC_USDT"]), ["BTCUSDT"])
 
+    def test_rejects_malformed_market_symbols_instead_of_sanitizing_them(self):
+        malformed = ["BTC/USDT", "BTC-USDT", "BTC__USDT", "BTC USDT", "_USDT", "BTC_USDT!"]
+        self.assertEqual(list_market_symbols(malformed), [])
+        self.assertEqual(list_market_symbols([{"symbol": "BTC/USDT"}]), [])
+
+    def test_rejects_invalid_requested_symbol(self):
+        for requested in ("BTC/USDT", "BTC__USDT", "BTC_USDT!"):
+            with self.subTest(requested=requested):
+                with self.assertRaises(ValueError):
+                    select_market_symbol(["BTC_USDT"], requested)
+
+    def test_rejects_non_string_symbol_values(self):
+        self.assertEqual(list_market_symbols([None, 123, True, {"symbol": 123}]), [])
+
     def test_rejects_non_list_exchange_info(self):
         for value in (None, {}, "BTC_USDT"):
             with self.subTest(value=value):
