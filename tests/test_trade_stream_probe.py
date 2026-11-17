@@ -1,5 +1,6 @@
 import json
 import math
+import time
 import unittest
 
 from trade_stream_probe import MAX_MESSAGE_BYTES, parse_trade_message
@@ -44,7 +45,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(parse_trade_message(raw)["reason"], "invalid_json")
 
     def test_invalid_expected_symbol_is_rejected_safely(self):
-        for expected in (True, 123, [], ""):
+        for expected in (True, 123, [], "", "BTC/USDT", "BTC__USDT", "BTC USDT"):
             with self.subTest(expected=expected):
                 self.assertEqual(parse_trade_message("{}", expected)["reason"],
                                  "invalid_expected_symbol")
@@ -83,6 +84,17 @@ class TradeStreamProbeTests(unittest.TestCase):
         for value in ("", " ", "abc", "1,25", "0x10"):
             with self.subTest(value=value):
                 self.assertFalse(self.parse_trade_with("price", value)["ok"])
+
+    def test_rejects_timestamps_far_in_the_future(self):
+        future_seconds = time.time() + 600
+        self.assertEqual(self.parse_trade_with("timestamp", future_seconds)["reason"],
+                         "invalid_timestamp")
+
+    def test_rejects_invalid_trade_symbol_format(self):
+        payload = {"trade": {"symbol": "BTC/USDT", "price": "1",
+                             "quantity": "1", "timestamp": 1700000000}}
+        self.assertEqual(parse_trade_message(json.dumps(payload))["reason"],
+                         "invalid_symbol")
 
     def test_rejects_timestamp_that_overflows_millisecond_conversion(self):
         self.assertEqual(self.parse_trade_with("timestamp", "1e308")["reason"],
@@ -137,7 +149,8 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
         from trade_stream_probe import probe_broadcast
-        for symbol in ("_USDT", "AAA__USDT", "AAA-USDT", "USDT", "AAA_BTC"):
+        for symbol in ("_USDT", "AAA__USDT", "AAA-USDT", "USDT", "AAA_BTC",
+                       "ÄAA_USDT", "AAA USDT", "A" * 40 + "_USDT"):
             with self.subTest(symbol=symbol):
                 with self.assertRaises(ValueError):
                     probe_broadcast(symbol=symbol)
