@@ -753,9 +753,9 @@ class FuturesAnalyzerApp(App):
         )
 
         def ask_gemini(_button):
-            api_key = key_input.text.strip()
+            gemini_credential = key_input.text.strip()
             question = question_input.text.strip()
-            if not api_key:
+            if not gemini_credential:
                 result_label.text = fa_plain("ابتدا کلید Gemini را وارد کنید.")
                 return
             if not question:
@@ -786,7 +786,7 @@ class FuturesAnalyzerApp(App):
             result_label.text = fa_plain("در حال ارتباط با Gemini...")
             def worker():
                 try:
-                    message = analyze_with_gemini(api_key, question, context)
+                    message = analyze_with_gemini(gemini_credential, question, context)
                 except Exception as exc:
                     message = str(exc)[:500]
                 def finish(_dt):
