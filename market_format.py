@@ -1,6 +1,7 @@
 """Format market prices and quantities without hiding small values."""
 
 import math
+from decimal import Decimal
 
 
 def format_market_value(value, significant_digits=8, max_decimals=12):
@@ -27,14 +28,18 @@ def format_market_value(value, significant_digits=8, max_decimals=12):
 
     exponent = math.floor(math.log10(abs(number)))
     required_decimals = significant_digits - 1 - exponent
-    if required_decimals > max_decimals:
+    # A small value may have only a few significant digits (for example,
+    # 0.00000012). Keep that exact decimal form when it fits the limit instead
+    # of needlessly converting it to scientific notation.
+    actual_decimal_places = max(0, -Decimal(str(number)).as_tuple().exponent)
+    if required_decimals > max_decimals and actual_decimal_places > max_decimals:
         # Decimal notation would discard significant digits beyond the
         # configured limit, so preserve the value in compact scientific form.
         mantissa, power = format(number, ".{}e".format(significant_digits - 1)).split("e")
         mantissa = mantissa.rstrip("0").rstrip(".")
         return "{}e{}".format(mantissa, int(power))
 
-    decimals = max(0, required_decimals)
+    decimals = actual_decimal_places if required_decimals > max_decimals else max(0, required_decimals)
     rendered = format(number, ",.{}f".format(decimals))
     if "." in rendered:
         rendered = rendered.rstrip("0").rstrip(".")
