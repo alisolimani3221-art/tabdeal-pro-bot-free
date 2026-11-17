@@ -138,7 +138,8 @@ def parse_trade_message(message, expected_symbol=None):
 
     sequence = trade.get("sequence")
     if sequence is not None:
-        if isinstance(sequence, bool) or not isinstance(sequence, (int, float)) or sequence < 0:
+        if (isinstance(sequence, bool) or not isinstance(sequence, (int, float))
+                or sequence < 0 or sequence > 9_223_372_036_854_775_807):
             return {"ok": False, "reason": "invalid_sequence"}
         if isinstance(sequence, float) and (
                 not math.isfinite(sequence) or not sequence.is_integer()):
