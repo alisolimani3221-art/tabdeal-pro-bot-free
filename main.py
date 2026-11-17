@@ -266,7 +266,7 @@ class FuturesAnalyzerApp(App):
         # a real button so the user can inspect that exact bid/ask price and size.
         book_title_button = Button(
             text=fa("دفتر سفارش  -  لمس برای به‌روزرسانی"),
-            font_name=FONT_NAME, markup=True, markup=True, font_size=sp(17),
+            font_name=FONT_NAME, markup=True, font_size=sp(17),
             size_hint_y=None, height=dp(42),
             background_normal="", background_color=(0.08, 0.28, 0.42, 1),
             color=(0.35, 0.78, 1, 1),
@@ -369,7 +369,7 @@ class FuturesAnalyzerApp(App):
         return root
 
     def make_label(self, text, size=15, color=(1, 1, 1, 1), height=dp(48)):
-        return Label(text=fa(text), font_name=font_for_text(text), font_size=sp(size), color=color,
+        return Label(text=fa(text), font_name=font_for_text(text), markup=True, font_size=sp(size), color=color,
                      size_hint_y=None, height=height, halign="center", valign="middle",
                      text_size=(Window.width - dp(40), None))
 
@@ -596,7 +596,7 @@ class FuturesAnalyzerApp(App):
         report.bind(minimum_height=report.setter("height"))
 
         def add_line(text, size=15, height=dp(42), color=(0.94, 0.96, 1, 1), font=FONT_NAME):
-            label = Label(text=fa(text), font_name=font, markup=True, markup=True, font_size=sp(size),
+            label = Label(text=fa(text), font_name=font, markup=True, font_size=sp(size),
                           color=color, size_hint_y=None, height=height,
                           halign="center", valign="middle",
                           text_size=(Window.width * 0.82, None))
@@ -730,8 +730,8 @@ class FuturesAnalyzerApp(App):
 
         actions = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dp(46))
-        calculate_button = Button(text=fa("محاسبه"), font_name=FONT_NAME)
-        close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
+        calculate_button = Button(text=fa("محاسبه"), font_name=FONT_NAME, markup=True)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True)
         actions.add_widget(calculate_button)
         actions.add_widget(close_button)
         body.add_widget(actions)
@@ -996,8 +996,8 @@ class FuturesAnalyzerApp(App):
 
         actions = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dp(46))
-        copy_button = Button(text=fa("کپی گزارش"), font_name=FONT_NAME)
-        close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
+        copy_button = Button(text=fa("کپی گزارش"), font_name=FONT_NAME, markup=True)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True)
         def copy_report(_button):
             try:
                 Clipboard.copy(report_text)
@@ -1042,9 +1042,9 @@ class FuturesAnalyzerApp(App):
         body.add_widget(self.auto_status_label)
         actions = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dp(48))
-        start_button = Button(text=fa("شروع اسکن خودکار"), font_name=FONT_NAME)
-        stop_button = Button(text=fa("توقف"), font_name=FONT_NAME)
-        close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
+        start_button = Button(text=fa("شروع اسکن خودکار"), font_name=FONT_NAME, markup=True)
+        stop_button = Button(text=fa("توقف"), font_name=FONT_NAME, markup=True)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME, markup=True)
         actions.add_widget(start_button)
         actions.add_widget(stop_button)
         body.add_widget(actions)
