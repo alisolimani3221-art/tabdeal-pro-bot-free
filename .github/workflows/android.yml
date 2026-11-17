@@ -78,8 +78,11 @@ jobs:
             cp "$LATIN_FONT" NotoSans-Regular.ttf
           fi
           test -s NotoSans-Regular.ttf
-          test -s NotoSansArabic-Regular.ttf -o -s NotoNaskhArabic-Regular.ttf
-          ls -l Noto*Regular.ttf
+          test -s NotoSansArabic-Regular.ttf
+          FONT_LICENSE="/usr/share/doc/fonts-noto-core/copyright"
+          test -s "$FONT_LICENSE"
+          cp "$FONT_LICENSE" assets/FONT-LICENSE.txt
+          ls -l Noto*Regular.ttf assets/FONT-LICENSE.txt
 
       - name: Setup Python
         uses: actions/setup-python@v5
