@@ -29,6 +29,19 @@ class GeminiAssistantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ai_assistant.build_prompt(" ", {"symbol": "BTC_USDT"})
 
+    def test_assistant_rtl_display_shapes_persian_without_reordering(self):
+        from main import assistant_rtl_text
+        with patch("main.arabic_reshaper") as reshaper:
+            reshaper.reshape.return_value = "SHAPED"
+            with patch("main.contains_arabic", return_value=True):
+                self.assertEqual(assistant_rtl_text("متن فارسی"), "SHAPED")
+            reshaper.reshape.assert_called_once_with("متن فارسی")
+
+    def test_assistant_rtl_display_preserves_latin_only_text(self):
+        from main import assistant_rtl_text
+        with patch("main.contains_arabic", return_value=False):
+            self.assertEqual(assistant_rtl_text("BTC_USDT 123"), "BTC_USDT 123")
+
     @patch("ai_assistant.requests.post")
     def test_key_is_sent_in_header_not_url(self, post):
         post.return_value = FakeResponse()
