@@ -167,6 +167,26 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(result["open_position"]["symbol"],
                          result["candidates"][0]["symbol"])
 
+
+    def test_emergency_stop_closes_open_paper_position_at_last_mark(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        last_mark = engine.position["last_price"]
+        result = engine.emergency_close()
+        self.assertEqual(result["event"], "CLOSED")
+        self.assertEqual(result["trade"]["reason"], "EMERGENCY_STOP")
+        self.assertEqual(result["trade"]["exit"], last_mark)
+        self.assertIsNone(engine.position)
+        self.assertAlmostEqual(
+            result["trade"]["net_pnl"],
+            result["trade"]["gross_pnl"] - result["trade"]["fees_entry"] - result["trade"]["fees_exit"]
+        )
+
+    def test_emergency_stop_with_no_position_is_idempotent(self):
+        engine = PaperTradingEngine(capital=8)
+        self.assertEqual(engine.emergency_close(), {"event": "STOPPED", "trade": None})
+        self.assertEqual(engine.emergency_close(), {"event": "STOPPED", "trade": None})
+
     def test_engine_never_exposes_live_order_method(self):
         engine = PaperTradingEngine(capital=8)
         self.assertFalse(hasattr(engine, "create_order"))
