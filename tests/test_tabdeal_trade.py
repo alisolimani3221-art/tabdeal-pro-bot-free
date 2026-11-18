@@ -171,18 +171,23 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         self.assertEqual(kwargs["headers"]["X-MBX-APIKEY"], "test-key")
         response.close.assert_called_once()
 
-    def test_sl_tp_requires_at_least_one_valid_price(self):
+    def test_sl_tp_requires_both_valid_protective_prices(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
             session=self.session
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "both sl_price and tp_price"):
             client.set_position_sl_tp(
-                "BTC_USDT", 42, confirm_live=True
+                "BTC_USDT", 42, sl_price="65000", confirm_live=True
+            )
+        with self.assertRaisesRegex(ValueError, "both sl_price and tp_price"):
+            client.set_position_sl_tp(
+                "BTC_USDT", 42, tp_price="68000", confirm_live=True
             )
         with self.assertRaises(ValueError):
             client.set_position_sl_tp(
-                "BTC_USDT", 42, sl_price=-1, confirm_live=True
+                "BTC_USDT", 42, sl_price=-1, tp_price="68000",
+                confirm_live=True
             )
         self.session.post.assert_not_called()
 
@@ -205,13 +210,13 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         self.assertEqual(kwargs["data"]["slPrice"], "65000")
         self.assertEqual(kwargs["data"]["tpPrice"], "68000")
 
-    def test_close_position_is_disabled_without_confirmation(self):
+    def test_close_position_is_disabled_until_endpoint_scope_is_verified(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
             session=self.session
         )
-        with self.assertRaises(RuntimeError):
-            client.close_position("BTC_USDT")
+        with self.assertRaisesRegex(RuntimeError, "close scope is verified"):
+            client.close_position("BTC_USDT", confirm_live=True)
         self.session.delete.assert_not_called()
 
 
