@@ -202,8 +202,6 @@ class PaperTraderTests(unittest.TestCase):
         self.assertFalse(hasattr(engine, "new_order"))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
     def test_rejects_weak_momentum_confirmation(self):
         self.assertIsNone(rank_signal(dict(setup(), rsi14=50.8)))
@@ -218,3 +216,6 @@ if __name__ == "__main__":
         ranked = rank_signal(setup())
         self.assertEqual(ranked["signal_quality"], "CONFIRMED")
         self.assertGreaterEqual(ranked["trend_strength_pct"], 0.05)
+
+if __name__ == "__main__":
+    unittest.main()
