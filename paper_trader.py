@@ -54,10 +54,10 @@ def rank_signal(technical):
 
 
 class PaperTradingEngine:
-    """One-position paper trader with fixed fractional risk and no live orders."""
+    """One-position paper trader with strict daily loss/risk limits and no live orders."""
 
-    def __init__(self, capital=8.0, risk_percent=0.5, max_leverage=3,
-                 fee_rate=0.0005, slippage_rate=0.0002):
+    def __init__(self, capital=8.0, risk_percent=0.25, max_leverage=1,
+                 daily_loss_percent=1.0, fee_rate=0.0005, slippage_rate=0.0002):
         self.initial_capital = _positive(capital, "capital")
         self.cash = self.initial_capital
         self.risk_percent = float(risk_percent)
@@ -67,6 +67,12 @@ class PaperTradingEngine:
         if not leverage_value.is_integer() or not 1 <= leverage_value <= 3:
             raise ValueError("max leverage must be an integer between 1 and 3")
         self.max_leverage = int(leverage_value)
+        self.daily_loss_percent = float(daily_loss_percent)
+        if (not math.isfinite(self.daily_loss_percent)
+                or not 0 < self.daily_loss_percent <= 1.0):
+            raise ValueError("daily loss limit must be above 0 and at most 1 percent")
+        self.daily_loss_limit = self.initial_capital * self.daily_loss_percent / 100.0
+        self.realized_net_pnl = 0.0
         self.fee_rate = _positive(fee_rate, "fee_rate")
         if self.fee_rate > 0.05:
             raise ValueError("fee rate is unrealistically high; maximum is 5 percent")
@@ -106,7 +112,10 @@ class PaperTradingEngine:
                       "net_pnl": gross - p["fees_entry"] - exit_fee,
                       "reason": reason})
         self.closed_trades.append(trade)
+        self.realized_net_pnl += trade["net_pnl"]
         self.position = None
+        if self.realized_net_pnl <= -self.daily_loss_limit:
+            self.halted = True
         return {"event": "CLOSED", "trade": trade}
 
     def process_scan(self, candidates):
@@ -178,7 +187,8 @@ class PaperTradingEngine:
 
         # Never close and reopen on the same scan: that can create an
         # immediate churn loop on a signal that has not changed.
-        if (not closed_this_scan and self.position is None and valid and self.cash > 0
+        if (not self.halted and not closed_this_scan and self.position is None
+                and valid and self.cash > 0
                 and self.cash > self.initial_capital * 0.97):
             choice = valid[0]
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
@@ -223,4 +233,7 @@ class PaperTradingEngine:
         return {"events": events, "candidates": valid,
                 "equity": self.equity, "cash": self.cash,
                 "open_position": dict(self.position) if self.position else None,
-                "closed_trades": len(self.closed_trades)}
+                "closed_trades": len(self.closed_trades),
+                "realized_net_pnl": self.realized_net_pnl,
+                "daily_loss_limit": self.daily_loss_limit,
+                "halted": self.halted}

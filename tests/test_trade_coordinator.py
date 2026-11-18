@@ -97,11 +97,102 @@ class TradeCoordinatorTests(unittest.TestCase):
                 stop_loss="49000", take_profit="53000",
                 account_snapshot_age_seconds=1)
 
+    def _verified_empty_account(self, observed_at=100):
+        return {
+            "verified": True,
+            "source": "authenticated_futures_account",
+            "observed_at": observed_at,
+            "positions": [],
+        }
+
+    def test_reconcile_verified_empty_exchange_state_clears_local_prepared_intents(self):
+        self.prepare()
+        result = self.coordinator.reconcile_exchange_state(
+            account_snapshot=self._verified_empty_account(),
+            open_orders=[], now=101)
+        self.assertTrue(result["reconciled"])
+        self.assertFalse(result["halted"])
+        self.assertEqual(result["cleared_local_intents"], 1)
+        self.assertEqual(self.coordinator.export_state()["intents"], {})
+
+    def test_reconcile_halts_when_exchange_reports_open_position(self):
+        result = self.coordinator.reconcile_exchange_state(
+            account_snapshot={
+                **self._verified_empty_account(),
+                "positions": [{"symbol": "BTCUSDT", "amount": 0.01}],
+            }, open_orders=[], now=101)
+        self.assertFalse(result["reconciled"])
+        self.assertTrue(self.coordinator.halted)
+
+    def test_reconcile_halts_when_exchange_reports_open_order(self):
+        result = self.coordinator.reconcile_exchange_state(
+            account_snapshot=self._verified_empty_account(),
+            open_orders=[{"symbol": "BTC_USDT", "orderId": 7}], now=101)
+        self.assertFalse(result["reconciled"])
+        self.assertTrue(self.coordinator.halted)
+
+    def test_reconcile_halts_on_unverified_or_stale_account(self):
+        unverified = self._verified_empty_account()
+        unverified["verified"] = False
+        for snapshot, now in ((unverified, 101),
+                              (self._verified_empty_account(1), 101)):
+            coordinator = TradeCoordinator()
+            result = coordinator.reconcile_exchange_state(
+                account_snapshot=snapshot, open_orders=[], now=now)
+            self.assertFalse(result["reconciled"])
+            self.assertTrue(coordinator.halted)
+
+    def test_reconcile_halts_on_malformed_open_orders(self):
+        result = self.coordinator.reconcile_exchange_state(
+            account_snapshot=self._verified_empty_account(),
+            open_orders={"unexpected": "shape"}, now=101)
+        self.assertFalse(result["reconciled"])
+        self.assertTrue(self.coordinator.halted)
+
     def test_release_only_removes_local_prepared_intent(self):
         self.prepare()
         self.assertTrue(self.coordinator.release_prepared_intent("intent-1"))
         self.assertFalse(self.coordinator.release_prepared_intent("intent-1"))
         self.prepare(idempotency_key="intent-2")
+
+
+    def test_emergency_stop_persists_across_restart(self):
+        self.coordinator.emergency_stop("operator stop")
+        restored = TradeCoordinator.restore_state(self.coordinator.export_state())
+        self.assertTrue(restored.halted)
+        self.assertEqual(restored.export_state()["halt_reason"], "operator stop")
+
+    def test_corrupt_persisted_state_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unsupported coordinator state"):
+            TradeCoordinator.restore_state({"schema_version": 999})
+
+    def test_restart_rejects_conflicting_pending_symbols(self):
+        state = {
+            "schema_version": 1,
+            "halted": False,
+            "intents": {
+                "one": {"symbol": "BTC_USDT", "state": "PREPARED_ONLY",
+                        "live_order_submitted": False},
+                "two": {"symbol": "BTC_USDT", "state": "PREPARED_ONLY",
+                        "live_order_submitted": False},
+            },
+        }
+        restored = TradeCoordinator.restore_state(state)
+        self.assertTrue(restored.halted)
+        with self.assertRaisesRegex(RuntimeError, "halted"):
+            restored.prepare_entry(
+                idempotency_key="after-restart", symbol="ETH_USDT", side="BUY",
+                quantity="0.001", reference_price="3000",
+                symbol_info={**self.info, "symbol": "ETH_USDT"},
+                open_positions=[], stop_loss="2900", take_profit="3200",
+                account_snapshot_age_seconds=1)
+
+    def test_exported_state_contains_no_credentials(self):
+        self.prepare()
+        serialized = str(self.coordinator.export_state())
+        self.assertNotIn("api_secret", serialized.lower())
+        self.assertNotIn("api_key", serialized.lower())
+        self.assertNotIn("secret", serialized.lower())
 
 
 if __name__ == "__main__":

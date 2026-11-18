@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.19"
+APP_VERSION = "1.21"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -41,7 +41,8 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
-from tabdeal_account import read_futures_account
+from tabdeal_account import read_futures_account, read_open_orders
+from trade_coordinator import TradeCoordinator
 from multi_market_scan import scan_market_universe
 
 # Resolve the bundled font from both the app directory and Kivy resources.
@@ -237,12 +238,29 @@ def rtl_runtime_status():
 
 class FuturesAnalyzerApp(App):
     def build(self):
-        # User-editable capital is kept locally on this device between launches.
-        self.settings_path = os.path.join(self.user_data_dir, "settings.json")
+        # Fail-closed coordinator is instantiated in proposal-only mode.
+        self.trade_coordinator = TradeCoordinator(max_open_positions=1, max_notional_usdt=0)
+        # Persist only the coordinator's non-secret safety state; never API credentials.
+        self.trade_state_path = os.path.join(self.user_data_dir, "trade_safety_state.json")
         try:
             os.makedirs(self.user_data_dir, exist_ok=True)
         except OSError:
             pass
+        if os.path.exists(self.trade_state_path):
+            try:
+                with open(self.trade_state_path, "r", encoding="utf-8") as state_file:
+                    saved_state = json.load(state_file)
+                self.trade_coordinator = TradeCoordinator.restore_state(
+                    saved_state, max_open_positions=1, max_notional_usdt=0
+                )
+            except Exception:
+                # Corrupt or incompatible recovery state must never silently reset to ready.
+                self.trade_coordinator.emergency_stop(
+                    "persisted trade safety state is unreadable or incompatible"
+                )
+        self._persist_trade_coordinator_state()
+        # User-editable capital is kept locally on this device between launches.
+        self.settings_path = os.path.join(self.user_data_dir, "settings.json")
         self.capital_usdt = 8.0
         try:
             with open(self.settings_path, "r", encoding="utf-8") as settings_file:
@@ -653,6 +671,31 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(lambda dt, res=results: self.show_result(res), 0)
 
 
+    def _persist_trade_coordinator_state(self):
+        """Atomically persist non-secret safety state for fail-closed restart recovery."""
+        path = getattr(self, "trade_state_path", None)
+        coordinator = getattr(self, "trade_coordinator", None)
+        if not path or coordinator is None:
+            return False
+        temporary_path = path + ".tmp"
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as state_file:
+                json.dump(coordinator.export_state(), state_file,
+                          ensure_ascii=True, sort_keys=True)
+                state_file.flush()
+                os.fsync(state_file.fileno())
+            os.replace(temporary_path, path)
+            return True
+        except Exception:
+            try:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+            except OSError:
+                pass
+            # A failed safety-state write is itself a reason to halt.
+            coordinator.emergency_stop("could not persist trade safety state")
+            return False
+
     def open_account_connection(self, instance):
         """Collect credentials in memory only and request account data via GET."""
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
@@ -695,7 +738,14 @@ class FuturesAnalyzerApp(App):
             def worker():
                 try:
                     data = read_futures_account(key, secret, timeout=22)
-                    result = (True, data)
+                    # Read all open futures orders before allowing local recovery.
+                    # This is a signed GET only; no order mutation is possible here.
+                    open_orders = read_open_orders(key, secret, timeout=22)
+                    reconciliation = self.trade_coordinator.reconcile_exchange_state(
+                        account_snapshot=data, open_orders=open_orders,
+                        max_snapshot_age_seconds=15)
+                    self._persist_trade_coordinator_state()
+                    result = (True, data, open_orders, reconciliation)
                 except Exception as exc:
                     result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]))
                 finally:
@@ -705,12 +755,18 @@ class FuturesAnalyzerApp(App):
             def finish(result):
                 popup.dismiss()
                 if result[0]:
-                    data = result[1]
+                    data, open_orders, reconciliation = result[1], result[2], result[3]
                     lines = [
                         "موجودی کیف پول: {}".format(data["wallet_balance"]),
                         "موجودی آزاد: {}".format(data["available_balance"]),
                         "سود/زیان شناور: {}".format(data["unrealized_pnl"]),
+                        "سفارش‌های باز صرافی: {}".format(len(open_orders)),
                     ]
+                    if reconciliation.get("reconciled"):
+                        lines.append("بازیابی وضعیت: تأیید شد؛ وضعیت حساب و سفارش‌ها خالی است.")
+                    else:
+                        lines.append("توقف ایمن موتور: {}".format(
+                            reconciliation.get("reason", "وضعیت نیازمند بررسی دستی است.")))
                     positions = data.get("positions", [])
                     if positions:
                         lines.append("موقعیت‌های باز:")
@@ -722,7 +778,10 @@ class FuturesAnalyzerApp(App):
                         lines.append("موقعیت باز فعالی گزارش نشد.")
                     self.account_summary.text = fa("\\n".join(lines))
                 else:
-                    self.account_summary.text = fa("خطا در خواندن حساب: " + result[1])
+                    self.trade_coordinator.emergency_stop(
+                        "authenticated account/order read failed; exchange state is unknown")
+                    self._persist_trade_coordinator_state()
+                    self.account_summary.text = fa("خطا در خواندن حساب یا سفارش‌های باز؛ موتور در توقف ایمن است: " + result[1])
             threading.Thread(target=worker, daemon=True).start()
 
         connect.bind(on_press=start_read)
@@ -1353,7 +1412,8 @@ class FuturesAnalyzerApp(App):
         try:
             builder = TradeCandleBuilder(symbol)
             engine = PaperTradingEngine(
-                capital=self.capital_usdt, risk_percent=0.5, max_leverage=3
+                capital=self.capital_usdt, risk_percent=0.25, max_leverage=1,
+                daily_loss_percent=1.0
             )
         except Exception as exc:
             self.update_auto_status("راه‌اندازی ناموفق: " + type(exc).__name__)
@@ -1369,7 +1429,7 @@ class FuturesAnalyzerApp(App):
         self.auto_trader_thread.start()
         self.update_auto_status(
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
-            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
+            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۲۵٪؛ اهرم: ۱ برابر؛ سقف زیان نوبت: ۱٪.\n"
             "تا تکمیل ۵۱ کندل بسته‌شده، هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.".format(
                 self.capital_usdt
             )
@@ -1478,7 +1538,7 @@ class FuturesAnalyzerApp(App):
                     message_text = (
                         "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
                         "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
-                        "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
+                        "حداکثر ریسک هر معامله ۰٫۲۵٪؛ اهرم ۱ برابر؛ سقف زیان نوبت ۱٪.\n{}"
                     ).format(symbol, technical["signal"], technical["price"],
                              builder.status()["closed_candles"], result["equity"],
                              result["closed_trades"], event_text)

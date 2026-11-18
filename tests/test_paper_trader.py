@@ -196,6 +196,41 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIsNone(result["open_position"])
         self.assertEqual(result["events"], [])
 
+
+    def test_default_paper_limits_are_conservative(self):
+        engine = PaperTradingEngine(capital=8)
+        result = engine.process_scan([setup()])
+        position = result["open_position"]
+        self.assertEqual(position["leverage"], 1)
+        self.assertLessEqual(position["risk_limit"], 8 * 0.0025 + 1e-12)
+        self.assertAlmostEqual(engine.daily_loss_limit, 8 * 0.01)
+
+    def test_daily_loss_limit_halts_new_entries(self):
+        engine = PaperTradingEngine(
+            capital=8, risk_percent=0.25, max_leverage=1,
+            daily_loss_percent=1.0, fee_rate=0.0005, slippage_rate=0.001,
+        )
+        for _ in range(30):
+            if engine.halted:
+                break
+            if engine.position is None:
+                engine.process_scan([setup()])
+            if engine.position is not None:
+                losing_candle = dict(
+                    setup(price=98.0), signal="NEUTRAL",
+                    candle_open=98.0, candle_high=99.0, candle_low=97.5,
+                )
+                engine.process_scan([losing_candle])
+        self.assertTrue(engine.halted)
+        self.assertLessEqual(engine.realized_net_pnl, -engine.daily_loss_limit)
+        after_halt = engine.process_scan([setup()])
+        self.assertEqual(after_halt["events"], [])
+        self.assertIsNone(after_halt["open_position"])
+
+    def test_rejects_daily_loss_limit_above_one_percent(self):
+        with self.assertRaises(ValueError):
+            PaperTradingEngine(capital=8, daily_loss_percent=1.01)
+
     def test_engine_never_exposes_live_order_method(self):
         engine = PaperTradingEngine(capital=8)
         self.assertFalse(hasattr(engine, "create_order"))

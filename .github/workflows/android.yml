@@ -1,5 +1,5 @@
 name: Build Futures Analyzer APK
-# Trigger a fresh verified APK build after the Persian assistant RTL regression fix.
+# Verify paper risk caps, daily-loss stop, regression suite and Android 1.21 APK.
 
 on:
   workflow_dispatch:
@@ -7,6 +7,10 @@ on:
     paths:
       - 'main.py'
       - 'tabdeal_account.py'
+      - 'tabdeal_trade.py'
+      - 'live_execution_guard.py'
+      - 'trade_coordinator.py'
+      - 'trade_preflight.py'
       - 'ai_assistant.py'
       - 'market_format.py'
       - 'trade_stream_probe.py'
@@ -217,18 +221,20 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          from trade_stream_probe import probe_broadcast
+          from trade_stream_probe import probe_broadcast_batch
 
-          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=15)
+          report = probe_broadcast_batch(
+              symbols=["BTC_USDT", "ETH_USDT", "SOL_USDT"],
+              timeout_seconds=15,
+              max_workers=3,
+          )
           Path("trade-stream-probe-report.json").write_text(
               json.dumps(report, sort_keys=True, indent=2),
               encoding="utf-8",
           )
           print(json.dumps(report, sort_keys=True))
-          if not report["connected"]:
-              raise SystemExit("Public trade broadcast connection was not established")
-          if report["messages"] and report["valid_trades"] == 0:
-              raise SystemExit("Messages arrived but none matched the observed strict schema")
+          if not report["all_streams_verified"]:
+              raise SystemExit("Not every representative futures trade stream produced valid trades")
           PY
 
       - name: Upload redacted trade-stream probe report

@@ -187,5 +187,40 @@ class TradeStreamProbeTests(unittest.TestCase):
                     probe_broadcast(timeout_seconds=timeout)
 
 
+    def test_batch_probe_validates_bounds_and_reports_each_symbol(self):
+        from unittest.mock import patch
+        from trade_stream_probe import probe_broadcast_batch
+
+        fake = lambda symbol, timeout: {
+            "connected": True, "messages": 5, "valid_trades": 4,
+            "last_diagnostic": "ok", "symbol": symbol,
+        }
+        with patch("trade_stream_probe.probe_broadcast", side_effect=fake):
+            result = probe_broadcast_batch(["BTC_USDT", "ETH_USDT", "SOL_USDT"])
+        self.assertTrue(result["all_streams_verified"])
+        self.assertEqual(result["successful_count"], 3)
+        self.assertEqual([item["symbol"] for item in result["results"]],
+                         ["BTC_USDT", "ETH_USDT", "SOL_USDT"])
+
+    def test_batch_probe_fails_closed_for_invalid_or_duplicate_symbols(self):
+        from trade_stream_probe import probe_broadcast_batch
+        for symbols in ([], ["BTC_USDT", "BTC_USDT"], ["BTC/USDT"], ["A_USDT"] * 5):
+            with self.subTest(symbols=symbols):
+                with self.assertRaises(ValueError):
+                    probe_broadcast_batch(symbols)
+
+    def test_batch_probe_marks_disconnected_stream_as_failure(self):
+        from unittest.mock import patch
+        from trade_stream_probe import probe_broadcast_batch
+
+        with patch("trade_stream_probe.probe_broadcast", return_value={
+            "connected": True, "messages": 3, "valid_trades": 0,
+            "last_diagnostic": "trade_schema_unrecognized", "symbol": "BTC_USDT",
+        }):
+            result = probe_broadcast_batch(["BTC_USDT"])
+        self.assertFalse(result["all_streams_verified"])
+        self.assertEqual(result["failed_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
