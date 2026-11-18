@@ -9,6 +9,7 @@ import math
 import re
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 BROADCAST_URL = "wss://api1.tabdeal.org/special_margin/broadcast/"
@@ -210,6 +211,61 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         timeout.cancel()
     result["elapsed_seconds"] = round(time.monotonic() - started, 2)
     return result
+
+
+def probe_broadcast_batch(symbols, timeout_seconds=15, max_workers=3):
+    """Probe a small bounded set of futures streams concurrently; read-only."""
+    if not isinstance(symbols, (list, tuple)) or not symbols or len(symbols) > 4:
+        raise ValueError("symbols must contain between 1 and 4 futures symbols")
+    normalized = []
+    for symbol in symbols:
+        if (not isinstance(symbol, str) or len(symbol) > 32
+                or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
+            raise ValueError("each symbol must be an ASCII USDT futures symbol")
+        if symbol in normalized:
+            raise ValueError("duplicate symbol")
+        normalized.append(symbol)
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int) or not 1 <= max_workers <= 4:
+        raise ValueError("max_workers must be an integer from 1 to 4")
+    # Validate timeout before starting any network operation.
+    if isinstance(timeout_seconds, bool):
+        raise ValueError("timeout_seconds must be a finite positive number")
+    try:
+        timeout_value = float(timeout_seconds)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("timeout_seconds must be a finite positive number")
+    if not math.isfinite(timeout_value) or timeout_value <= 0:
+        raise ValueError("timeout_seconds must be a finite positive number")
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(normalized))) as pool:
+        futures = {
+            pool.submit(probe_broadcast, symbol, timeout_value): symbol
+            for symbol in normalized
+        }
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                results[symbol] = future.result()
+            except Exception as exc:
+                results[symbol] = {
+                    "connected": False, "messages": 0, "valid_trades": 0,
+                    "last_diagnostic": "probe_error:" + type(exc).__name__,
+                    "symbol": symbol,
+                }
+    ordered = [results[symbol] for symbol in normalized]
+    successful = [
+        item for item in ordered
+        if item.get("connected") and item.get("valid_trades", 0) > 0
+    ]
+    return {
+        "symbols": normalized,
+        "checked_count": len(normalized),
+        "successful_count": len(successful),
+        "failed_count": len(normalized) - len(successful),
+        "all_streams_verified": len(successful) == len(normalized),
+        "results": ordered,
+    }
 
 
 if __name__ == "__main__":
