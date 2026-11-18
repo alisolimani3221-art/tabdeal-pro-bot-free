@@ -180,7 +180,12 @@ class TradeCoordinatorTests(unittest.TestCase):
         restored = TradeCoordinator.restore_state(state)
         self.assertTrue(restored.halted)
         with self.assertRaisesRegex(RuntimeError, "halted"):
-            self.prepare()
+            restored.prepare_entry(
+                idempotency_key="after-restart", symbol="ETH_USDT", side="BUY",
+                quantity="0.001", reference_price="3000",
+                symbol_info={**self.info, "symbol": "ETH_USDT"},
+                open_positions=[], stop_loss="2900", take_profit="3200",
+                account_snapshot_age_seconds=1)
 
     def test_exported_state_contains_no_credentials(self):
         self.prepare()
