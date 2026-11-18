@@ -99,7 +99,8 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         self.assertTrue(gap["gap_detected"])
         self.assertFalse(builder.is_ready)
         self.assertEqual(builder.status()["closed_candles"], 0)
-        self.assertEqual(len(builder.candles_for_analysis()), 1)\n        self.assertFalse(builder.is_ready)
+        self.assertEqual(len(builder.candles_for_analysis()), 1)
+        self.assertFalse(builder.is_ready)
 
 
 if __name__ == "__main__":
