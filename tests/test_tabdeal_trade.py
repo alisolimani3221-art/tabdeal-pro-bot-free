@@ -46,6 +46,17 @@ class TradeAdapterSafetyTests(unittest.TestCase):
                     )
         self.session.post.assert_not_called()
 
+    def test_risk_increasing_market_entry_is_blocked_before_network(self):
+        client = TabdealFuturesTradeClient(
+            "test-key", "test-secret", live_enabled=True,
+            session=self.session
+        )
+        with self.assertRaisesRegex(RuntimeError, "Risk-increasing market entries are blocked"):
+            client.place_market_order(
+                "BTC_USDT", "BUY", "0.001", confirm_live=True
+            )
+        self.session.post.assert_not_called()
+
     def test_valid_order_uses_official_futures_order_endpoint(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
@@ -56,13 +67,15 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         response.json.return_value = {"orderId": 123}
         self.session.post.return_value = response
         result = client.place_market_order(
-            "BTC_USDT", "BUY", "0.001", confirm_live=True
+            "BTC_USDT", "BUY", "0.001", reduce_only=True,
+            confirm_live=True
         )
         self.assertEqual(result["orderId"], 123)
         args, kwargs = self.session.post.call_args
         self.assertEqual(args[0], "https://api1.tabdeal.org/fapi/v1/order")
         self.assertEqual(kwargs["data"]["type"], "MARKET")
         self.assertEqual(kwargs["data"]["symbol"], "BTC_USDT")
+        self.assertEqual(kwargs["data"]["reduceOnly"], "true")
         self.assertIn("signature", kwargs["data"])
         self.assertEqual(kwargs["headers"]["X-MBX-APIKEY"], "test-key")
         response.close.assert_called_once()
