@@ -5,6 +5,7 @@ A caller must obtain a fresh, verified trade-stream snapshot and separately
 obtain explicit per-order confirmation before an order can be considered.
 """
 import math
+import re
 import time
 
 from risk_analysis import calculate_position_risk
@@ -61,6 +62,9 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
     signal = technical.get("signal")
     if signal not in ("BULLISH", "BEARISH"):
         return reject("no_trade_signal")
+    symbol = market_snapshot.get("symbol")
+    if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
+        return reject("invalid_market_symbol")
     if not isinstance(account, dict):
         return reject("account_state_unavailable")
     positions = account.get("positions")
@@ -72,7 +76,7 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
         daily_loss = float(account.get("daily_loss_percent", 0))
     except (TypeError, ValueError, OverflowError):
         return reject("daily_loss_unavailable")
-    if not math.isfinite(daily_loss) or daily_loss < 0:
+    if not math.isfinite(daily_loss):
         return reject("invalid_daily_loss")
     if daily_loss >= DAILY_LOSS_STOP_PERCENT:
         return reject("daily_loss_limit_reached")
@@ -92,7 +96,7 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
         "allowed": True,
         "mode": "proposal_only_no_order_sent",
         "side": "BUY" if signal == "BULLISH" else "SELL",
-        "symbol": market_snapshot.get("symbol"),
+        "symbol": symbol,
         "quantity": sizing["quantity"],
         "notional": sizing["notional"],
         "leverage": MAX_LEVERAGE,
