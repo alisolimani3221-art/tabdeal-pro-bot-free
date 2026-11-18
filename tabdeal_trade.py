@@ -65,11 +65,19 @@ class TabdealFuturesTradeClient:
         return symbol
 
     def _signed_request(self, method, path, params):
-        if method == "GET":
-            if path not in ("/v1/position", "/v1/order", "/v1/openOrders", "/v3/positionRisk"):
-                raise ValueError("unsupported read endpoint")
-        elif path not in ("/v1/order", "/v1/position", "/v1/positionSlTp"):
-            raise ValueError("unsupported trading endpoint")
+        # Allow only the exact HTTP-method/endpoint pairs used by public methods.
+        # This prevents an otherwise permitted path from being reused with a
+        # different verb that could change exchange state unexpectedly.
+        allowed_endpoints = {
+            "GET": {
+                "/v1/position", "/v1/order", "/v1/openOrders",
+                "/v3/positionRisk",
+            },
+            "POST": {"/v1/order", "/v1/positionSlTp"},
+            "DELETE": {"/v1/position"},
+        }
+        if method not in allowed_endpoints or path not in allowed_endpoints[method]:
+            raise ValueError("unsupported HTTP method/endpoint combination")
         values = dict(params)
         values["timestamp"] = int(time.time() * 1000)
         query = urlencode(values)
