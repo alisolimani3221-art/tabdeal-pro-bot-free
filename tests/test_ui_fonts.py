@@ -68,40 +68,32 @@ class UiFontAssignmentTests(unittest.TestCase):
         plain = source[source.index("def fa_plain(text):"):source.index("def fa(text):")]
         self.assertIn("if not contains_arabic(value):", plain)
 
-    def test_font_workflow_checks_real_arabic_and_latin_glyphs(self):
+    def test_validation_workflow_bundles_both_runtime_fonts(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn('"\\u0600"', workflow)
-        self.assertIn('"\\u06ff"', workflow)
-        self.assertIn("missing_arabic", workflow)
-        self.assertIn("missing_latin", workflow)
         self.assertIn("NotoSansArabic-Regular.ttf", workflow)
         self.assertIn("NotoSans-Regular.ttf", workflow)
+        self.assertIn('test -s NotoSans-Regular.ttf', workflow)
+        self.assertIn('test -s NotoSansArabic-Regular.ttf', workflow)
 
     def test_workflow_concurrency_is_scoped_per_branch(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
         self.assertIn("tabdeal-free-apk-build-${{ github.ref }}", workflow)
 
-    def test_font_license_is_bundled_and_verified(self):
+    def test_font_license_is_bundled_in_validation_workspace(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
         self.assertIn("txt", spec)
         self.assertIn("assets/*.txt", spec)
-        self.assertIn("assets/FONT-LICENSE.txt", workflow)
-        self.assertIn("assets/FONT-LICENSE[.]txt", workflow)
+        self.assertIn('cp "$FONT_LICENSE" assets/FONT-LICENSE.txt', workflow)
 
-    def test_font_workflow_verifies_rtl_libraries_inside_apk(self):
+    def test_workflow_is_validation_only_and_does_not_build_or_upload_apk(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        # python-for-android installs recipe-built modules into its bundled
-        # site-packages tree; they are not guaranteed to retain the pip
-        # --target vendor/ prefix inside assets/private.tar.
-        self.assertIn('grep -F "arabic_reshaper" /tmp/private-files.txt', workflow)
-        self.assertIn('grep -E "(^|/)bidi/.*algorithm.*[.]pyc?$" /tmp/private-files.txt', workflow)
-
-    def test_font_workflow_verifies_both_fonts_inside_apk(self):
-        workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn("Verify both runtime fonts and RTL libraries are packaged in APK", workflow)
-        self.assertIn("assets/private.tar", workflow)
-        self.assertIn("Upload APK", workflow)
+        self.assertIn("APK build paused", workflow)
+        self.assertIn("Run full regression suite", workflow)
+        self.assertNotIn("Install Buildozer", workflow)
+        self.assertNotIn("Build APK", workflow)
+        self.assertNotIn("Upload APK", workflow)
+        self.assertNotIn("assets/private.tar", workflow)
 
 
 if __name__ == "__main__":
