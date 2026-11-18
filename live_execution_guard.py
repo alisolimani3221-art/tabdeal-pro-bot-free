@@ -67,6 +67,20 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
         return reject("invalid_market_symbol")
     if not isinstance(account, dict):
         return reject("account_state_unavailable")
+    if (account.get("verified") is not True
+            or account.get("source") != "authenticated_futures_account"):
+        return reject("account_data_not_verified")
+    try:
+        account_age = current_time - _finite_positive(
+            account.get("observed_at"), "account_observed_at"
+        )
+        available_balance = _finite_positive(
+            account.get("available_balance"), "available_balance"
+        )
+    except ValueError:
+        return reject("account_data_unavailable")
+    if account_age < 0 or account_age > 15.0:
+        return reject("account_data_stale")
     positions = account.get("positions")
     if not isinstance(positions, list):
         return reject("open_positions_unverified")
@@ -83,6 +97,9 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
     try:
         capital = _finite_positive(capital_usdt, "capital_usdt")
         entry = _finite_positive(entry_price, "entry_price")
+        tape_price = _finite_positive(market_snapshot.get("price"), "trade_price")
+        if abs(entry - tape_price) / tape_price > 0.001:
+            return reject("entry_price_differs_from_verified_trade")
         stop = _finite_positive(stop_percent, "stop_percent")
         rr = _finite_positive(reward_risk, "reward_risk")
         sizing = calculate_position_risk(
@@ -90,6 +107,8 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
         )
     except (TypeError, ValueError, OverflowError):
         return reject("invalid_or_unsafe_risk_inputs")
+    if sizing["margin_estimate"] > available_balance:
+        return reject("insufficient_available_margin")
     stop_price = sizing["stop_price_long"] if signal == "BULLISH" else sizing["stop_price_short"]
     target_price = sizing["target_price_long"] if signal == "BULLISH" else sizing["target_price_short"]
     return {
@@ -105,6 +124,7 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
         "stop_price": stop_price,
         "take_profit_price": target_price,
         "market_data_age_seconds": age,
+        "account_data_age_seconds": account_age,
         "requires_exchange_side_sl_tp": True,
     }
 
