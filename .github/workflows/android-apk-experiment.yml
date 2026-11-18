@@ -1,0 +1,68 @@
+name: Experimental APK build (v1.19)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-apk-experiment-v1-19
+  cancel-in-progress: false
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Android build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git zip unzip openjdk-17-jdk \
+            autoconf automake libtool pkg-config cmake \
+            zlib1g-dev libncurses5-dev libffi-dev libssl-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Buildozer
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "buildozer==1.5.0" "Cython==0.29.36"
+
+      - name: Verify app version and Android package settings
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          app = Path("main.py").read_text(encoding="utf-8")
+          spec = Path("buildozer.spec").read_text(encoding="utf-8")
+          app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
+          package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
+          if not app_version or not package_version or app_version.group(1) != package_version.group(1):
+              raise SystemExit("App version and Buildozer version do not match")
+          if app_version.group(1) != "1.19":
+              raise SystemExit("This experimental workflow is restricted to baseline v1.19")
+          if "android.archs = arm64-v8a" not in spec:
+              raise SystemExit("Expected ARM64 Android build configuration")
+          print("Verified baseline version:", app_version.group(1))
+          PY
+
+      - name: Build debug APK
+        env:
+          BUILDOZER_WARN_ON_ROOT: "0"
+        run: buildozer -v android debug
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-v1.19-experimental-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 7
