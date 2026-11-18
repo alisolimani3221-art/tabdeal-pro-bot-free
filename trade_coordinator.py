@@ -6,6 +6,8 @@ orders. Live execution remains a separate, disabled integration step.
 """
 import copy
 import threading
+import math
+import time
 
 from trade_preflight import validate_order_preflight
 
@@ -106,6 +108,77 @@ class TradeCoordinator:
             self._active_symbols.discard(intent["symbol"])
             del self._intents[idempotency_key]
             return True
+
+    def reconcile_exchange_state(self, *, account_snapshot, open_orders, now=None,
+                                 max_snapshot_age_seconds=15):
+        """Reconcile local prepared intents against fresh authenticated exchange reads.
+
+        This is read-only: it never submits, cancels, or modifies exchange orders.
+        Any live position, open order, stale snapshot, or ambiguous payload halts
+        the coordinator. Local PREPARED_ONLY reservations are cleared only after
+        a verified fresh account snapshot and an empty open-orders response.
+        """
+        with self._lock:
+            if not isinstance(account_snapshot, dict):
+                self.emergency_stop("exchange account snapshot is missing or invalid")
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "live_order_submitted": False}
+            if (account_snapshot.get("verified") is not True
+                    or account_snapshot.get("source") != "authenticated_futures_account"):
+                self.emergency_stop("exchange account snapshot is not authenticated")
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "live_order_submitted": False}
+            positions = account_snapshot.get("positions")
+            if not isinstance(positions, list) or not all(
+                    isinstance(item, dict) for item in positions):
+                self.emergency_stop("exchange positions are ambiguous")
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "live_order_submitted": False}
+            if not isinstance(open_orders, list) or not all(
+                    isinstance(item, dict) for item in open_orders):
+                self.emergency_stop("exchange open orders are ambiguous")
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "live_order_submitted": False}
+            try:
+                observed_at = float(account_snapshot.get("observed_at"))
+                current_time = time.time() if now is None else float(now)
+                max_age = float(max_snapshot_age_seconds)
+                age = current_time - observed_at
+                if (not all(map(math.isfinite, (observed_at, current_time, max_age)))
+                        or age < 0 or max_age <= 0 or age > max_age):
+                    raise ValueError("stale or invalid timestamp")
+            except (TypeError, ValueError, OverflowError):
+                self.emergency_stop("exchange account snapshot is stale or invalid")
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "live_order_submitted": False}
+            if positions:
+                self.emergency_stop("exchange reports an existing open position")
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "open_positions": len(positions),
+                        "live_order_submitted": False}
+            if open_orders:
+                self.emergency_stop("exchange reports existing open orders")
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "open_orders": len(open_orders),
+                        "live_order_submitted": False}
+            if self._halted:
+                return {"reconciled": False, "halted": True,
+                        "reason": self._halt_reason, "live_order_submitted": False}
+            # Empty, verified exchange state proves that local reservations
+            # were never reflected at the exchange; release only local intents.
+            for intent in self._intents.values():
+                if (intent.get("state") != "PREPARED_ONLY"
+                        or intent.get("live_order_submitted") is not False):
+                    self.emergency_stop("local intent state is ambiguous during reconciliation")
+                    return {"reconciled": False, "halted": True,
+                            "reason": self._halt_reason, "live_order_submitted": False}
+            cleared = len(self._intents)
+            self._intents.clear()
+            self._active_symbols.clear()
+            return {"reconciled": True, "halted": False,
+                    "cleared_local_intents": cleared,
+                    "account_age_seconds": age,
+                    "live_order_submitted": False}
 
     def export_state(self):
         with self._lock:
