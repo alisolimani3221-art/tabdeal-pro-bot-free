@@ -3,11 +3,12 @@
 Android APK build and Tabdeal USDT-margined futures market analyzer.
 
 ## Current release status (1.16)
-- Android app version and Buildozer package version are 1.13.
+- Android app version and Buildozer package version are 1.17.
 - The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
 - Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
 - Persian UI font bundling and RTL support are verified during the Android build.
-- The Android paper simulator can build one-minute OHLCV candles from the observed public trade stream for the currently selected symbol. It requires 51 closed candles plus a forming candle before analysis; a data gap resets warm-up. It is foreground-only and paper-only.
+- The Android app includes a bounded, read-only scan of all active USDT futures order books (four concurrent requests on-device), showing best bid/ask and spread. These snapshots are not candles and do not generate technical signals.
+- The paper simulator remains limited to the currently selected symbol. It builds one-minute OHLCV candles from the empirically observed public trade stream, requires 51 closed candles plus a forming candle before analysis, and resets warm-up after a data gap. It is foreground-only and paper-only.
 - The WebSocket trade payload schema is an empirical observation only; it is not treated as an official contract. See `TRADE_STREAM_SCHEMA.md`.
 
 ## Features
@@ -17,6 +18,7 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 - Persian UI font bundling and RTL support in the Android build.
 - A read-only WebSocket probe observed a redacted Tabdeal trade-event schema; this is empirical, not an official inner-message contract. See `TRADE_STREAM_SCHEMA.md`.
 - A conservative paper-trading engine uses closed-candle indicators, a 0.5% maximum risk budget per simulated trade, at most 3x simulated leverage, stop-loss and take-profit. It never submits exchange orders.
+- The all-market scanner ranks order-book snapshots by spread only; it does not pretend that order-book data is a technical trading signal.
 
 ## Build APK
 1. Open the **Actions** tab.
