@@ -6,8 +6,21 @@ orders. Live execution remains a separate, disabled integration step.
 """
 import copy
 import threading
+from decimal import Decimal, InvalidOperation
 
 from trade_preflight import validate_order_preflight
+
+
+def _finite_positive(value, name):
+    if isinstance(value, bool) or value is None:
+        raise ValueError("{} must be finite and positive".format(name))
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("{} must be finite and positive".format(name))
+    if not number.is_finite() or number <= 0:
+        raise ValueError("{} must be finite and positive".format(name))
+    return number
 
 
 class TradeCoordinator:
@@ -46,18 +59,23 @@ class TradeCoordinator:
             key = idempotency_key.strip()
             if key in self._intents:
                 raise RuntimeError("duplicate idempotency key")
+
             if isinstance(account_snapshot_age_seconds, bool):
                 raise ValueError("account snapshot age is invalid")
             try:
-                age = float(account_snapshot_age_seconds)
-                max_age = float(max_snapshot_age_seconds)
-            except (TypeError, ValueError, OverflowError):
+                age = Decimal(str(account_snapshot_age_seconds))
+                max_age = Decimal(str(max_snapshot_age_seconds))
+            except (InvalidOperation, TypeError, ValueError):
                 raise ValueError("account snapshot age is invalid")
-            if age < 0 or max_age <= 0 or age > max_age:
+            if (not age.is_finite() or not max_age.is_finite()
+                    or age < 0 or max_age <= 0):
+                raise ValueError("account snapshot age is invalid")
+            if age > max_age:
                 raise RuntimeError("account snapshot is stale")
+
             if stop_loss is None or take_profit is None:
                 raise RuntimeError("both protective stop-loss and take-profit are required")
-            if symbol in self._active_symbols:
+            if not isinstance(symbol, str) or symbol in self._active_symbols:
                 raise RuntimeError("symbol already has a pending intent")
 
             plan = validate_order_preflight(
@@ -67,11 +85,9 @@ class TradeCoordinator:
                 max_open_positions=self.max_open_positions,
                 max_notional_usdt=self.max_notional_usdt,
             )
-            # Stops must be positive and on the correct side of the entry.
-            entry = float(plan["reference_price"])
-            sl, tp = float(stop_loss), float(take_profit)
-            if not all(v > 0 for v in (sl, tp)):
-                raise ValueError("protective prices must be positive")
+            entry = _finite_positive(plan["reference_price"], "reference_price")
+            sl = _finite_positive(stop_loss, "stop_loss")
+            tp = _finite_positive(take_profit, "take_profit")
             if plan["side"] == "BUY" and not sl < entry < tp:
                 raise ValueError("BUY stop/target must bracket entry correctly")
             if plan["side"] == "SELL" and not tp < entry < sl:
@@ -84,8 +100,8 @@ class TradeCoordinator:
                 "quantity": plan["quantity"],
                 "reference_price": plan["reference_price"],
                 "notional_usdt": plan["notional_usdt"],
-                "stop_loss": str(stop_loss),
-                "take_profit": str(take_profit),
+                "stop_loss": format(sl, "f"),
+                "take_profit": format(tp, "f"),
                 "state": "PREPARED_ONLY",
                 "live_order_submitted": False,
                 "execution_enabled": False,
