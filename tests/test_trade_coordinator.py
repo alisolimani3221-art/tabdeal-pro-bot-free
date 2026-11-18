@@ -50,9 +50,24 @@ class TradeCoordinatorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "stale"):
             self.prepare(account_snapshot_age_seconds=11)
 
+    def test_non_finite_account_snapshot_rejected(self):
+        for value in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "age is invalid"):
+                self.prepare(account_snapshot_age_seconds=value)
+
+    def test_non_finite_max_snapshot_age_rejected(self):
+        with self.assertRaisesRegex(ValueError, "age is invalid"):
+            self.prepare(max_snapshot_age_seconds="Infinity")
+
     def test_missing_protective_order_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "both protective"):
             self.prepare(take_profit=None)
+
+    def test_non_finite_stop_or_target_rejected(self):
+        for field in ("stop_loss", "take_profit"):
+            for value in ("NaN", "Infinity", "-Infinity"):
+                with self.subTest(field=field, value=value), self.assertRaisesRegex(ValueError, "finite and positive"):
+                    self.prepare(**{field: value})
 
     def test_wrong_buy_stop_target_orientation_rejected(self):
         with self.assertRaisesRegex(ValueError, "BUY stop/target"):
