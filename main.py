@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.15"
+APP_VERSION = "1.16"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1271,7 +1271,7 @@ class FuturesAnalyzerApp(App):
         )
 
     def stop_auto_paper_trader(self):
-        """Emergency-stop the local paper engine and close its market stream."""
+        """Stop the paper stream and close any simulated position at its last mark."""
         self.auto_stop_event.set()
         ws = getattr(self, "auto_ws", None)
         if ws is not None:
@@ -1279,9 +1279,25 @@ class FuturesAnalyzerApp(App):
                 ws.close()
             except Exception:
                 pass
-        self.update_auto_status(
-            "توقف اضطراری فعال شد. شبیه‌ساز متوقف است و هیچ سفارش واقعی ارسال نشده است."
-        )
+        engine = getattr(self, "auto_engine", None)
+        close_result = None
+        if engine is not None:
+            try:
+                close_result = engine.emergency_close()
+            except Exception:
+                close_result = None
+        if close_result and close_result.get("event") == "CLOSED":
+            trade = close_result["trade"]
+            message = (
+                "توقف اضطراری فعال شد؛ موقعیت مجازی در آخرین قیمت ثبت‌شده بسته شد. "
+                "سود/زیان خالص: {:.4f} تتر. هیچ سفارش واقعی ارسال نشده است."
+            ).format(trade["net_pnl"])
+        else:
+            message = (
+                "توقف اضطراری فعال شد. جریان و شبیه‌ساز متوقف شدند؛ "
+                "موقعیت مجازی بازی وجود نداشت. هیچ سفارش واقعی ارسال نشده است."
+            )
+        self.update_auto_status(message)
 
     def _paper_stream_worker(self, symbol, builder, engine):
         """Reconnect public trade stream and simulate only after gap-free warm-up."""
@@ -1313,7 +1329,7 @@ class FuturesAnalyzerApp(App):
             def on_message(ws, message):
                 nonlocal last_processed_bucket
                 parsed = parse_trade_message(message, expected_symbol=symbol)
-                if not parsed.get("ok"):
+                if self.auto_stop_event.is_set() or not parsed.get("ok"):
                     return
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
@@ -1335,6 +1351,8 @@ class FuturesAnalyzerApp(App):
                     Clock.schedule_once(
                         lambda dt, value=dict(technical): self.update_technical_labels(value), 0
                     )
+                    if self.auto_stop_event.is_set():
+                        return
                     result = engine.process_scan([technical])
                     last_processed_bucket = current_bucket
                     events = result.get("events", [])
