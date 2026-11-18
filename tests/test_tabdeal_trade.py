@@ -11,6 +11,21 @@ class TradeAdapterSafetyTests(unittest.TestCase):
             "test-key", "test-secret", session=self.session
         )
 
+    def test_signed_request_rejects_unsupported_method_endpoint_pairs(self):
+        invalid_pairs = [
+            ("POST", "/v1/position"),
+            ("DELETE", "/v1/order"),
+            ("POST", "/v1/openOrders"),
+            ("PUT", "/v1/order"),
+        ]
+        for method, path in invalid_pairs:
+            with self.subTest(method=method, path=path):
+                with self.assertRaisesRegex(ValueError, "method/endpoint"):
+                    self.client._signed_request(method, path, {})
+        self.session.get.assert_not_called()
+        self.session.post.assert_not_called()
+        self.session.delete.assert_not_called()
+
     def test_get_positions_uses_official_signed_read_gateway(self):
         from urllib.parse import parse_qs, urlparse
         import hashlib
