@@ -79,8 +79,8 @@ class TabdealApiContractTests(unittest.TestCase):
 
     def test_private_account_client_is_get_only_and_does_not_persist_credentials(self):
         source = self.read("tabdeal_account.py").lower()
-        self.assertIn('"/fapi/v3/account"', source)
-        self.assertIn('"/fapi/v3/positionrisk"', source)
+        self.assertIn('"/r/fapi/v3/account"', source)
+        self.assertIn('"/r/fapi/v3/positionrisk"', source)
         self.assertIn('"x-mbx-apikey"', source)
         self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
         self.assertNotIn("open(", source)
