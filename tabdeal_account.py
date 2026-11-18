@@ -66,7 +66,7 @@ def read_futures_account(key, secret, timeout=20, session=None):
         except (TypeError, ValueError):
             continue
         if amount:
-            active.append({
+            position = {
                 "symbol": str(item.get("symbol", "--")),
                 "amount": amount,
                 "entry_price": item.get("entryPrice", "--"),
@@ -74,10 +74,21 @@ def read_futures_account(key, secret, timeout=20, session=None):
                 "unrealized_pnl": item.get("unRealizedProfit",
                                            item.get("unrealizedProfit", "0")),
                 "leverage": item.get("leverage", "--"),
-            })
+            }
+            raw_position_id = item.get("positionId", item.get("position_id"))
+            try:
+                position_id = int(raw_position_id)
+                if position_id > 0:
+                    position["position_id"] = position_id
+            except (TypeError, ValueError, OverflowError):
+                pass
+            active.append(position)
     return {
         "wallet_balance": account.get("totalWalletBalance", "--"),
         "available_balance": account.get("availableBalance", "--"),
         "unrealized_pnl": account.get("totalUnrealizedProfit", "0"),
         "positions": active,
+        "verified": True,
+        "source": "authenticated_futures_account",
+        "observed_at": time.time(),
     }
