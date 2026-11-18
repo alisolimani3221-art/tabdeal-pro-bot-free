@@ -86,6 +86,17 @@ class LiveExecutionGuardTests(unittest.TestCase):
         self.assertLessEqual(result["risk_amount"], 2.500001)
         self.assertTrue(result["requires_exchange_side_sl_tp"])
 
+    def test_daily_profit_does_not_trigger_loss_stop(self):
+        account = {"positions": [], "daily_loss_percent": -0.5}
+        result = evaluate_entry(**dict(self.kwargs, account=account))
+        self.assertTrue(result["allowed"])
+
+    def test_invalid_symbol_is_blocked(self):
+        snapshot = dict(self.snapshot, symbol="BTCUSDT")
+        result = evaluate_entry(**dict(self.kwargs, market_snapshot=snapshot))
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["reason"], "invalid_market_symbol")
+
     def test_invalid_risk_inputs_are_blocked(self):
         result = evaluate_entry(**dict(self.kwargs, stop_percent=0))
         self.assertFalse(result["allowed"])
