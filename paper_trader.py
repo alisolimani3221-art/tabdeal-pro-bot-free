@@ -1,6 +1,7 @@
 """Conservative paper-trading engine. It never sends exchange orders."""
 import math
 import re
+import threading
 
 
 def _positive(value, name):
@@ -75,6 +76,7 @@ class PaperTradingEngine:
         self.position = None
         self.closed_trades = []
         self.scans = 0
+        self._lock = threading.RLock()
 
     @property
     def equity(self):
@@ -107,6 +109,18 @@ class PaperTradingEngine:
         return {"event": "CLOSED", "trade": trade}
 
     def process_scan(self, candidates):
+        """Thread-safe scan; serializes against the emergency stop."""
+        with self._lock:
+            return self._process_scan(candidates)
+
+    def emergency_close(self):
+        """Close any simulated position at its latest mark and permanently stop this engine."""
+        with self._lock:
+            if self.position is None:
+                return {"event": "STOPPED", "trade": None}
+            return self._close(self.position["last_price"], "EMERGENCY_STOP")
+
+    def _process_scan(self, candidates):
         """Update the open position and optionally enter the best valid setup."""
         self.scans += 1
         events = []
