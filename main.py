@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.13"
+APP_VERSION = "1.14"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -41,6 +41,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from tabdeal_account import read_futures_account
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -266,6 +267,18 @@ class FuturesAnalyzerApp(App):
         self.connection = self.make_label("وضعیت اینترنت و سایت تبدیل هنوز بررسی نشده است",
                                           size=15, color=(1, 0.72, 0.35, 1), height=dp(58))
         content.add_widget(self.connection)
+
+        self.account_summary = self.make_label(
+            "حساب تبدیل هنوز متصل نشده است؛ اطلاعات حساب فقط با درخواست دستی خوانده می‌شود.",
+            size=13, color=(0.75, 0.82, 0.92, 1), height=dp(62))
+        content.add_widget(self.account_summary)
+        self.account_button = Button(
+            markup=True, text=fa("اتصال امن و فقط‌خواندنی به حساب تبدیل"),
+            font_name=FONT_NAME, font_size=sp(15), size_hint_y=None,
+            height=dp(48), background_normal="",
+            background_color=(0.12, 0.34, 0.42, 1), color=(1, 1, 1, 1))
+        self.account_button.bind(on_press=self.open_account_connection)
+        content.add_widget(self.account_button)
 
         content.add_widget(self.section_title("نماد معاملاتی"))
         # Keep Latin ticker and Persian contract text in separate labels.
@@ -627,6 +640,81 @@ class FuturesAnalyzerApp(App):
             session.close()
         Clock.schedule_once(lambda dt, res=results: self.show_result(res), 0)
 
+
+    def open_account_connection(self, instance):
+        """Collect credentials in memory only and request account data via GET."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        body.add_widget(self.make_label(
+            "کلید فقط‌خواندنی فیوچرز را وارد کنید. اطلاعات ذخیره نمی‌شود.",
+            size=13, height=dp(52), color=(1, 0.76, 0.38, 1)))
+        key_input = TextInput(
+            hint_text="API Key", multiline=False, password=False,
+            font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(46))
+        secret_input = TextInput(
+            hint_text="API Secret", multiline=False, password=True,
+            font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(46))
+        body.add_widget(key_input)
+        body.add_widget(secret_input)
+        status = self.make_label("مجوز برداشت را برای این کلید فعال نکنید.", size=12,
+                                 height=dp(48), color=(1, 0.68, 0.35, 1))
+        body.add_widget(status)
+        buttons = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
+        connect = Button(text=fa("خواندن موجودی"), font_name=FONT_NAME)
+        cancel = Button(text=fa("انصراف"), font_name=FONT_NAME)
+        buttons.add_widget(connect)
+        buttons.add_widget(cancel)
+        body.add_widget(buttons)
+        popup = Popup(title=fa_plain("اتصال فقط‌خواندنی حساب"), title_font=FONT_NAME,
+                      content=body, size_hint=(0.94, 0.58), auto_dismiss=False)
+        cancel.bind(on_press=popup.dismiss)
+
+        def start_read(instance):
+            key = key_input.text.strip()
+            secret = secret_input.text.strip()
+            if not key or not secret:
+                status.text = fa("هر دو فیلد الزامی هستند.")
+                return
+            key_input.text = ""
+            secret_input.text = ""
+            key_input.disabled = True
+            secret_input.disabled = True
+            connect.disabled = True
+            status.text = fa("در حال دریافت امن اطلاعات حساب...")
+            def worker():
+                try:
+                    data = read_futures_account(key, secret, timeout=22)
+                    result = (True, data)
+                except Exception as exc:
+                    result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]))
+                finally:
+                    # Drop local references as soon as the request finishes.
+                    pass
+                Clock.schedule_once(lambda dt, value=result: finish(value), 0)
+            def finish(result):
+                popup.dismiss()
+                if result[0]:
+                    data = result[1]
+                    lines = [
+                        "موجودی کیف پول: {}".format(data["wallet_balance"]),
+                        "موجودی آزاد: {}".format(data["available_balance"]),
+                        "سود/زیان شناور: {}".format(data["unrealized_pnl"]),
+                    ]
+                    positions = data.get("positions", [])
+                    if positions:
+                        lines.append("موقعیت‌های باز:")
+                        for pos in positions[:8]:
+                            lines.append("{} | مقدار {} | ورود {} | PnL {}".format(
+                                pos["symbol"], pos["amount"], pos["entry_price"],
+                                pos["unrealized_pnl"]))
+                    else:
+                        lines.append("موقعیت باز فعالی گزارش نشد.")
+                    self.account_summary.text = fa("\\n".join(lines))
+                else:
+                    self.account_summary.text = fa("خطا در خواندن حساب: " + result[1])
+            threading.Thread(target=worker, daemon=True).start()
+
+        connect.bind(on_press=start_read)
+        popup.open()
 
     def open_order_level(self, side, row_text):
         parts = row_text.split()
