@@ -74,7 +74,7 @@ class LiveExecutionGuardTests(unittest.TestCase):
                 self.assertEqual(result["reason"], expected)
 
     def test_one_open_position_blocks_second_entry(self):
-        account = {"positions": [{"symbol": "ETH_USDT"}], "daily_loss_percent": 0}
+        account = dict(self.account, positions=[{"symbol": "ETH_USDT"}])
         result = evaluate_entry(**dict(self.kwargs, account=account))
         self.assertFalse(result["allowed"])
         self.assertEqual(result["reason"], "maximum_open_positions_reached")
@@ -108,7 +108,7 @@ class LiveExecutionGuardTests(unittest.TestCase):
         self.assertEqual(result["reason"], "daily_loss_unavailable")
 
     def test_daily_loss_stop_blocks_new_entries(self):
-        account = {"positions": [], "daily_loss_percent": 1.0}
+        account = dict(self.account, daily_loss_percent=1.0)
         result = evaluate_entry(**dict(self.kwargs, account=account))
         self.assertFalse(result["allowed"])
         self.assertEqual(result["reason"], "daily_loss_limit_reached")
@@ -123,7 +123,7 @@ class LiveExecutionGuardTests(unittest.TestCase):
         self.assertTrue(result["requires_exchange_side_sl_tp"])
 
     def test_daily_profit_does_not_trigger_loss_stop(self):
-        account = {"positions": [], "daily_loss_percent": -0.5}
+        account = dict(self.account, daily_loss_percent=-0.5)
         result = evaluate_entry(**dict(self.kwargs, account=account))
         self.assertTrue(result["allowed"])
 
