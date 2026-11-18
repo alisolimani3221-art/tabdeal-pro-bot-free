@@ -204,3 +204,17 @@ class PaperTraderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_rejects_weak_momentum_confirmation(self):
+        self.assertIsNone(rank_signal(dict(setup(), rsi14=50.8)))
+        self.assertIsNone(rank_signal(dict(setup(signal="BEARISH"), rsi14=49.5)))
+
+    def test_rejects_flat_sma_trend(self):
+        candidate = setup(price=100.0)
+        candidate.update(sma20=100.02, sma50=100.01)
+        self.assertIsNone(rank_signal(candidate))
+
+    def test_confirmed_signal_has_quality_label(self):
+        ranked = rank_signal(setup())
+        self.assertEqual(ranked["signal_quality"], "CONFIRMED")
+        self.assertGreaterEqual(ranked["trend_strength_pct"], 0.05)
