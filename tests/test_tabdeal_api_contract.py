@@ -75,7 +75,7 @@ class TabdealApiContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 for forbidden in ("api_key", "api_secret", "new_order", "create_order"):
                     self.assertNotIn(forbidden, source)
-                self.assertNotRegex(source, r"\\.(post|put|delete)\\s*\\(")
+                self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
 
     def test_private_account_client_uses_signed_read_gateway_and_is_get_only(self):
         source = self.read("tabdeal_account.py").lower()
@@ -83,7 +83,7 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn('"/v3/account"', source)
         self.assertIn('"/v3/positionrisk"', source)
         self.assertIn('"x-mbx-apikey"', source)
-        self.assertNotRegex(source, r"\\.(post|put|delete)\\s*\\(")
+        self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
         self.assertNotIn("open(", source)
         self.assertNotIn("settings.json", source)
         self.assertNotIn("new_order", source)
@@ -115,8 +115,8 @@ class TabdealApiContractTests(unittest.TestCase):
     def test_app_and_buildozer_versions_match(self):
         app = self.read("main.py")
         spec = self.read("buildozer.spec")
-        app_version = re.search(r'^APP_VERSION\\s*=\\s*["\\']([^"\\']+)["\\']', app, re.M)
-        package_version = re.search(r'^version\\s*=\\s*(\\S+)', spec, re.M)
+        app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
+        package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
         self.assertIsNotNone(app_version)
         self.assertIsNotNone(package_version)
         self.assertEqual(app_version.group(1), package_version.group(1))
