@@ -41,7 +41,8 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
-from tabdeal_account import read_futures_account
+from tabdeal_account import read_futures_account, read_open_orders
+from trade_coordinator import TradeCoordinator
 from multi_market_scan import scan_market_universe
 
 # Resolve the bundled font from both the app directory and Kivy resources.
@@ -237,6 +238,8 @@ def rtl_runtime_status():
 
 class FuturesAnalyzerApp(App):
     def build(self):
+        # Fail-closed coordinator is instantiated in proposal-only mode.
+        self.trade_coordinator = TradeCoordinator(max_open_positions=1, max_notional_usdt=0)
         # User-editable capital is kept locally on this device between launches.
         self.settings_path = os.path.join(self.user_data_dir, "settings.json")
         try:
@@ -695,7 +698,13 @@ class FuturesAnalyzerApp(App):
             def worker():
                 try:
                     data = read_futures_account(key, secret, timeout=22)
-                    result = (True, data)
+                    # Read all open futures orders before allowing local recovery.
+                    # This is a signed GET only; no order mutation is possible here.
+                    open_orders = read_open_orders(key, secret, timeout=22)
+                    reconciliation = self.trade_coordinator.reconcile_exchange_state(
+                        account_snapshot=data, open_orders=open_orders,
+                        max_snapshot_age_seconds=15)
+                    result = (True, data, open_orders, reconciliation)
                 except Exception as exc:
                     result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]))
                 finally:
@@ -705,12 +714,18 @@ class FuturesAnalyzerApp(App):
             def finish(result):
                 popup.dismiss()
                 if result[0]:
-                    data = result[1]
+                    data, open_orders, reconciliation = result[1], result[2], result[3]
                     lines = [
                         "موجودی کیف پول: {}".format(data["wallet_balance"]),
                         "موجودی آزاد: {}".format(data["available_balance"]),
                         "سود/زیان شناور: {}".format(data["unrealized_pnl"]),
+                        "سفارش‌های باز صرافی: {}".format(len(open_orders)),
                     ]
+                    if reconciliation.get("reconciled"):
+                        lines.append("بازیابی وضعیت: تأیید شد؛ وضعیت حساب و سفارش‌ها خالی است.")
+                    else:
+                        lines.append("توقف ایمن موتور: {}".format(
+                            reconciliation.get("reason", "وضعیت نیازمند بررسی دستی است.")))
                     positions = data.get("positions", [])
                     if positions:
                         lines.append("موقعیت‌های باز:")
@@ -722,7 +737,9 @@ class FuturesAnalyzerApp(App):
                         lines.append("موقعیت باز فعالی گزارش نشد.")
                     self.account_summary.text = fa("\\n".join(lines))
                 else:
-                    self.account_summary.text = fa("خطا در خواندن حساب: " + result[1])
+                    self.trade_coordinator.emergency_stop(
+                        "authenticated account/order read failed; exchange state is unknown")
+                    self.account_summary.text = fa("خطا در خواندن حساب یا سفارش‌های باز؛ موتور در توقف ایمن است: " + result[1])
             threading.Thread(target=worker, daemon=True).start()
 
         connect.bind(on_press=start_read)
