@@ -48,6 +48,9 @@ class TabdealFuturesTradeClient:
         self.timeout = float(timeout)
         self.session = session or requests
         self.base_url = base_url.rstrip("/")
+        if not self.base_url.endswith("/fapi"):
+            raise ValueError("base_url must end with /fapi")
+        self.read_base_url = self.base_url[:-5] + "/r/fapi"
 
     def _require_live_confirmation(self, confirm_live):
         if not self.live_enabled or confirm_live is not True:
@@ -62,7 +65,10 @@ class TabdealFuturesTradeClient:
         return symbol
 
     def _signed_request(self, method, path, params):
-        if path not in ("/v1/order", "/v1/position", "/v1/positionSlTp"):
+        if method == "GET":
+            if path not in ("/v1/position", "/v1/order", "/v1/openOrders"):
+                raise ValueError("unsupported read endpoint")
+        elif path not in ("/v1/order", "/v1/position", "/v1/positionSlTp"):
             raise ValueError("unsupported trading endpoint")
         values = dict(params)
         values["timestamp"] = int(time.time() * 1000)
@@ -71,10 +77,17 @@ class TabdealFuturesTradeClient:
             self._api_secret.encode("utf-8"), query.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        url = self.base_url + path
+        url = (self.read_base_url if method == "GET" else self.base_url) + path
         response = None
         try:
-            if method == "POST":
+            if method == "GET":
+                response = self.session.get(
+                    url, params=values,
+                    headers={"X-MBX-APIKEY": self._api_key,
+                             "Accept": "application/json"},
+                    timeout=self.timeout,
+                )
+            elif method == "POST":
                 response = self.session.post(
                     url, data=values,
                     headers={"X-MBX-APIKEY": self._api_key,
@@ -102,6 +115,17 @@ class TabdealFuturesTradeClient:
         finally:
             if response is not None and hasattr(response, "close"):
                 response.close()
+
+    def get_positions(self, symbol=None):
+        """Read futures positions through the SDK's authenticated read gateway.
+
+        The returned exchange payload is intentionally not normalized: callers
+        must inspect and validate its positionId/state fields before any action.
+        """
+        params = {}
+        if symbol is not None:
+            params["symbol"] = self._validate_symbol(symbol)
+        return self._signed_request("GET", "/v1/position", params)
 
     def place_market_order(self, symbol, side, quantity, reduce_only=False,
                            confirm_live=False):
