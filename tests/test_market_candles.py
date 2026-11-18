@@ -54,7 +54,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_gap_prevents_false_contiguous_readiness(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 152):
+        for minute in range(100, 153):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         builder.add_trade(self.trade(154))
