@@ -65,7 +65,8 @@ class TabdealAccountTests(unittest.TestCase):
             FakeResponse([
                 {"symbol": "BTCUSDT", "positionAmt": "0.01",
                  "entryPrice": "60000", "markPrice": "61000",
-                 "unRealizedProfit": "10", "leverage": "2"},
+                 "unRealizedProfit": "10", "leverage": "2",
+                 "positionId": 17},
                 {"symbol": "ETHUSDT", "positionAmt": "0"},
             ]),
         ])
@@ -74,6 +75,10 @@ class TabdealAccountTests(unittest.TestCase):
         self.assertEqual(result["available_balance"], "100.0")
         self.assertEqual(len(result["positions"]), 1)
         self.assertEqual(result["positions"][0]["symbol"], "BTCUSDT")
+        self.assertEqual(result["positions"][0]["position_id"], 17)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["source"], "authenticated_futures_account")
+        self.assertGreater(result["observed_at"], 0)
         self.assertEqual(len(session.calls), 2)
         self.assertTrue(all(call[1]["X-MBX-APIKEY"] == "test-key"
                             for call in session.calls))
