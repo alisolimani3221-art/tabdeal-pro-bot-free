@@ -57,6 +57,18 @@ Last updated: 2026-11-18
 7. Background execution reliability on Android, including battery optimization, process death, and reconnect behavior.
 8. Keep live order placement disabled until all safety tests and explicit user authorization are complete.
 
+
+## Latest verified build — 2026-11-18, workflow run #291
+
+- Run: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/44284132524
+- Commit: 8130115dc6f6546fd3497b690594ae1a25d9f53b; result: completed / success.
+- The persistent signing secret was present in the run environment (masked by GitHub); the signing bundle was unpacked and used. The debug fallback build was skipped.
+- APK signature verification passed. Release certificate SHA-256 fingerprint: `9a:41:c3:22:95:b7:72:3e:e8:df:ad:d4:c4:0e:e7:db:dc:a9:fb:8a:6c:62:e4:3a:ab:c0:9c:9b:ef:74:1a:e5`.
+- Artifact: `Futures-Analyzer-APK`, artifact ID `14419620411`, ZIP SHA-256 `cd850ec4119fcbf6fe200491bb8043e0c4fc48363531f5aa10c0243bbe894cb5`, size 20,889,166 bytes.
+- Full regression suite, live public Tabdeal REST smoke test, RTL/font packaging checks and APK upload all passed.
+- The old v1.18 APK was previously verified with a different Android debug certificate. Therefore, if v1.18 is still installed, v1.19 may require one uninstall/reinstall to switch to this permanent release signer. Once v1.19 is installed, future builds using this same key and a higher versionCode should update in place.
+- Still not verified: the actual v1.19 APK installation on the user's phone, preservation of settings/API configuration, private account read-only authentication on-device, and live data stability across all symbols.
+
 ## Continuity rule
 
 Use this ledger and prior verified results as the baseline. Do not repeat passed device/CI checks without a relevant code change or a specific regression report. Update this file with new evidence after each completed test. Never describe queued builds, untested features, or CI-only results as device-verified.
