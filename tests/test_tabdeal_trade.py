@@ -11,6 +11,35 @@ class TradeAdapterSafetyTests(unittest.TestCase):
             "test-key", "test-secret", session=self.session
         )
 
+    def test_get_positions_uses_official_signed_read_gateway(self):
+        from urllib.parse import parse_qs, urlparse
+        import hashlib
+        import hmac
+
+        response = Mock()
+        response.ok = True
+        response.json.return_value = [{"positionId": 42, "symbol": "BTC_USDT"}]
+        self.session.get.return_value = response
+        result = self.client.get_positions("BTC_USDT")
+        self.assertEqual(result[0]["positionId"], 42)
+        args, kwargs = self.session.get.call_args
+        self.assertEqual(args[0], "https://api1.tabdeal.org/r/fapi/v1/position")
+        query = parse_qs(urlparse(args[0] + "?" + __import__("urllib.parse").parse.urlencode(kwargs["params"])).query)
+        signature = query.pop("signature")[0]
+        signed_query = __import__("urllib.parse").parse.urlencode({
+            key: value[0] for key, value in query.items()
+        })
+        expected = hmac.new(b"test-secret", signed_query.encode("utf-8"), hashlib.sha256).hexdigest()
+        self.assertEqual(signature, expected)
+        self.assertEqual(kwargs["params"]["symbol"], "BTC_USDT")
+        self.assertEqual(kwargs["headers"]["X-MBX-APIKEY"], "test-key")
+        response.close.assert_called_once()
+
+    def test_get_positions_rejects_invalid_symbol_before_network(self):
+        with self.assertRaises(ValueError):
+            self.client.get_positions("BTCUSDT")
+        self.session.get.assert_not_called()
+
     def test_live_order_is_disabled_by_default_without_network(self):
         with self.assertRaisesRegex(RuntimeError, "disabled"):
             self.client.place_market_order(
