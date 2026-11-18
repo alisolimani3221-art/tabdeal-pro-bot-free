@@ -9,12 +9,20 @@ class LiveExecutionGuardTests(unittest.TestCase):
             "verified": True,
             "source": "verified_trade_stream",
             "symbol": "BTC_USDT",
+            "price": 65000,
             "observed_at": 198.0,
             "sequence_gap": False,
             "reconnected": False,
         }
         self.technical = {"ready": True, "signal": "BULLISH"}
-        self.account = {"positions": [], "daily_loss_percent": 0.0}
+        self.account = {
+            "verified": True,
+            "source": "authenticated_futures_account",
+            "observed_at": 198.0,
+            "available_balance": 500,
+            "positions": [],
+            "daily_loss_percent": 0.0,
+        }
         self.kwargs = dict(
             live_enabled=True,
             explicit_confirmation=True,
@@ -70,6 +78,27 @@ class LiveExecutionGuardTests(unittest.TestCase):
         result = evaluate_entry(**dict(self.kwargs, account=account))
         self.assertFalse(result["allowed"])
         self.assertEqual(result["reason"], "maximum_open_positions_reached")
+
+    def test_account_must_be_verified_and_fresh(self):
+        for account, expected in (
+            (dict(self.account, verified=False), "account_data_not_verified"),
+            (dict(self.account, observed_at=180.0), "account_data_stale"),
+        ):
+            with self.subTest(expected=expected):
+                result = evaluate_entry(**dict(self.kwargs, account=account))
+                self.assertFalse(result["allowed"])
+                self.assertEqual(result["reason"], expected)
+
+    def test_insufficient_margin_blocks_entry(self):
+        account = dict(self.account, available_balance=1)
+        result = evaluate_entry(**dict(self.kwargs, account=account))
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["reason"], "insufficient_available_margin")
+
+    def test_entry_price_must_match_verified_trade(self):
+        result = evaluate_entry(**dict(self.kwargs, entry_price=66000))
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["reason"], "entry_price_differs_from_verified_trade")
 
     def test_daily_loss_stop_blocks_new_entries(self):
         account = {"positions": [], "daily_loss_percent": 1.0}
