@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.20"
+APP_VERSION = "1.21"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1412,7 +1412,7 @@ class FuturesAnalyzerApp(App):
         try:
             builder = TradeCandleBuilder(symbol)
             engine = PaperTradingEngine(
-                capital=self.capital_usdt, risk_percent=0.5, max_leverage=3
+                capital=self.capital_usdt, risk_percent=0.25, max_leverage=1,\n                daily_loss_percent=1.0
             )
         except Exception as exc:
             self.update_auto_status("راه‌اندازی ناموفق: " + type(exc).__name__)
@@ -1428,7 +1428,7 @@ class FuturesAnalyzerApp(App):
         self.auto_trader_thread.start()
         self.update_auto_status(
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
-            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
+            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۲۵٪؛ اهرم: ۱ برابر؛ سقف زیان نوبت: ۱٪.\n"
             "تا تکمیل ۵۱ کندل بسته‌شده، هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.".format(
                 self.capital_usdt
             )
@@ -1537,7 +1537,7 @@ class FuturesAnalyzerApp(App):
                     message_text = (
                         "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
                         "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
-                        "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
+                        "حداکثر ریسک هر معامله ۰٫۲۵٪؛ اهرم ۱ برابر؛ سقف زیان نوبت ۱٪.\n{}"
                     ).format(symbol, technical["signal"], technical["price"],
                              builder.status()["closed_candles"], result["equity"],
                              result["closed_trades"], event_text)
