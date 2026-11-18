@@ -32,9 +32,9 @@ class FakeSession:
 
 
 class TabdealAccountTests(unittest.TestCase):
-    def test_signed_get_uses_get_header_and_valid_hmac_signature(self):
+    def test_signed_get_uses_read_gateway_header_and_valid_hmac_signature(self):
         session = FakeSession([FakeResponse({"ok": True})])
-        result = _signed_get("/fapi/v3/account", "test-key", "test-secret",
+        result = _signed_get("/v3/account", "test-key", "test-secret",
                              params={"recvWindow": 5000}, session=session)
         self.assertEqual(result, {"ok": True})
         url, headers, timeout = session.calls[0]
@@ -46,8 +46,14 @@ class TabdealAccountTests(unittest.TestCase):
                             hashlib.sha256).hexdigest()
         self.assertEqual(supplied_signature, expected)
         self.assertEqual(headers["X-MBX-APIKEY"], "test-key")
-        self.assertEqual(parsed.path, "/fapi/v3/account")
+        self.assertEqual(parsed.path, "/r/fapi/v3/account")
         self.assertEqual(query["recvWindow"], ["5000"])
+
+    def test_signed_get_rejects_unexpected_path_before_network(self):
+        session = FakeSession([])
+        with self.assertRaises(ValueError):
+            _signed_get("/fapi/v3/account", "key", "secret", session=session)
+        self.assertEqual(session.calls, [])
 
     def test_account_reader_returns_wallet_and_only_nonzero_positions(self):
         session = FakeSession([
@@ -71,18 +77,20 @@ class TabdealAccountTests(unittest.TestCase):
         self.assertEqual(len(session.calls), 2)
         self.assertTrue(all(call[1]["X-MBX-APIKEY"] == "test-key"
                             for call in session.calls))
+        self.assertEqual(urlparse(session.calls[0][0]).path, "/r/fapi/v3/account")
+        self.assertEqual(urlparse(session.calls[1][0]).path, "/r/fapi/v3/positionRisk")
 
     def test_signed_get_rejects_missing_credentials_before_network(self):
         session = FakeSession([])
         with self.assertRaises(ValueError):
-            _signed_get("/fapi/v3/account", "", "secret", session=session)
+            _signed_get("/v3/account", "", "secret", session=session)
         self.assertEqual(session.calls, [])
 
     def test_api_error_response_is_closed_and_raised(self):
         response = FakeResponse({"msg": "permission denied"}, status_code=403)
         session = FakeSession([response])
         with self.assertRaises(RuntimeError):
-            _signed_get("/fapi/v3/account", "key", "secret", session=session)
+            _signed_get("/v3/account", "key", "secret", session=session)
         self.assertTrue(response.closed)
 
 
