@@ -43,10 +43,10 @@ def _signed_get(path, key, secret, params=None, timeout=20, session=None):
 def read_futures_account(key, secret, timeout=20, session=None):
     """Return wallet summary and non-zero futures positions using GET only."""
     account = _signed_get(
-        "/fapi/v3/account", key, secret, timeout=timeout, session=session
+        "/r/fapi/v3/account", key, secret, timeout=timeout, session=session
     )
     positions = _signed_get(
-        "/fapi/v3/positionRisk", key, secret, timeout=timeout, session=session
+        "/r/fapi/v3/positionRisk", key, secret, timeout=timeout, session=session
     )
     if not isinstance(account, dict):
         raise RuntimeError("Unexpected account response format")
