@@ -1,4 +1,4 @@
-""""1xAi OpenAI-compatible client for the Android market assistant.
+"""1xAi OpenAI-compatible client for the Android market assistant.
 
 Credentials are supplied at call time and are never persisted or logged.
 The assistant explains a bounded market snapshot; it never places orders.
@@ -43,9 +43,9 @@ def build_prompt(question, market_context):
         "explain them only when explicitly present. Clearly state limitations and uncertainty. "
         "Do not invent prices, indicators, news, candles, or probabilities. Do not give "
         "a buy/sell instruction, leverage recommendation, or guaranteed target. Do not place, "
-        "prepare, or imply any order. If data is insufficient, say so.\\n\\n"
-        "MARKET SNAPSHOT (JSON):\\n" + context +
-        "\\n\\nUSER QUESTION:\\n" + question
+        "prepare, or imply any order. If data is insufficient, say so.\n\n"
+        "MARKET SNAPSHOT (JSON):\n" + context +
+        "\n\nUSER QUESTION:\n" + question
     )
 
 
@@ -94,7 +94,7 @@ def analyze_with_1xai(api_key, question, market_context, session=None):
         message = choices[0].get("message", {})
         answer = message.get("content", "") if isinstance(message, dict) else ""
         if isinstance(answer, list):
-            answer = "\\n".join(
+            answer = "\n".join(
                 part.get("text", "") for part in answer
                 if isinstance(part, dict) and isinstance(part.get("text"), str)
             )
@@ -105,4 +105,3 @@ def analyze_with_1xai(api_key, question, market_context, session=None):
         close = getattr(response, "close", None)
         if callable(close):
             close()
-"
