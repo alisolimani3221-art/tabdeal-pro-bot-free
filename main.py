@@ -356,7 +356,7 @@ class FuturesAnalyzerApp(App):
         self.smart_analysis_button.bind(on_press=self.open_smart_analysis)
 
         self.ai_assistant_button = Button(
-            markup=True, text=fa("دستیار هوش مصنوعی Gemini"), font_name=FONT_NAME,
+            markup=True, text=fa("دستیار هوش مصنوعی 1xAi"), font_name=FONT_NAME,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.20, 0.32, 0.55, 1),
             color=(1, 1, 1, 1),
