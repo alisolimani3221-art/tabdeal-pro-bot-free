@@ -77,6 +77,7 @@ class PaperTradingEngine:
         self.closed_trades = []
         self.scans = 0
         self._lock = threading.RLock()
+        self.halted = False
 
     @property
     def equity(self):
@@ -116,12 +117,17 @@ class PaperTradingEngine:
     def emergency_close(self):
         """Close any simulated position at its latest mark and permanently stop this engine."""
         with self._lock:
+            self.halted = True
             if self.position is None:
                 return {"event": "STOPPED", "trade": None}
             return self._close(self.position["last_price"], "EMERGENCY_STOP")
 
     def _process_scan(self, candidates):
         """Update the open position and optionally enter the best valid setup."""
+        if self.halted:
+            return {"events": [], "candidates": [], "equity": self.equity,
+                    "cash": self.cash, "open_position": None,
+                    "closed_trades": len(self.closed_trades), "halted": True}
         self.scans += 1
         events = []
         if not isinstance(candidates, (list, tuple)):
