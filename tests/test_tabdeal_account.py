@@ -69,6 +69,10 @@ class TabdealAccountTests(unittest.TestCase):
         self.assertEqual(len(result["positions"]), 1)
         self.assertEqual(result["positions"][0]["symbol"], "BTCUSDT")
         self.assertEqual(len(session.calls), 2)
+        self.assertEqual(
+            [urlparse(call[0]).path for call in session.calls],
+            ["/r/fapi/v3/account", "/r/fapi/v3/positionRisk"],
+        )
         self.assertTrue(all(call[1]["X-MBX-APIKEY"] == "test-key"
                             for call in session.calls))
 
