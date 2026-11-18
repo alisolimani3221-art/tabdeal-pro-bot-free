@@ -240,12 +240,27 @@ class FuturesAnalyzerApp(App):
     def build(self):
         # Fail-closed coordinator is instantiated in proposal-only mode.
         self.trade_coordinator = TradeCoordinator(max_open_positions=1, max_notional_usdt=0)
-        # User-editable capital is kept locally on this device between launches.
-        self.settings_path = os.path.join(self.user_data_dir, "settings.json")
+        # Persist only the coordinator's non-secret safety state; never API credentials.
+        self.trade_state_path = os.path.join(self.user_data_dir, "trade_safety_state.json")
         try:
             os.makedirs(self.user_data_dir, exist_ok=True)
         except OSError:
             pass
+        if os.path.exists(self.trade_state_path):
+            try:
+                with open(self.trade_state_path, "r", encoding="utf-8") as state_file:
+                    saved_state = json.load(state_file)
+                self.trade_coordinator = TradeCoordinator.restore_state(
+                    saved_state, max_open_positions=1, max_notional_usdt=0
+                )
+            except Exception:
+                # Corrupt or incompatible recovery state must never silently reset to ready.
+                self.trade_coordinator.emergency_stop(
+                    "persisted trade safety state is unreadable or incompatible"
+                )
+        self._persist_trade_coordinator_state()
+        # User-editable capital is kept locally on this device between launches.
+        self.settings_path = os.path.join(self.user_data_dir, "settings.json")
         self.capital_usdt = 8.0
         try:
             with open(self.settings_path, "r", encoding="utf-8") as settings_file:
@@ -656,6 +671,31 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(lambda dt, res=results: self.show_result(res), 0)
 
 
+    def _persist_trade_coordinator_state(self):
+        """Atomically persist non-secret safety state for fail-closed restart recovery."""
+        path = getattr(self, "trade_state_path", None)
+        coordinator = getattr(self, "trade_coordinator", None)
+        if not path or coordinator is None:
+            return False
+        temporary_path = path + ".tmp"
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as state_file:
+                json.dump(coordinator.export_state(), state_file,
+                          ensure_ascii=True, sort_keys=True)
+                state_file.flush()
+                os.fsync(state_file.fileno())
+            os.replace(temporary_path, path)
+            return True
+        except Exception:
+            try:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+            except OSError:
+                pass
+            # A failed safety-state write is itself a reason to halt.
+            coordinator.emergency_stop("could not persist trade safety state")
+            return False
+
     def open_account_connection(self, instance):
         """Collect credentials in memory only and request account data via GET."""
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
@@ -704,6 +744,7 @@ class FuturesAnalyzerApp(App):
                     reconciliation = self.trade_coordinator.reconcile_exchange_state(
                         account_snapshot=data, open_orders=open_orders,
                         max_snapshot_age_seconds=15)
+                    self._persist_trade_coordinator_state()
                     result = (True, data, open_orders, reconciliation)
                 except Exception as exc:
                     result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]))
@@ -739,6 +780,7 @@ class FuturesAnalyzerApp(App):
                 else:
                     self.trade_coordinator.emergency_stop(
                         "authenticated account/order read failed; exchange state is unknown")
+                    self._persist_trade_coordinator_state()
                     self.account_summary.text = fa("خطا در خواندن حساب یا سفارش‌های باز؛ موتور در توقف ایمن است: " + result[1])
             threading.Thread(target=worker, daemon=True).start()
 
