@@ -99,10 +99,11 @@ def validate_order_preflight(symbol, side, quantity, reference_price,
             raise ValueError("open position amount is invalid")
         if amount_value != 0:
             active.append(position)
-    if len(active) >= max_open_positions:
-        raise ValueError("open position limit reached")
+    # Prefer the specific duplicate-symbol error before the global cap.
     if any(p.get("symbol") == symbol for p in active):
         raise ValueError("a position for this symbol is already open")
+    if len(active) >= max_open_positions:
+        raise ValueError("open position limit reached")
 
     return {
         "symbol": symbol,
