@@ -86,8 +86,10 @@ def evaluate_entry(*, live_enabled, explicit_confirmation, market_snapshot,
         return reject("open_positions_unverified")
     if len(positions) >= MAX_OPEN_POSITIONS:
         return reject("maximum_open_positions_reached")
+    if "daily_loss_percent" not in account:
+        return reject("daily_loss_unavailable")
     try:
-        daily_loss = float(account.get("daily_loss_percent", 0))
+        daily_loss = float(account["daily_loss_percent"])
     except (TypeError, ValueError, OverflowError):
         return reject("daily_loss_unavailable")
     if not math.isfinite(daily_loss):
