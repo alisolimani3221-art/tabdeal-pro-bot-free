@@ -77,6 +77,17 @@ class TabdealApiContractTests(unittest.TestCase):
                     self.assertNotIn(forbidden, source)
                 self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
 
+    def test_private_account_client_is_get_only_and_does_not_persist_credentials(self):
+        source = self.read("tabdeal_account.py").lower()
+        self.assertIn('"/fapi/v3/account"', source)
+        self.assertIn('"/fapi/v3/positionrisk"', source)
+        self.assertIn('"x-mbx-apikey"', source)
+        self.assertNotRegex(source, r"\\.(post|put|delete)\\s*\\(")
+        self.assertNotIn("open(", source)
+        self.assertNotIn("settings.json", source)
+        self.assertNotIn("new_order", source)
+        self.assertNotIn("create_order", source)
+
     def test_server_monitor_does_not_create_paper_trading_signals_or_orders(self):
         source = self.read("server_paper_trader.py")
         self.assertIn("/depth", source)
