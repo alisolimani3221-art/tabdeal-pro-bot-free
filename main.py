@@ -38,7 +38,7 @@ from kivy.resources import resource_add_path
 from market_symbols import select_market_symbol, list_market_symbols
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
-from ai_assistant import analyze_with_gemini
+from ai_assistant import analyze_with_1xai
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
@@ -729,14 +729,14 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def open_ai_assistant(self, instance):
-        """Ask Gemini to explain a bounded market snapshot; never place orders."""
+        """Ask 1xAi to explain a bounded market snapshot; never place orders."""
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(9))
         body.add_widget(self.make_label(
-            "کلید فقط هنگام استفاده وارد می‌شود و ذخیره نمی‌شود. پرسش و snapshot بازار به Google ارسال می‌شود؛ در طرح رایگان ممکن است برای بهبود محصولات استفاده شود.",
+            "کلید فقط هنگام استفاده وارد می‌شود و ذخیره نمی‌شود. پرسش و اطلاعات محدود بازار برای پردازش به سرویس 1xAi ارسال می‌شود. کلید ذخیره نمی‌شود.",
             size=13, height=dp(62), color=(1, 0.78, 0.42, 1)
         ))
         key_input = TextInput(
-            hint_text="Gemini API Key", password=True, multiline=False,
+            hint_text="1xAi API Key", password=True, multiline=False,
             font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(48)
         )
         body.add_widget(key_input)
@@ -767,15 +767,15 @@ class FuturesAnalyzerApp(App):
         actions.add_widget(close_button)
         body.add_widget(actions)
         popup = Popup(
-            title=fa_plain("دستیار هوش مصنوعی Gemini"),
+            title=fa_plain("دستیار هوش مصنوعی 1xAi"),
             title_font=FONT_NAME, content=body, size_hint=(0.96, 0.90)
         )
 
-        def ask_gemini(_button):
-            gemini_credential = key_input.text.strip()
+        def ask_1xai(_button):
+            one_xai_credential = key_input.text.strip()
             question = question_input.text.strip()
-            if not gemini_credential:
-                result_label.text = assistant_rtl_text("ابتدا کلید Gemini را وارد کنید.")
+            if not one_xai_credential:
+                result_label.text = assistant_rtl_text("ابتدا کلید 1xAi را وارد کنید.")
                 return
             if not question:
                 result_label.text = assistant_rtl_text("پرسش را وارد کنید.")
@@ -813,10 +813,10 @@ class FuturesAnalyzerApp(App):
             key_input.text = ""
             ask_button.disabled = True
             ask_button.text = fa("در حال دریافت پاسخ...")
-            result_label.text = assistant_rtl_text("در حال ارتباط با Gemini...")
+            result_label.text = assistant_rtl_text("در حال ارتباط با 1xAi...")
             def worker():
                 try:
-                    message = analyze_with_gemini(gemini_credential, question, context)
+                    message = analyze_with_1xai(one_xai_credential, question, context)
                 except Exception as exc:
                     message = str(exc)[:500]
                 def finish(_dt):
@@ -826,7 +826,7 @@ class FuturesAnalyzerApp(App):
                 Clock.schedule_once(finish, 0)
             threading.Thread(target=worker, daemon=True).start()
 
-        ask_button.bind(on_press=ask_gemini)
+        ask_button.bind(on_press=ask_1xai)
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
