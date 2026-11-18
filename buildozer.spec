@@ -8,7 +8,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json,ttf,txt
 source.include_patterns = assets/*.ttf,assets/*.txt
 
-version = 1.17
+version = 1.18
 requirements = python3,kivy,requests,websocket-client==1.8.0,certifi,arabic-reshaper==3.0.0,python-bidi==0.4.2,future==1.0.0
 
 orientation = portrait
