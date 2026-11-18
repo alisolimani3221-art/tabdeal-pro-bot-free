@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.14"
+APP_VERSION = "1.15"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1193,13 +1193,28 @@ class FuturesAnalyzerApp(App):
         """Show an explicitly paper-only live-trade simulation controller."""
         body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10))
         symbol = self.current_symbol
-        self.auto_status_label = self.make_label(
-            "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\n"
-            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\n"
-            "برای آماده‌شدن تحلیل، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده و یک کندل درحال‌تشکیل لازم است.\n"
-            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\n"
-            "هیچ سفارش واقعی ارسال نمی‌شود.",
-            size=13, height=dp(205), color=(1, 0.82, 0.48, 1)
+        initial_status = (
+            "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\\n"
+            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\\n"
+            "برای آماده‌شدن تحلیل، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده و یک کندل درحال‌تشکیل لازم است.\\n"
+            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\\n"
+            "هیچ سفارش واقعی ارسال نمی‌شود."
+        )
+        # Shape Persian text once; keep Kivy's bidi direction LTR to avoid
+        # a second RTL reorder in this popup on Android.
+        self.auto_status_label = Label(
+            text=assistant_rtl_text(initial_status),
+            font_name=FONT_NAME,
+            font_size=sp(13),
+            markup=False,
+            base_direction="ltr",
+            text_language="ar",
+            size_hint=(1, None),
+            height=dp(205),
+            halign="center",
+            valign="middle",
+            text_size=(Window.width - dp(56), None),
+            color=(1, 0.82, 0.48, 1),
         )
         body.add_widget(self.auto_status_label)
         controls = BoxLayout(orientation="horizontal", spacing=dp(7),
@@ -1401,8 +1416,10 @@ class FuturesAnalyzerApp(App):
     def update_auto_status(self, message):
         label = getattr(self, "auto_status_label", None)
         if label is not None:
-            label.text = message
+            label.text = assistant_rtl_text(message)
             label.font_name = font_for_text(message)
+            label.base_direction = "ltr"
+            label.text_language = "ar"
 
     def on_stop(self):
         if hasattr(self, "auto_stop_event"):
