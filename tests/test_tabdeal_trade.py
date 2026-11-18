@@ -40,6 +40,53 @@ class TradeAdapterSafetyTests(unittest.TestCase):
             self.client.get_positions("BTCUSDT")
         self.session.get.assert_not_called()
 
+    def test_get_open_orders_uses_read_only_gateway(self):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = [{"orderId": 8, "type": "STOP_MARKET"}]
+        self.session.get.return_value = response
+        result = self.client.get_open_orders("BTC_USDT")
+        self.assertEqual(result[0]["orderId"], 8)
+        args, kwargs = self.session.get.call_args
+        self.assertEqual(args[0], "https://api1.tabdeal.org/r/fapi/v1/openOrders")
+        self.assertEqual(kwargs["params"]["symbol"], "BTC_USDT")
+        self.assertEqual(kwargs["headers"]["X-MBX-APIKEY"], "test-key")
+        self.assertIn("signature", kwargs["params"])
+        response.close.assert_called_once()
+
+    def test_get_order_requires_positive_integer_id(self):
+        with self.assertRaises(ValueError):
+            self.client.get_order("BTC_USDT", 0)
+        with self.assertRaises(ValueError):
+            self.client.get_order("BTC_USDT", True)
+        self.session.get.assert_not_called()
+
+    def test_get_order_uses_signed_read_gateway(self):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"orderId": 9, "status": "NEW"}
+        self.session.get.return_value = response
+        result = self.client.get_order("BTC_USDT", 9)
+        self.assertEqual(result["orderId"], 9)
+        args, kwargs = self.session.get.call_args
+        self.assertEqual(args[0], "https://api1.tabdeal.org/r/fapi/v1/order")
+        self.assertEqual(kwargs["params"]["orderId"], 9)
+        self.assertIn("signature", kwargs["params"])
+        response.close.assert_called_once()
+
+    def test_get_position_risk_uses_documented_v3_read_gateway(self):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = [{"symbol": "BTC_USDT"}]
+        self.session.get.return_value = response
+        result = self.client.get_position_risk("BTC_USDT")
+        self.assertEqual(result[0]["symbol"], "BTC_USDT")
+        args, kwargs = self.session.get.call_args
+        self.assertEqual(args[0], "https://api1.tabdeal.org/r/fapi/v3/positionRisk")
+        self.assertEqual(kwargs["params"]["symbol"], "BTC_USDT")
+        self.assertIn("signature", kwargs["params"])
+        response.close.assert_called_once()
+
     def test_live_order_is_disabled_by_default_without_network(self):
         with self.assertRaisesRegex(RuntimeError, "disabled"):
             self.client.place_market_order(
