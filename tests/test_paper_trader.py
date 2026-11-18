@@ -187,6 +187,15 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(engine.emergency_close(), {"event": "STOPPED", "trade": None})
         self.assertEqual(engine.emergency_close(), {"event": "STOPPED", "trade": None})
 
+
+    def test_emergency_stop_permanently_blocks_later_entries(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.emergency_close()
+        result = engine.process_scan([setup()])
+        self.assertTrue(result["halted"])
+        self.assertIsNone(result["open_position"])
+        self.assertEqual(result["events"], [])
+
     def test_engine_never_exposes_live_order_method(self):
         engine = PaperTradingEngine(capital=8)
         self.assertFalse(hasattr(engine, "create_order"))
