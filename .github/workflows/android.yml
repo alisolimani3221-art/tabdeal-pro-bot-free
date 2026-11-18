@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'main.py'
+      - 'main.py'\n      - 'tabdeal_account.py'
       - 'ai_assistant.py'
       - 'market_format.py'
       - 'trade_stream_probe.py'
