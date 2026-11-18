@@ -156,5 +156,39 @@ class TradeCoordinatorTests(unittest.TestCase):
         self.prepare(idempotency_key="intent-2")
 
 
+    def test_emergency_stop_persists_across_restart(self):
+        self.coordinator.emergency_stop("operator stop")
+        restored = TradeCoordinator.restore_state(self.coordinator.export_state())
+        self.assertTrue(restored.halted)
+        self.assertEqual(restored.export_state()["halt_reason"], "operator stop")
+
+    def test_corrupt_persisted_state_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unsupported coordinator state"):
+            TradeCoordinator.restore_state({"schema_version": 999})
+
+    def test_restart_rejects_conflicting_pending_symbols(self):
+        state = {
+            "schema_version": 1,
+            "halted": False,
+            "intents": {
+                "one": {"symbol": "BTC_USDT", "state": "PREPARED_ONLY",
+                        "live_order_submitted": False},
+                "two": {"symbol": "BTC_USDT", "state": "PREPARED_ONLY",
+                        "live_order_submitted": False},
+            },
+        }
+        restored = TradeCoordinator.restore_state(state)
+        self.assertTrue(restored.halted)
+        with self.assertRaisesRegex(RuntimeError, "halted"):
+            self.prepare()
+
+    def test_exported_state_contains_no_credentials(self):
+        self.prepare()
+        serialized = str(self.coordinator.export_state())
+        self.assertNotIn("api_secret", serialized.lower())
+        self.assertNotIn("api_key", serialized.lower())
+        self.assertNotIn("secret", serialized.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
