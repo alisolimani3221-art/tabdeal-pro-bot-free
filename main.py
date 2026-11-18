@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.16"
+APP_VERSION = "1.17"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -42,6 +42,7 @@ from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from tabdeal_account import read_futures_account
+from multi_market_scan import scan_market_universe
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -395,6 +396,17 @@ class FuturesAnalyzerApp(App):
             color=(1, 1, 1, 1))
         self.auto_trader_button.bind(on_press=self.open_auto_trader)
         content.add_widget(self.auto_trader_button)
+
+        self.multi_scan_button = Button(
+            markup=True, text=fa("اسکن همه نمادهای فعال فیوچرز"),
+            font_name=FONT_NAME, font_size=sp(16), size_hint_y=None,
+            height=dp(50), background_normal="",
+            background_color=(0.10, 0.36, 0.34, 1), color=(1, 1, 1, 1))
+        self.multi_scan_button.bind(on_press=self.open_multi_market_scan)
+        content.add_widget(self.multi_scan_button)
+        self.multi_scan_thread = None
+        self.multi_scan_status_label = None
+
         self.auto_stop_event = threading.Event()
         self.auto_trader_thread = None
         self.auto_engine = None
@@ -1188,6 +1200,99 @@ class FuturesAnalyzerApp(App):
         check_button.bind(on_press=rerun)
         close_button.bind(on_press=popup.dismiss)
         popup.open()
+
+    def open_multi_market_scan(self, instance):
+        """Open a read-only scan of every active USDT futures order book."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        scroll = ScrollView(do_scroll_x=False)
+        self.multi_scan_status_label = Label(
+            text=assistant_rtl_text(
+                "اسکن بازار فقط دفتر سفارش نمادهای فعال را می‌خواند. "
+                "از این داده‌ها سیگنال تکنیکال یا معامله ساخته نمی‌شود. "
+                "برای شروع، دکمه اسکن را بزنید."
+            ),
+            font_name=FONT_NAME, font_size=sp(13), markup=False,
+            base_direction="ltr", text_language="ar",
+            size_hint=(1, None), height=dp(360),
+            halign="center", valign="top",
+            text_size=(Window.width - dp(60), None),
+            color=(0.88, 0.92, 0.98, 1),
+        )
+        self.multi_scan_status_label.bind(
+            texture_size=lambda widget, size: setattr(widget, "height", max(dp(360), size[1] + dp(24)))
+        )
+        scroll.add_widget(self.multi_scan_status_label)
+        body.add_widget(scroll)
+        controls = BoxLayout(orientation="horizontal", spacing=dp(8),
+                             size_hint_y=None, height=dp(48))
+        scan_button = Button(markup=True, text=fa("شروع اسکن"), font_name=FONT_NAME)
+        close_button = Button(markup=True, text=fa("بستن"), font_name=FONT_NAME)
+        controls.add_widget(scan_button)
+        controls.add_widget(close_button)
+        body.add_widget(controls)
+        popup = Popup(title=fa_plain("اسکن چندنمادی بازار"),
+                      title_font=FONT_NAME, content=body,
+                      size_hint=(0.96, 0.82), auto_dismiss=False)
+        self.multi_scan_popup = popup
+        scan_button.bind(on_press=lambda _button: self.start_multi_market_scan())
+        close_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def _set_multi_scan_status(self, message):
+        label = getattr(self, "multi_scan_status_label", None)
+        if label is not None:
+            label.text = assistant_rtl_text(message)
+            label.font_name = FONT_NAME
+            label.base_direction = "ltr"
+            label.text_language = "ar"
+
+    def start_multi_market_scan(self):
+        """Run a bounded, read-only order-book scan off the UI thread."""
+        if self.multi_scan_thread is not None and self.multi_scan_thread.is_alive():
+            self._set_multi_scan_status("اسکن قبلی هنوز در حال اجراست؛ لطفاً صبر کنید.")
+            return
+        self._set_multi_scan_status(
+            "در حال دریافت فهرست نمادهای فعال و دفتر سفارش آن‌ها... "
+            "حداکثر ۴ درخواست هم‌زمان؛ هیچ سفارش واقعی ارسال نمی‌شود."
+        )
+        self.multi_scan_thread = threading.Thread(
+            target=self._multi_market_scan_worker, daemon=True
+        )
+        self.multi_scan_thread.start()
+
+    def _multi_market_scan_worker(self):
+        try:
+            result = scan_market_universe(max_workers=4)
+            lines = [
+                "گزارش اسکن چندنمادی بازار",
+                "نمادهای فعال: {} | دفتر سفارش موفق: {} | خطا: {}".format(
+                    result["active_count"], result["success_count"], result["error_count"]
+                ),
+                "نوع داده: تصویر لحظه‌ای دفتر سفارش؛ نه کندل تاریخی.",
+                "سیگنال تکنیکال: غیرفعال برای این اسکن.",
+                "معامله واقعی: غیرفعال؛ هیچ سفارشی ارسال نشده است.",
+                "",
+                "کمترین اختلاف خرید و فروش:",
+            ]
+            for item in result["snapshots"][:12]:
+                lines.append(
+                    "{} | bid {} | ask {} | spread {:.4f}%".format(
+                        item["symbol"], item["best_bid"], item["best_ask"],
+                        item["spread_pct"]
+                    )
+                )
+            if result["errors"]:
+                lines.extend(["", "نمونه خطاها:"])
+                for item in result["errors"][:5]:
+                    lines.append("{}: {}".format(item["symbol"], item["error"]))
+            message = "\n".join(lines)
+        except Exception as exc:
+            message = "اسکن انجام نشد: {}: {}".format(
+                type(exc).__name__, str(exc)[:220]
+            )
+        Clock.schedule_once(
+            lambda _dt, value=message: self._set_multi_scan_status(value), 0
+        )
 
     def open_auto_trader(self, instance):
         """Show an explicitly paper-only live-trade simulation controller."""
