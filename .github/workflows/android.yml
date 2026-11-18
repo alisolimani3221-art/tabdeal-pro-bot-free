@@ -330,7 +330,7 @@ jobs:
           set -eu
           APK="$(find bin -maxdepth 1 -name '*.apk' -print -quit)"
           test -n "$APK"
-          APKSIGNER="$(find "$ANDROIDSDK/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$HOME/.buildozer/android/platform/android-sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
 
