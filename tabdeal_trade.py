@@ -114,6 +114,13 @@ class TabdealFuturesTradeClient:
         qty = _positive(quantity, "quantity")
         if not isinstance(reduce_only, bool):
             raise ValueError("reduce_only must be boolean")
+        # Until an exchange-verified protected-entry transaction exists, this
+        # adapter must never create new exposure through a naked market order.
+        if not reduce_only:
+            raise RuntimeError(
+                "Risk-increasing market entries are blocked until protective "
+                "stop-loss/take-profit placement can be verified"
+            )
         return self._signed_request("POST", "/v1/order", {
             "symbol": symbol,
             "side": side,
