@@ -78,7 +78,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         }}), expected_symbol="BTC_USDT")
         self.assertFalse(invalid["ok"])
         self.assertEqual(mismatch["reason"], "symbol_mismatch")
-        self.assertEqual(builder.status()["accepted"], 0)
+        self.assertEqual(builder.status()["rejected_trades"], 0)
         self.assertFalse(builder.is_ready)
 
     def test_gap_clears_warmup_and_blocks_analysis_until_rebuilt(self):
