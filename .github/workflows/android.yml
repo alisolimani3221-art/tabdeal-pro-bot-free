@@ -113,9 +113,12 @@ jobs:
           spec = Path("buildozer.spec").read_text(encoding="utf-8")
           app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
           package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
+          numeric_version = re.search(r'^android\.numeric_version\s*=\s*(\d+)', spec, re.M)
           if not app_version or not package_version or app_version.group(1) != package_version.group(1):
               raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
-          print("App and APK versions match:", app_version.group(1))
+          if not numeric_version or int(numeric_version.group(1)) < 119:
+              raise SystemExit("android.numeric_version must be set and monotonically increased")
+          print("App/APK versions match:", app_version.group(1), "versionCode:", numeric_version.group(1))
           PY
 
       - name: Smoke test live Tabdeal Futures API
@@ -281,8 +284,55 @@ jobs:
                 "RTL sample glyphs:", len(forms))
           PY
 
-      - name: Build APK
+      - name: Configure persistent Android signing
+        id: signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          values=("$ANDROID_KEYSTORE_BASE64" "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD")
+          present=0
+          for value in "${values[@]}"; do
+            if [[ -n "$value" ]]; then present=$((present + 1)); fi
+          done
+          if [[ "$present" -eq 0 ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "WARNING: Persistent signing secrets are not configured; this build will be debug-signed and will NOT be a guaranteed in-place update."
+            exit 0
+          fi
+          if [[ "$present" -ne 4 ]]; then
+            echo "All four Android signing secrets must be configured together." >&2
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/tabdeal-release.keystore"
+          test -s "$RUNNER_TEMP/tabdeal-release.keystore"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.configured == 'true'
+        env:
+          P4A_RELEASE_KEYSTORE: ${{ runner.temp }}/tabdeal-release.keystore
+          P4A_RELEASE_KEYSTORE_PASSWD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          P4A_RELEASE_KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          P4A_RELEASE_KEYALIAS_PASSWD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: buildozer -v android release
+
+      - name: Build debug APK (temporary until signing secrets are configured)
+        if: steps.signing.outputs.configured != 'true'
         run: buildozer -v android debug
+
+      - name: Verify APK signature and report certificate fingerprint
+        run: |
+          set -eu
+          APK="$(find bin -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$APK"
+          APKSIGNER="$(find "$ANDROIDSDK/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
 
       - name: Verify both runtime fonts and RTL libraries are packaged in APK
         run: |
