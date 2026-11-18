@@ -62,7 +62,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         parsed = parse_trade_message(order_book, expected_symbol="BTC_USDT")
         self.assertFalse(parsed["ok"])
         self.assertEqual(parsed["reason"], "missing_trade_object")
-        self.assertEqual(builder.status()["accepted"], 0)
+        self.assertEqual(builder.status()["rejected_trades"], 0)
         self.assertFalse(builder.is_ready)
 
     def test_invalid_trade_and_symbol_mismatch_cannot_enter_candle_builder(self):
