@@ -26,6 +26,18 @@ jobs:
             autoconf automake libtool pkg-config cmake \
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev
 
+      - name: Select Java 17 for Gradle and Buildozer
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify selected Java runtime
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
+          java -version 2>&1 | grep -q '"17'
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -39,25 +51,26 @@ jobs:
       - name: Verify app version and Android package settings
         run: |
           python - <<'PY'
-          import re
           from pathlib import Path
-          app = Path("main.py").read_text(encoding="utf-8")
-          spec = Path("buildozer.spec").read_text(encoding="utf-8")
-          app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
-          package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
-          if not app_version or not package_version or app_version.group(1) != package_version.group(1):
+          app_lines = Path("main.py").read_text(encoding="utf-8").splitlines()
+          spec_lines = Path("buildozer.spec").read_text(encoding="utf-8").splitlines()
+          app_version = next((line.split("=", 1)[1].strip().strip("\\"'") for line in app_lines if line.strip().startswith("APP_VERSION") and "=" in line), None)
+          package_version = next((line.split("=", 1)[1].strip() for line in spec_lines if line.strip().startswith("version") and "=" in line), None)
+          if app_version != package_version:
               raise SystemExit("App version and Buildozer version do not match")
-          if app_version.group(1) != "1.19":
+          if app_version != "1.19":
               raise SystemExit("This experimental workflow is restricted to baseline v1.19")
-          if "android.archs = arm64-v8a" not in spec:
+          if "android.archs = arm64-v8a" not in Path("buildozer.spec").read_text(encoding="utf-8"):
               raise SystemExit("Expected ARM64 Android build configuration")
-          print("Verified baseline version:", app_version.group(1))
+          print("Verified baseline version:", app_version)
           PY
 
       - name: Build debug APK
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
-        run: buildozer -v android debug
+        run: |
+          echo "Gradle will use JAVA_HOME=$JAVA_HOME"
+          buildozer -v android debug
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
