@@ -7,6 +7,10 @@ on:
     paths:
       - 'main.py'
       - 'tabdeal_account.py'
+      - 'tabdeal_trade.py'
+      - 'live_execution_guard.py'
+      - 'trade_coordinator.py'
+      - 'trade_preflight.py'
       - 'ai_assistant.py'
       - 'market_format.py'
       - 'trade_stream_probe.py'
