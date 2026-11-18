@@ -75,14 +75,14 @@ class TabdealApiContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 for forbidden in ("api_key", "api_secret", "new_order", "create_order"):
                     self.assertNotIn(forbidden, source)
-                self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
+        self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
 
     def test_private_account_client_is_get_only_and_does_not_persist_credentials(self):
         source = self.read("tabdeal_account.py").lower()
         self.assertIn('"/fapi/v3/account"', source)
         self.assertIn('"/fapi/v3/positionrisk"', source)
         self.assertIn('"x-mbx-apikey"', source)
-        self.assertNotRegex(source, r"\\.(post|put|delete)\\s*\\(")
+        self.assertNotRegex(source, r"\.(post|put|delete)\s*\(")
         self.assertNotIn("open(", source)
         self.assertNotIn("settings.json", source)
         self.assertNotIn("new_order", source)
