@@ -66,7 +66,7 @@ class TabdealFuturesTradeClient:
 
     def _signed_request(self, method, path, params):
         if method == "GET":
-            if path not in ("/v1/position", "/v1/order", "/v1/openOrders"):
+            if path not in ("/v1/position", "/v1/order", "/v1/openOrders", "/v3/positionRisk"):
                 raise ValueError("unsupported read endpoint")
         elif path not in ("/v1/order", "/v1/position", "/v1/positionSlTp"):
             raise ValueError("unsupported trading endpoint")
@@ -126,6 +126,30 @@ class TabdealFuturesTradeClient:
         if symbol is not None:
             params["symbol"] = self._validate_symbol(symbol)
         return self._signed_request("GET", "/v1/position", params)
+
+    def get_open_orders(self, symbol=None):
+        """Read currently open futures orders; this method never changes orders."""
+        params = {}
+        if symbol is not None:
+            params["symbol"] = self._validate_symbol(symbol)
+        return self._signed_request("GET", "/v1/openOrders", params)
+
+    def get_order(self, symbol, order_id):
+        """Read one futures order by its exchange order ID."""
+        symbol = self._validate_symbol(symbol)
+        if isinstance(order_id, bool) or not isinstance(order_id, int) or order_id <= 0:
+            raise ValueError("order_id must be a positive integer")
+        return self._signed_request("GET", "/v1/order", {
+            "symbol": symbol,
+            "orderId": order_id,
+        })
+
+    def get_position_risk(self, symbol=None):
+        """Read futures position-risk details through the documented v3 endpoint."""
+        params = {}
+        if symbol is not None:
+            params["symbol"] = self._validate_symbol(symbol)
+        return self._signed_request("GET", "/v3/positionRisk", params)
 
     def place_market_order(self, symbol, side, quantity, reduce_only=False,
                            confirm_live=False):
