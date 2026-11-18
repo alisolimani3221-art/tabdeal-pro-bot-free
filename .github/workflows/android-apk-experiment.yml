@@ -26,6 +26,18 @@ jobs:
             autoconf automake libtool pkg-config cmake \
             zlib1g-dev libncurses5-dev libffi-dev libssl-dev
 
+      - name: Select Java 17 for Gradle and Buildozer
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify selected Java runtime
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
+          test "$(java -version 2>&1 | head -n 1 | grep -c '17\\.')" -eq 1
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -43,8 +55,8 @@ jobs:
           from pathlib import Path
           app = Path("main.py").read_text(encoding="utf-8")
           spec = Path("buildozer.spec").read_text(encoding="utf-8")
-          app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
-          package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
+          app_version = re.search(r'^APP_VERSION\\s*=\\s*["\\']([^"\\']+)["\\']', app, re.M)
+          package_version = re.search(r'^version\\s*=\\s*(\\S+)', spec, re.M)
           if not app_version or not package_version or app_version.group(1) != package_version.group(1):
               raise SystemExit("App version and Buildozer version do not match")
           if app_version.group(1) != "1.19":
@@ -57,7 +69,9 @@ jobs:
       - name: Build debug APK
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
-        run: buildozer -v android debug
+        run: |
+          echo "Gradle will use JAVA_HOME=$JAVA_HOME"
+          buildozer -v android debug
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
