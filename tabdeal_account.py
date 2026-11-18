@@ -6,12 +6,20 @@ gateway (/r/fapi/), matching the official Tabdeal Python SDK.
 """
 import hashlib
 import hmac
+import re
 import time
 from urllib.parse import urlencode
 
 import requests
 
 READ_BASE_URL = "https://api1.tabdeal.org/r/fapi"
+_SYMBOL_RE = re.compile(r"^[A-Z0-9]+_USDT$")
+
+
+def _validate_symbol(symbol):
+    if not isinstance(symbol, str) or not _SYMBOL_RE.fullmatch(symbol):
+        raise ValueError("symbol must be an exchange-native USDT futures symbol")
+    return symbol
 
 
 def _signed_get(path, key, secret, params=None, timeout=20, session=None):
@@ -92,3 +100,40 @@ def read_futures_account(key, secret, timeout=20, session=None):
         "source": "authenticated_futures_account",
         "observed_at": time.time(),
     }
+
+
+def read_order_status(key, secret, symbol, order_id, timeout=20, session=None):
+    """Read one futures order by exchange order ID; this function is GET-only."""
+    symbol = _validate_symbol(symbol)
+    if isinstance(order_id, bool) or not isinstance(order_id, int) or order_id <= 0:
+        raise ValueError("order_id must be a positive integer")
+    data = _signed_get(
+        "/v1/order", key, secret,
+        params={"symbol": symbol, "orderId": order_id},
+        timeout=timeout, session=session,
+    )
+    if not isinstance(data, dict):
+        raise RuntimeError("Unexpected order status response format")
+    return data
+
+
+def read_open_orders(key, secret, symbol=None, limit=None, timeout=20, session=None):
+    """Read open futures orders; never submits, cancels, or modifies an order."""
+    params = {}
+    if symbol is not None:
+        params["symbol"] = _validate_symbol(symbol)
+    if limit is not None:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer from 1 to 1000")
+        params["limit"] = limit
+    data = _signed_get(
+        "/v1/openOrders", key, secret, params=params,
+        timeout=timeout, session=session,
+    )
+    if isinstance(data, dict):
+        data = data.get("orders", data.get("data", data))
+    if not isinstance(data, list):
+        raise RuntimeError("Unexpected open orders response format")
+    if not all(isinstance(item, dict) for item in data):
+        raise RuntimeError("Open orders response contains invalid entries")
+    return data
