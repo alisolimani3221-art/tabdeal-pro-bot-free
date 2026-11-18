@@ -3,7 +3,9 @@ import hmac
 import unittest
 from urllib.parse import parse_qs, urlparse
 
-from tabdeal_account import _signed_get, read_futures_account
+from tabdeal_account import (
+    _signed_get, read_futures_account, read_open_orders, read_order_status,
+)
 
 
 class FakeResponse:
@@ -97,6 +99,55 @@ class TabdealAccountTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             _signed_get("/v3/account", "key", "secret", session=session)
         self.assertTrue(response.closed)
+
+    def test_order_status_is_read_from_official_futures_read_gateway(self):
+        response = FakeResponse({"orderId": 123, "status": "FILLED"})
+        session = FakeSession([response])
+        result = read_order_status(
+            "key", "secret", "BTC_USDT", 123, session=session
+        )
+        self.assertEqual(result["status"], "FILLED")
+        parsed = urlparse(session.calls[0][0])
+        params = parse_qs(parsed.query)
+        self.assertEqual(parsed.path, "/r/fapi/v1/order")
+        self.assertEqual(params["symbol"], ["BTC_USDT"])
+        self.assertEqual(params["orderId"], ["123"])
+        self.assertEqual(session.calls[0][1]["X-MBX-APIKEY"], "key")
+        self.assertTrue(response.closed)
+
+    def test_open_orders_are_read_only_and_can_be_scoped(self):
+        session = FakeSession([FakeResponse([
+            {"orderId": 12, "symbol": "BTC_USDT", "status": "NEW"}
+        ])])
+        result = read_open_orders(
+            "key", "secret", symbol="BTC_USDT", limit=25, session=session
+        )
+        self.assertEqual(result[0]["orderId"], 12)
+        parsed = urlparse(session.calls[0][0])
+        params = parse_qs(parsed.query)
+        self.assertEqual(parsed.path, "/r/fapi/v1/openOrders")
+        self.assertEqual(params["symbol"], ["BTC_USDT"])
+        self.assertEqual(params["limit"], ["25"])
+
+    def test_order_readers_reject_invalid_inputs_before_network(self):
+        session = FakeSession([])
+        for symbol, order_id in (("BTCUSDT", 1), ("BTC_USDT", 0),
+                                 ("BTC_USDT", True)):
+            with self.subTest(symbol=symbol, order_id=order_id):
+                with self.assertRaises(ValueError):
+                    read_order_status("key", "secret", symbol, order_id,
+                                      session=session)
+        with self.assertRaises(ValueError):
+            read_open_orders("key", "secret", symbol="BTCUSDT",
+                             session=session)
+        with self.assertRaises(ValueError):
+            read_open_orders("key", "secret", limit=1001, session=session)
+        self.assertEqual(session.calls, [])
+
+    def test_open_orders_rejects_unexpected_response_shape(self):
+        session = FakeSession([FakeResponse({"unexpected": "shape"})])
+        with self.assertRaises(RuntimeError):
+            read_open_orders("key", "secret", session=session)
 
 
 if __name__ == "__main__":
