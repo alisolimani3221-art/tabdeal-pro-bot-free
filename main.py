@@ -1412,7 +1412,8 @@ class FuturesAnalyzerApp(App):
         try:
             builder = TradeCandleBuilder(symbol)
             engine = PaperTradingEngine(
-                capital=self.capital_usdt, risk_percent=0.25, max_leverage=1,\n                daily_loss_percent=1.0
+                capital=self.capital_usdt, risk_percent=0.25, max_leverage=1,
+                daily_loss_percent=1.0
             )
         except Exception as exc:
             self.update_auto_status("راه‌اندازی ناموفق: " + type(exc).__name__)
