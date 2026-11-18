@@ -40,18 +40,15 @@ Last updated: 2026-11-18
 
 - `main.py`: APP_VERSION changed to 1.19.
 - `buildozer.spec`: version 1.19, android.numeric_version 119, android.allow_backup=True, android.release_artifact=apk. Package identity remains `org.tabdeal.futuresanalyzer`.
-- `.github/workflows/android.yml`: added persistent-signing support using GitHub Actions secrets:
-  - `ANDROID_KEYSTORE_BASE64`
-  - `ANDROID_KEYSTORE_PASSWORD`
-  - `ANDROID_KEY_ALIAS`
-  - `ANDROID_KEY_PASSWORD`
+- `.github/workflows/android.yml`: added persistent-signing support using one GitHub Actions secret: `ANDROID_SIGNING_BUNDLE_BASE64`.
+- A new PKCS#12 release keystore was generated and verified. Its private signing bundle is provided separately to the user; do not commit it to the public repository.
 - Workflow verifies APK signature and prints certificate fingerprint.
-- Until all four secrets are configured, workflow falls back to a debug APK and warns that it is not a guaranteed in-place update. Do not treat such fallback artifact as the permanent update channel.
+- Until the single secret is configured, workflow falls back to a debug APK and warns that it is not a guaranteed in-place update. Do not treat such fallback artifact as the permanent update channel.
 - Latest workflow run triggered by commit `04da9521d4c49cea7ca5c39e0a9d60dbe9383f96` was queued/pending at the time of this ledger update; inspect its final result before distributing an APK.
 
 ## Remaining validation — not yet marked complete
 
-1. Configure one permanent Android release keystore in GitHub Actions secrets and verify the workflow produces a release-signed APK.
+1. Add the provided signing bundle as GitHub Actions secret `ANDROID_SIGNING_BUNDLE_BASE64`, then verify the workflow produces a release-signed APK.
 2. Confirm the new APK's package ID, versionCode, signer fingerprint, and installation behavior on the user's Galaxy A22.
 3. Read-only Tabdeal account authentication from the user's device; validate wallet balance, available balance, open positions, and unrealized PnL. Never request API secret in chat.
 4. Verify stable market data across all supported futures symbols; record exact count and errors from a fresh run.
