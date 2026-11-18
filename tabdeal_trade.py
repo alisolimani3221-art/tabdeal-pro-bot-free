@@ -197,14 +197,14 @@ class TabdealFuturesTradeClient:
             params["slPrice"] = format(_positive(sl_price, "sl_price"), ".16g")
         if tp_price is not None:
             params["tpPrice"] = format(_positive(tp_price, "tp_price"), ".16g")
-        if len(params) == 2:
-            raise ValueError("at least one of sl_price or tp_price is required")
+        if sl_price is None or tp_price is None:
+            raise ValueError("both sl_price and tp_price are required")
         return self._signed_request("POST", "/v1/positionSlTp", params)
 
     def close_position(self, symbol, confirm_live=False):
         """Close the exchange position for a symbol; requires explicit confirmation."""
-        self._require_live_confirmation(confirm_live)
-        symbol = self._validate_symbol(symbol)
-        return self._signed_request("DELETE", "/v1/position", {
-            "symbol": symbol,
-        })
+        # Fail closed until the exchange's DELETE scope is verified for
+        # one-way/hedge modes and accounts with multiple positions.
+        raise RuntimeError(
+            "Position closing is disabled until exchange-side close scope is verified"
+        )
