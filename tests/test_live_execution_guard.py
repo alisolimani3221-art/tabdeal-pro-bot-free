@@ -100,6 +100,13 @@ class LiveExecutionGuardTests(unittest.TestCase):
         self.assertFalse(result["allowed"])
         self.assertEqual(result["reason"], "entry_price_differs_from_verified_trade")
 
+    def test_missing_daily_loss_snapshot_blocks_entry(self):
+        account = dict(self.account)
+        del account["daily_loss_percent"]
+        result = evaluate_entry(**dict(self.kwargs, account=account))
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["reason"], "daily_loss_unavailable")
+
     def test_daily_loss_stop_blocks_new_entries(self):
         account = {"positions": [], "daily_loss_percent": 1.0}
         result = evaluate_entry(**dict(self.kwargs, account=account))
