@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.20"
+APP_VERSION = "1.21"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -52,16 +52,15 @@ from multi_market_scan import scan_market_universe
 # covers Persian letters and Latin digits in one face; also check Android's
 # system Noto font locations as a last-resort fallback.
 FONT_CANDIDATES = [
-    # arabic_reshaper emits Arabic Presentation Forms. Prefer Noto Naskh
-    # because its cmap covers those presentation glyphs reliably on Android.
-    # Noto Sans Arabic remains a fallback for systems without the Naskh file.
-    os.path.join(BASE_DIR, "NotoNaskhArabic-Regular.ttf"),
-    os.path.join(BASE_DIR, "assets", "NotoNaskhArabic-Regular.ttf"),
+    # Preserve the proven v1.15 rendering path: use the unified Noto Sans
+    # Arabic + Latin face first, with Naskh only as a fallback.
     os.path.join(BASE_DIR, "NotoSansArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "assets", "NotoSansArabic-Regular.ttf"),
+    os.path.join(BASE_DIR, "NotoNaskhArabic-Regular.ttf"),
+    os.path.join(BASE_DIR, "assets", "NotoNaskhArabic-Regular.ttf"),
+    "/system/fonts/NotoSansArabic-Regular.ttf",
     "/system/fonts/NotoNaskhArabicUI-Regular.ttf",
     "/system/fonts/NotoNaskhArabic-Regular.ttf",
-    "/system/fonts/NotoSansArabic-Regular.ttf",
 ]
 FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.isfile(p)), None)
 FONT_LOAD_ERROR = None
