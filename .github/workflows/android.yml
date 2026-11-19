@@ -1,14 +1,16 @@
 name: Tabdeal Futures CI (APK build paused)
-# Run validation only. APK builds are paused until all six project gates are verified.
+# Run validation only. APK builds stay paused until all six project gates are verified.
 
 on:
   workflow_dispatch:
   pull_request:
     branches:
       - main
+      - audit/pr12-decimal-safety
   push:
     paths:
       - 'main.py'
+      - 'paper_runner_gate.py'
       - 'tabdeal_account.py'
       - 'ai_assistant.py'
       - 'market_format.py'
@@ -22,6 +24,12 @@ on:
       - 'risk_analysis.py'
       - 'requirements.txt'
       - 'paper_trader.py'
+      - 'tabdeal_trade.py'
+      - 'trade_state_store.py'
+      - 'trade_state_lock.py'
+      - 'app_runtime_guard.py'
+      - 'trade_coordinator.py'
+      - 'trade_preflight.py'
       - 'server_paper_trader.py'
       - 'Dockerfile.paper'
       - 'docker-compose.paper.yml'

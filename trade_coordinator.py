@@ -28,7 +28,12 @@ class TradeCoordinator:
         if isinstance(max_open_positions, bool) or not isinstance(max_open_positions, int) or max_open_positions < 1:
             raise ValueError("max_open_positions must be a positive integer")
         self.max_open_positions = max_open_positions
-        self.max_notional_usdt = max_notional_usdt
+        if max_notional_usdt is None:
+            self.max_notional_usdt = None
+        else:
+            self.max_notional_usdt = format(
+                _finite_positive(max_notional_usdt, "max_notional_usdt"), "f"
+            )
         self._lock = threading.RLock()
         self._halted = False
         self._halt_reason = None
@@ -85,6 +90,15 @@ class TradeCoordinator:
                 max_open_positions=self.max_open_positions,
                 max_notional_usdt=self.max_notional_usdt,
             )
+            # Pending local intents reserve capacity just like open positions.
+            # Count the validated exchange snapshot plus our own reservations.
+            active_position_count = 0
+            for position in open_positions:
+                amount = position.get("positionAmt", position.get("amount"))
+                if Decimal(str(amount)) != 0:
+                    active_position_count += 1
+            if active_position_count + len(self._intents) >= self.max_open_positions:
+                raise RuntimeError("open position limit reached including pending intents")
             entry = _finite_positive(plan["reference_price"], "reference_price")
             sl = _finite_positive(stop_loss, "stop_loss")
             tp = _finite_positive(take_profit, "take_profit")
@@ -135,21 +149,70 @@ class TradeCoordinator:
     @classmethod
     def restore_state(cls, state, max_open_positions=1, max_notional_usdt=None):
         """Restore local state; halt if a prior run may have submitted an order."""
-        if not isinstance(state, dict) or state.get("schema_version") != 1:
-            raise ValueError("unsupported coordinator state")
+        required_state_keys = {"schema_version", "halted", "halt_reason", "intents"}
+        if (
+            not isinstance(state, dict)
+            or set(state) != required_state_keys
+            or type(state.get("schema_version")) is not int
+            or state.get("schema_version") != 1
+        ):
+            raise ValueError("unsupported coordinator state (incomplete or invalid)")
+        halted = state.get("halted")
+        halt_reason = state.get("halt_reason")
+        intents = state.get("intents")
+        if (
+            type(halted) is not bool
+            or not isinstance(intents, dict)
+            or (halted and (not isinstance(halt_reason, str) or not halt_reason.strip()))
+            or (not halted and halt_reason is not None)
+        ):
+            raise ValueError("invalid coordinator recovery metadata")
         coordinator = cls(max_open_positions, max_notional_usdt)
-        intents = state.get("intents", {})
-        if not isinstance(intents, dict):
-            raise ValueError("invalid coordinator intent state")
         for key, intent in intents.items():
-            if not isinstance(key, str) or not isinstance(intent, dict):
-                raise ValueError("invalid persisted intent")
-            if intent.get("state") != "PREPARED_ONLY" or intent.get("live_order_submitted") is not False:
+            if not isinstance(key, str) or not key.strip() or not isinstance(intent, dict):
+                coordinator.emergency_stop("restart found malformed persisted intent")
+                break
+            required = {
+                "idempotency_key", "symbol", "side", "quantity",
+                "reference_price", "notional_usdt", "stop_loss",
+                "take_profit", "state", "live_order_submitted",
+                "execution_enabled",
+            }
+            if (
+                set(intent) != required
+                or intent.get("idempotency_key") != key
+                or intent.get("state") != "PREPARED_ONLY"
+                or intent.get("live_order_submitted") is not False
+                or intent.get("execution_enabled") is not False
+            ):
                 coordinator.emergency_stop("restart found an ambiguous execution state")
                 break
             symbol = intent.get("symbol")
-            if not isinstance(symbol, str) or symbol in coordinator._active_symbols:
+            side = intent.get("side")
+            if (
+                not isinstance(symbol, str) or not symbol.strip()
+                or side not in ("BUY", "SELL")
+                or symbol in coordinator._active_symbols
+                or len(coordinator._intents) >= coordinator.max_open_positions
+            ):
                 coordinator.emergency_stop("restart found conflicting pending intents")
+                break
+            try:
+                quantity = _finite_positive(intent.get("quantity"), "quantity")
+                entry = _finite_positive(intent.get("reference_price"), "reference_price")
+                notional = _finite_positive(intent.get("notional_usdt"), "notional_usdt")
+                sl = _finite_positive(intent.get("stop_loss"), "stop_loss")
+                tp = _finite_positive(intent.get("take_profit"), "take_profit")
+                if notional != quantity * entry:
+                    raise ValueError("persisted notional mismatch")
+                if coordinator.max_notional_usdt is not None and notional > Decimal(coordinator.max_notional_usdt):
+                    raise ValueError("persisted notional exceeds configured cap")
+                if side == "BUY" and not sl < entry < tp:
+                    raise ValueError("persisted BUY protection is invalid")
+                if side == "SELL" and not tp < entry < sl:
+                    raise ValueError("persisted SELL protection is invalid")
+            except (ValueError, TypeError):
+                coordinator.emergency_stop("restart found invalid persisted intent values")
                 break
             coordinator._active_symbols.add(symbol)
             coordinator._intents[key] = copy.deepcopy(intent)

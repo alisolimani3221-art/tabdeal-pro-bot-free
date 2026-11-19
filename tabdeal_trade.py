@@ -8,8 +8,9 @@ import hashlib
 import hmac
 import math
 import re
+from decimal import Decimal, InvalidOperation
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 
@@ -18,15 +19,17 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]+_USDT$")
 
 
 def _positive(value, name):
+    """Parse a positive finite financial value without binary-float rounding."""
     if isinstance(value, bool):
         raise ValueError("{} must be positive and finite".format(name))
     try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
         raise ValueError("{} must be positive and finite".format(name))
-    if not math.isfinite(number) or number <= 0:
+    if not number.is_finite() or number <= 0:
         raise ValueError("{} must be positive and finite".format(name))
     return number
+
 
 
 class TabdealFuturesTradeClient:
@@ -40,14 +43,24 @@ class TabdealFuturesTradeClient:
             raise ValueError("live_enabled must be boolean")
         if isinstance(timeout, bool) or not math.isfinite(float(timeout)) or float(timeout) <= 0:
             raise ValueError("timeout must be positive and finite")
-        if not isinstance(base_url, str) or not base_url.startswith("https://"):
-            raise ValueError("base_url must use HTTPS")
+        if not isinstance(base_url, str):
+            raise ValueError("base_url must be the official Tabdeal Futures API URL")
+        parsed_base = urlsplit(base_url.rstrip("/"))
+        if (
+            parsed_base.scheme != "https"
+            or parsed_base.netloc != "api1.tabdeal.org"
+            or parsed_base.path != "/fapi"
+            or parsed_base.query
+            or parsed_base.fragment
+        ):
+            raise ValueError("base_url must be exactly the official Tabdeal Futures API URL")
         self._api_key = str(api_key)
         self._api_secret = str(api_secret)
         self.live_enabled = live_enabled
         self.timeout = float(timeout)
         self.session = session or requests
-        self.base_url = base_url.rstrip("/")
+        self.base_url = TRADE_BASE_URL
+        self.read_base_url = "https://api1.tabdeal.org/r/fapi"
 
     def _require_live_confirmation(self, confirm_live):
         if not self.live_enabled or confirm_live is not True:
@@ -62,8 +75,18 @@ class TabdealFuturesTradeClient:
         return symbol
 
     def _signed_request(self, method, path, params):
-        if path not in ("/v1/order", "/v1/position", "/v1/positionSlTp"):
-            raise ValueError("unsupported trading endpoint")
+        """Perform authenticated read-only requests only.
+
+        Mutating HTTP verbs are deliberately unavailable through this generic
+        transport. This prevents callers from bypassing the public trading
+        methods' safety gates by invoking the transport directly.
+        """
+        allowed_reads = {
+            "/v1/position", "/v1/order", "/v1/openOrders",
+            "/v3/positionRisk",
+        }
+        if method != "GET" or path not in allowed_reads:
+            raise ValueError("unsupported or mutating HTTP method/endpoint")
         values = dict(params)
         values["timestamp"] = int(time.time() * 1000)
         query = urlencode(values)
@@ -71,25 +94,14 @@ class TabdealFuturesTradeClient:
             self._api_secret.encode("utf-8"), query.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        url = self.base_url + path
         response = None
         try:
-            if method == "POST":
-                response = self.session.post(
-                    url, data=values,
-                    headers={"X-MBX-APIKEY": self._api_key,
-                             "Accept": "application/json"},
-                    timeout=self.timeout,
-                )
-            elif method == "DELETE":
-                response = self.session.delete(
-                    url, params=values,
-                    headers={"X-MBX-APIKEY": self._api_key,
-                             "Accept": "application/json"},
-                    timeout=self.timeout,
-                )
-            else:
-                raise ValueError("unsupported HTTP method")
+            response = self.session.get(
+                self.read_base_url + path, params=values,
+                headers={"X-MBX-APIKEY": self._api_key,
+                         "Accept": "application/json"},
+                timeout=self.timeout,
+            )
             if not response.ok:
                 detail = str(getattr(response, "text", ""))[:240]
                 raise RuntimeError("Tabdeal HTTP {}: {}".format(
@@ -103,45 +115,101 @@ class TabdealFuturesTradeClient:
             if response is not None and hasattr(response, "close"):
                 response.close()
 
+    def get_positions(self, symbol=None):
+        """Read futures positions through the SDK's authenticated read gateway.
+
+        The returned exchange payload is intentionally not normalized. The official SDK
+        documents request filters but does not define a stable response schema here;
+        do not infer position identity, side, or active state from guessed field names.
+        """
+        params = {}
+        if symbol is not None:
+            params["symbol"] = self._validate_symbol(symbol)
+        return self._signed_request("GET", "/v1/position", params)
+
+    def get_open_orders(self, symbol=None):
+        """Read currently open futures orders; this method never changes orders."""
+        params = {}
+        if symbol is not None:
+            params["symbol"] = self._validate_symbol(symbol)
+        return self._signed_request("GET", "/v1/openOrders", params)
+
+    def get_order(self, symbol, order_id):
+        """Read one futures order by its exchange order ID."""
+        symbol = self._validate_symbol(symbol)
+        if isinstance(order_id, bool) or not isinstance(order_id, int) or order_id <= 0:
+            raise ValueError("order_id must be a positive integer")
+        return self._signed_request("GET", "/v1/order", {
+            "symbol": symbol,
+            "orderId": order_id,
+        })
+
+    def get_position_risk(self, symbol=None):
+        """Read futures position-risk details through the documented v3 endpoint."""
+        params = {}
+        if symbol is not None:
+            params["symbol"] = self._validate_symbol(symbol)
+        return self._signed_request("GET", "/v3/positionRisk", params)
+
     def place_market_order(self, symbol, side, quantity, reduce_only=False,
                            confirm_live=False):
-        """Submit a MARKET order only after two explicit live-trading gates."""
+        """Validate inputs, then fail closed for every unverified MARKET write."""
         self._require_live_confirmation(confirm_live)
         symbol = self._validate_symbol(symbol)
         side = str(side).upper()
         if side not in ("BUY", "SELL"):
             raise ValueError("side must be BUY or SELL")
-        qty = _positive(quantity, "quantity")
+        _positive(quantity, "quantity")
         if not isinstance(reduce_only, bool):
             raise ValueError("reduce_only must be boolean")
-        return self._signed_request("POST", "/v1/order", {
-            "symbol": symbol,
-            "side": side,
-            "type": "MARKET",
-            "quantity": format(qty, ".16g"),
-            "reduceOnly": str(reduce_only).lower(),
-        })
+        if not reduce_only:
+            raise RuntimeError(
+                "Risk-increasing market entries are blocked until protective "
+                "stop-loss/take-profit placement can be verified"
+            )
+        raise RuntimeError(
+            "All MARKET orders are disabled until reduceOnly semantics and "
+            "position-side behavior are verified against Tabdeal"
+        )
 
     def set_position_sl_tp(self, symbol, position_id, sl_price=None,
-                           tp_price=None, confirm_live=False):
-        """Set exchange-side stop-loss/take-profit for an existing position."""
+                           tp_price=None, position_side=None,
+                           reference_price=None, confirm_live=False):
+        """Validate requested levels, then fail closed until protection is verifiable.
+
+        The current documented read responses do not establish an independently
+        verifiable link between both active SL/TP triggers and this position.
+        Caller-provided IDs, direction, and reference prices are not sufficient
+        evidence. Do not treat an API acknowledgement as proof of protection.
+        """
         self._require_live_confirmation(confirm_live)
-        symbol = self._validate_symbol(symbol)
+        self._validate_symbol(symbol)
         if isinstance(position_id, bool) or not isinstance(position_id, int) or position_id <= 0:
             raise ValueError("position_id must be a positive integer")
-        params = {"symbol": symbol, "positionId": position_id}
-        if sl_price is not None:
-            params["slPrice"] = format(_positive(sl_price, "sl_price"), ".16g")
-        if tp_price is not None:
-            params["tpPrice"] = format(_positive(tp_price, "tp_price"), ".16g")
-        if len(params) == 2:
-            raise ValueError("at least one of sl_price or tp_price is required")
-        return self._signed_request("POST", "/v1/positionSlTp", params)
+        if sl_price is None or tp_price is None:
+            raise ValueError("both sl_price and tp_price are required")
+        if position_side not in ("LONG", "SHORT"):
+            raise ValueError("position_side must be LONG or SHORT")
+        reference = _positive(reference_price, "reference_price")
+        sl = _positive(sl_price, "sl_price")
+        tp = _positive(tp_price, "tp_price")
+        if position_side == "LONG" and not (sl < reference < tp):
+            raise ValueError("LONG requires sl_price < reference_price < tp_price")
+        if position_side == "SHORT" and not (tp < reference < sl):
+            raise ValueError("SHORT requires tp_price < reference_price < sl_price")
+        raise RuntimeError(
+            "SL/TP writes are disabled until the live position, trigger basis, "
+            "and both active protective orders can be independently verified"
+        )
 
     def close_position(self, symbol, confirm_live=False):
-        """Close the exchange position for a symbol; requires explicit confirmation."""
-        self._require_live_confirmation(confirm_live)
-        symbol = self._validate_symbol(symbol)
-        return self._signed_request("DELETE", "/v1/position", {
-            "symbol": symbol,
-        })
+        """Disabled: Tabdeal documents DELETE /v1/position as closing ALL
+        open positions for the supplied symbol, not one positionId.
+
+        This broad symbol-level scope can close multiple positions at once.
+        Keep this operation fail-closed until a separately reviewed workflow
+        can prove that closing every position for that symbol is intended.
+        """
+        raise RuntimeError(
+            "Position closing is disabled: Tabdeal closes all open positions for the symbol"
+        )
