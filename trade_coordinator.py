@@ -90,6 +90,15 @@ class TradeCoordinator:
                 max_open_positions=self.max_open_positions,
                 max_notional_usdt=self.max_notional_usdt,
             )
+            # Pending local intents reserve capacity just like open positions.
+            # Count the validated exchange snapshot plus our own reservations.
+            active_position_count = 0
+            for position in open_positions:
+                amount = position.get("positionAmt", position.get("amount"))
+                if Decimal(str(amount)) != 0:
+                    active_position_count += 1
+            if active_position_count + len(self._intents) >= self.max_open_positions:
+                raise RuntimeError("open position limit reached including pending intents")
             entry = _finite_positive(plan["reference_price"], "reference_price")
             sl = _finite_positive(stop_loss, "stop_loss")
             tp = _finite_positive(take_profit, "take_profit")
