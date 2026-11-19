@@ -160,6 +160,7 @@ class TradeAdapterSafetyTests(unittest.TestCase):
             "BTC_USDT", 42,
             sl_price="65000.000000000000123",
             tp_price="68000.000000000000456",
+            position_side="LONG", reference_price="66000",
             confirm_live=True
         )
         params = self.session.post.call_args.kwargs["data"]
@@ -176,6 +177,7 @@ class TradeAdapterSafetyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     client.set_position_sl_tp(
                         "BTC_USDT", 42, sl_price=value, tp_price="68000",
+                        position_side="LONG", reference_price="66000",
                         confirm_live=True
                     )
         self.session.post.assert_not_called()
@@ -221,15 +223,18 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "both sl_price and tp_price"):
             client.set_position_sl_tp(
-                "BTC_USDT", 42, sl_price="65000", confirm_live=True
+                "BTC_USDT", 42, sl_price="65000", position_side="LONG",
+                reference_price="66000", confirm_live=True
             )
         with self.assertRaisesRegex(ValueError, "both sl_price and tp_price"):
             client.set_position_sl_tp(
-                "BTC_USDT", 42, tp_price="68000", confirm_live=True
+                "BTC_USDT", 42, tp_price="68000", position_side="LONG",
+                reference_price="66000", confirm_live=True
             )
         with self.assertRaises(ValueError):
             client.set_position_sl_tp(
                 "BTC_USDT", 42, sl_price=-1, tp_price="68000",
+                position_side="LONG", reference_price="66000",
                 confirm_live=True
             )
         self.session.post.assert_not_called()
@@ -245,6 +250,7 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         self.session.post.return_value = response
         client.set_position_sl_tp(
             "BTC_USDT", 42, sl_price="65000", tp_price="68000",
+            position_side="LONG", reference_price="66000",
             confirm_live=True
         )
         args, kwargs = self.session.post.call_args
@@ -252,6 +258,62 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         self.assertEqual(kwargs["data"]["positionId"], 42)
         self.assertEqual(kwargs["data"]["slPrice"], "65000")
         self.assertEqual(kwargs["data"]["tpPrice"], "68000")
+
+    def test_sl_tp_requires_direction_and_reference_price(self):
+        client = TabdealFuturesTradeClient(
+            "test-key", "test-secret", live_enabled=True,
+            session=self.session
+        )
+        with self.assertRaisesRegex(ValueError, "position_side"):
+            client.set_position_sl_tp(
+                "BTC_USDT", 42, sl_price="65000", tp_price="68000",
+                reference_price="66000", confirm_live=True
+            )
+        with self.assertRaisesRegex(ValueError, "reference_price"):
+            client.set_position_sl_tp(
+                "BTC_USDT", 42, sl_price="65000", tp_price="68000",
+                position_side="LONG", confirm_live=True
+            )
+        self.session.post.assert_not_called()
+
+    def test_sl_tp_rejects_levels_on_wrong_side_of_reference(self):
+        client = TabdealFuturesTradeClient(
+            "test-key", "test-secret", live_enabled=True,
+            session=self.session
+        )
+        invalid_cases = [
+            ("LONG", "67000", "68000", "66000"),
+            ("LONG", "65000", "65500", "66000"),
+            ("SHORT", "65000", "64000", "66000"),
+            ("SHORT", "67000", "68000", "66000"),
+        ]
+        for side, sl, tp, reference in invalid_cases:
+            with self.subTest(side=side, sl=sl, tp=tp):
+                with self.assertRaisesRegex(ValueError, "requires"):
+                    client.set_position_sl_tp(
+                        "BTC_USDT", 42, sl_price=sl, tp_price=tp,
+                        position_side=side, reference_price=reference,
+                        confirm_live=True
+                    )
+        self.session.post.assert_not_called()
+
+    def test_short_sl_tp_accepts_correct_bracketing(self):
+        client = TabdealFuturesTradeClient(
+            "test-key", "test-secret", live_enabled=True,
+            session=self.session
+        )
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"code": 0, "msg": "accepted"}
+        self.session.post.return_value = response
+        client.set_position_sl_tp(
+            "BTC_USDT", 42, sl_price="68000", tp_price="64000",
+            position_side="SHORT", reference_price="66000",
+            confirm_live=True
+        )
+        params = self.session.post.call_args.kwargs["data"]
+        self.assertEqual(params["slPrice"], "68000")
+        self.assertEqual(params["tpPrice"], "64000")
 
     def test_close_position_is_disabled_until_endpoint_scope_is_verified(self):
         client = TabdealFuturesTradeClient(
