@@ -109,6 +109,7 @@ class TradeStateStoreTests(unittest.TestCase):
         self.assertIsNone(other.load())
 
     def test_exclusive_scope_supports_read_modify_write_transaction(self):
+        self.store.save(self.state)
         with self.store.exclusive():
             current = self.store.load()
             current["halted"] = True
