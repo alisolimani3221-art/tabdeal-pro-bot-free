@@ -47,6 +47,11 @@ class TradeStateLock:
 
         fd = None
         try:
+            parent = os.path.dirname(self.lock_path)
+            os.makedirs(parent, mode=0o700, exist_ok=True)
+            parent_info = os.stat(parent, follow_symlinks=False)
+            if not stat.S_ISDIR(parent_info.st_mode):
+                raise StateLockError("trade-state lock parent is not a real directory")
             flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
             fd = os.open(self.lock_path, flags, 0o600)
             info = os.fstat(fd)
