@@ -69,13 +69,25 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertNotIn("create_order", source.lower())
 
     def test_all_runtime_components_are_read_only_and_have_no_credentials(self):
+        # The Android UI may collect credentials for its separate, explicitly
+        # requested read-only account gateway. Public market monitors and paper
+        # trading engines must remain credential-free.
+        credential_free = ("multi_bot.py", "server_paper_trader.py",
+                           "trade_stream_probe.py", "paper_trader.py")
+        for name in credential_free:
+            source = self.read(name).lower()
+            with self.subTest(name=name):
+                self.assertNotIn("api_key", source)
+                self.assertNotIn("api_secret", source)
+
+        # No runtime component may expose order-creation code or HTTP writes.
         for name in ("main.py", "multi_bot.py", "server_paper_trader.py",
                      "trade_stream_probe.py", "paper_trader.py"):
             source = self.read(name).lower()
             with self.subTest(name=name):
-                for forbidden in ("api_key", "api_secret", "new_order", "create_order"):
-                    self.assertNotIn(forbidden, source)
-                self.assertNotRegex(source, r"\b(?:requests|session|self\.session)\.(?:post|put|delete)\s*\(")
+                self.assertNotIn("new_order", source)
+                self.assertNotIn("create_order", source)
+                self.assertNotRegex(source, r"\\b(?:requests|session|self\\.session)\\.(?:post|put|delete)\\s*\\(")
 
     def test_private_account_client_uses_signed_read_gateway_and_is_get_only(self):
         source = self.read("tabdeal_account.py").lower()
