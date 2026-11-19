@@ -121,6 +121,30 @@ class TradeCoordinatorTests(unittest.TestCase):
                 stop_loss="49000", take_profit="53000",
                 account_snapshot_age_seconds=1)
 
+    def test_restart_with_malformed_prepared_intent_halts(self):
+        self.prepare()
+        state = self.coordinator.export_state()
+        state["intents"]["intent-1"]["execution_enabled"] = True
+        restored = TradeCoordinator.restore_state(state)
+        self.assertTrue(restored.halted)
+
+    def test_restart_with_excess_pending_intents_halts(self):
+        self.prepare()
+        state = self.coordinator.export_state()
+        second = copy.deepcopy(state["intents"]["intent-1"])
+        second["idempotency_key"] = "intent-2"
+        second["symbol"] = "ETH_USDT"
+        state["intents"]["intent-2"] = second
+        restored = TradeCoordinator.restore_state(state, max_open_positions=1)
+        self.assertTrue(restored.halted)
+
+    def test_restart_with_inconsistent_persisted_notional_halts(self):
+        self.prepare()
+        state = self.coordinator.export_state()
+        state["intents"]["intent-1"]["notional_usdt"] = "999999"
+        restored = TradeCoordinator.restore_state(state)
+        self.assertTrue(restored.halted)
+
     def test_release_only_removes_local_prepared_intent(self):
         self.prepare()
         self.assertTrue(self.coordinator.release_prepared_intent("intent-1"))
