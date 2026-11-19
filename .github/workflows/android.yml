@@ -143,7 +143,7 @@ jobs:
           numeric_version = re.search(r'^android\.numeric_version\s*=\s*(\d+)', spec, re.M)
           if not app_version or not package_version or app_version.group(1) != package_version.group(1):
               raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
-          if not numeric_version or int(numeric_version.group(1)) < 120:
+          if not numeric_version or int(numeric_version.group(1)) < 125:
               raise SystemExit("android.numeric_version must be set and monotonically increased")
           print("App/APK versions match:", app_version.group(1), "versionCode:", numeric_version.group(1))
           PY
@@ -344,10 +344,60 @@ jobs:
           PY
           python -m compileall -q .
 
-      - name: Build Android APK (debug, paper-only)
+      - name: Configure persistent Android signing (required)
+        id: signing
+        shell: bash
+        env:
+          ANDROID_SIGNING_BUNDLE_BASE64: ${{ secrets.ANDROID_SIGNING_BUNDLE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_SIGNING_BUNDLE_BASE64:-}" ]]; then
+            echo "Required GitHub Actions secret ANDROID_SIGNING_BUNDLE_BASE64 is missing." >&2
+            exit 1
+          fi
+          SIGN_DIR="$RUNNER_TEMP/tabdeal-signing"
+          mkdir -p "$SIGN_DIR"
+          printf '%s' "$ANDROID_SIGNING_BUNDLE_BASE64" | base64 --decode > "$SIGN_DIR/bundle.zip"
+          unzip -q "$SIGN_DIR/bundle.zip" -d "$SIGN_DIR"
+          test -s "$SIGN_DIR/tabdeal-release.p12"
+          test -s "$SIGN_DIR/signing.env"
+          source "$SIGN_DIR/signing.env"
+          test -n "${STORE_PASSWORD:-}"
+          test -n "${KEY_ALIAS:-}"
+          test -n "${KEY_PASSWORD:-}"
+          keytool -list -keystore "$SIGN_DIR/tabdeal-release.p12" -storetype PKCS12 \
+            -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          echo "Persistent release keystore validated."
+
+      - name: Build signed release APK (paper-only)
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
-        run: buildozer -v android debug
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/tabdeal-signing/signing.env"
+          export P4A_RELEASE_KEYSTORE="$RUNNER_TEMP/tabdeal-signing/tabdeal-release.p12"
+          export P4A_RELEASE_KEYSTORE_PASSWD="$STORE_PASSWORD"
+          export P4A_RELEASE_KEYALIAS="$KEY_ALIAS"
+          export P4A_RELEASE_KEYALIAS_PASSWD="$KEY_PASSWORD"
+          buildozer -v android release
+
+      - name: Verify persistent APK signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK" && test -s "$APK"
+          APKSIGNER="$(find "$HOME/.buildozer/android/platform/android-sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
+          ACTUAL="$(awk -F': ' '/certificate SHA-256 digest:/ {print tolower($2); exit}' "$RUNNER_TEMP/apk-signature.txt" | tr -d ':')"
+          EXPECTED="9a41c32295b7723ee8dfadd4c40ee7dbdca9fb8a6c62e43aabc09c9bef741ae5"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "APK signing certificate does not match the established release certificate." >&2
+            cat "$RUNNER_TEMP/apk-signature.txt"
+            exit 1
+          fi
+          echo "APK signature verified against the established release certificate."
 
       - name: Verify APK output and packaged Persian fonts
         run: |
