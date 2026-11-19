@@ -6,6 +6,7 @@ import threading
 import time
 import requests
 import certifi
+from android_tls import mount_tabdeal_tls_compat
 
 APP_VERSION = "1.19"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -492,6 +493,9 @@ class FuturesAnalyzerApp(App):
 
     def check_services(self, requested_symbol="BTC_USDT"):
         session = requests.Session()
+        # Android OpenSSL may fail during TLS 1.3 negotiation with an EOF.
+        # Pin this API session to verified TLS 1.2; certificate checks stay on.
+        mount_tabdeal_tls_compat(session, certifi.where())
         session.headers.update({
             "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
             "Accept": "application/json",
