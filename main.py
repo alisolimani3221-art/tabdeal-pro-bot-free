@@ -713,8 +713,9 @@ class FuturesAnalyzerApp(App):
             if not key or not secret:
                 status.text = fa("هر دو فیلد الزامی هستند.")
                 return
-            key_input.text = ""
-            secret_input.text = ""
+            # Keep the user's input visible until both account verification and
+            # encrypted persistence have succeeded. Clearing it before the worker
+            # finishes made a Keystore/storage failure look like a lost credential.
             key_input.disabled = True
             secret_input.disabled = True
             connect.disabled = True
@@ -743,7 +744,10 @@ class FuturesAnalyzerApp(App):
                     api_secret = ""
                 Clock.schedule_once(lambda dt, value=result: finish(value), 0)
             def finish(result):
-                popup.dismiss()
+                key_input.disabled = False
+                secret_input.disabled = False
+                connect.disabled = False
+                delete_saved.disabled = False
                 if result[0]:
                     data = result[1]
                     lines = [
@@ -762,8 +766,22 @@ class FuturesAnalyzerApp(App):
                     else:
                         lines.append("موقعیت باز فعالی گزارش نشد.")
                     self.account_summary.text = fa("\\n".join(lines))
+                    if result[2].startswith("ذخیره امن روی همین دستگاه انجام شد"):
+                        # Clear the sensitive fields only after the encrypted file
+                        # has been written successfully, then close the dialog.
+                        key_input.text = ""
+                        secret_input.text = ""
+                        popup.dismiss()
+                        status.text = fa("اتصال حساب و ذخیره امن کلید با موفقیت انجام شد.")
+                    else:
+                        # Keep the dialog open and preserve input so the user can
+                        # retry after a Keystore/storage problem without retyping.
+                        status.text = fa(result[2] + " کلیدها هنوز ذخیره نشده‌اند؛ پس از رفع خطا دوباره تلاش کنید.")
                 else:
                     self.account_summary.text = fa("خطا در خواندن حساب: " + result[1])
+                    # Do not discard the user's credentials on a transient API,
+                    # permission, clock-skew, or network failure.
+                    status.text = fa("اتصال موفق نشد: " + result[1][:150])
             worker_thread = threading.Thread(
                 target=worker, args=(key, secret), daemon=True
             )
