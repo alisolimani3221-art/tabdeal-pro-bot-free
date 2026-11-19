@@ -149,7 +149,9 @@ class TradeCoordinator:
     @classmethod
     def restore_state(cls, state, max_open_positions=1, max_notional_usdt=None):
         """Restore local state; halt if a prior run may have submitted an order."""
-        if not isinstance(state, dict) or state.get("schema_version") != 1:
+        if (not isinstance(state, dict)
+                or type(state.get("schema_version")) is not int
+                or state.get("schema_version") != 1):
             raise ValueError("unsupported coordinator state")
         coordinator = cls(max_open_positions, max_notional_usdt)
         intents = state.get("intents", {})
