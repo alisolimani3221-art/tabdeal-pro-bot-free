@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: tabdeal-apk-experiment-v1-19
+  group: tabdeal-apk-experiment-v1-19-fonts
   cancel-in-progress: false
 
 jobs:
