@@ -1415,7 +1415,7 @@ class FuturesAnalyzerApp(App):
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
             "آماده‌سازی: ۰ از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود. "
-            "هیچ سفارش واقعی ارسال نمی‌شود.".format(self.capital_usdt)
+            "هیچ سفارش واقعی ارسال نمی‌شود."
         )
 
     def _stop_auto_worker(self, timeout=3.0):
@@ -1473,6 +1473,7 @@ class FuturesAnalyzerApp(App):
             return
 
         last_processed_bucket = None
+        last_progress_count = -1
         connected_once = False
         while not self.auto_stop_event.is_set():
             def on_open(ws):
@@ -1489,7 +1490,7 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_message(ws, message):
-                nonlocal last_processed_bucket
+                nonlocal last_processed_bucket, last_progress_count
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set() or not parsed.get("ok"):
                     return
@@ -1499,7 +1500,9 @@ class FuturesAnalyzerApp(App):
                 # Surface warm-up progress instead of leaving the UI apparently idle.
                 if not update.get("ready"):
                     closed_count = int(update.get("closed_candles", 0))
-                    if closed_count == 0 or closed_count % 5 == 0:
+                    if closed_count != last_progress_count and (
+                            closed_count == 0 or closed_count % 5 == 0):
+                        last_progress_count = closed_count
                         progress = (
                             "در حال آماده‌سازی موتور | {} | کندل معتبر: {}/۵۱ | "
                             "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
