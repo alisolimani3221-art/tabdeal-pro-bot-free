@@ -28,7 +28,12 @@ class TradeCoordinator:
         if isinstance(max_open_positions, bool) or not isinstance(max_open_positions, int) or max_open_positions < 1:
             raise ValueError("max_open_positions must be a positive integer")
         self.max_open_positions = max_open_positions
-        self.max_notional_usdt = max_notional_usdt
+        if max_notional_usdt is None:
+            self.max_notional_usdt = None
+        else:
+            self.max_notional_usdt = format(
+                _finite_positive(max_notional_usdt, "max_notional_usdt"), "f"
+            )
         self._lock = threading.RLock()
         self._halted = False
         self._halt_reason = None
