@@ -75,6 +75,33 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn('test -s NotoSans-Regular.ttf', workflow)
         self.assertIn('test -s NotoSansArabic-Regular.ttf', workflow)
 
+    def test_account_worker_captures_credentials_before_clearing_them(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        app = next(node for node in tree.body
+                   if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp")
+        account_method = next(node for node in app.body
+                              if isinstance(node, ast.FunctionDef)
+                              and node.name == "open_account_connection")
+        worker = next(node for node in ast.walk(account_method)
+                      if isinstance(node, ast.FunctionDef) and node.name == "worker")
+        defaults = dict(zip(
+            [arg.arg for arg in worker.args.args[-len(worker.args.defaults):]],
+            worker.args.defaults,
+        ))
+        self.assertIsInstance(defaults.get("api_key"), ast.Name)
+        self.assertEqual(defaults["api_key"].id, "key")
+        self.assertIsInstance(defaults.get("api_secret"), ast.Name)
+        self.assertEqual(defaults["api_secret"].id, "secret")
+        calls = [node for node in ast.walk(worker)
+                 if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name)
+                 and node.func.id == "read_futures_account"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([arg.id for arg in calls[0].args
+                          if isinstance(arg, ast.Name)],
+                         ["api_key", "api_secret"])
+
     def test_workflow_concurrency_is_scoped_per_branch(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
         self.assertIn("tabdeal-free-apk-build-${{ github.head_ref || github.ref }}", workflow)
