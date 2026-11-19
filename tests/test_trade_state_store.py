@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from trade_state_store import StateStoreError, TradeStateStore
 
@@ -69,6 +70,22 @@ class TradeStateStoreTests(unittest.TestCase):
             self.store.save({"schema_version": 1, "value": float("nan")})
         with self.assertRaises(StateStoreError):
             self.store.save({"schema_version": 1, "data": "x" * (1024 * 1024)})
+
+    def test_directory_fsync_failure_is_reported(self):
+        real_fsync = os.fsync
+        calls = []
+
+        def fail_second_fsync(fd):
+            calls.append(fd)
+            if len(calls) == 2:
+                raise OSError("directory fsync failed")
+            return real_fsync(fd)
+
+        with mock.patch("trade_state_store.os.fsync", side_effect=fail_second_fsync):
+            with self.assertRaises(StateStoreError):
+                self.store.save(self.state)
+        # Rename may already have happened, but the caller must not treat the
+        # operation as durably committed after the directory fsync failure.
 
     def test_symlink_state_is_rejected(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
