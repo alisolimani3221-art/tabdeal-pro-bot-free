@@ -1414,9 +1414,8 @@ class FuturesAnalyzerApp(App):
         self.update_auto_status(
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
-            "تا تکمیل ۵۱ کندل بسته‌شده، هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.".format(
-                self.capital_usdt
-            )
+            "آماده‌سازی: ۰ از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود. "
+            "هیچ سفارش واقعی ارسال نمی‌شود.".format(self.capital_usdt)
         )
 
     def _stop_auto_worker(self, timeout=3.0):
@@ -1497,6 +1496,17 @@ class FuturesAnalyzerApp(App):
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     return
+                # Surface warm-up progress instead of leaving the UI apparently idle.
+                if not update.get("ready"):
+                    closed_count = int(update.get("closed_candles", 0))
+                    if closed_count == 0 or closed_count % 5 == 0:
+                        progress = (
+                            "در حال آماده‌سازی موتور | {} | کندل معتبر: {}/۵۱ | "
+                            "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
+                        ).format(symbol, min(closed_count, 51))
+                        Clock.schedule_once(
+                            lambda dt, value=progress: self.update_auto_status(value), 0
+                        )
                 # Reconcile any restored open paper position on every validated trade tick.
                 try:
                     tick_event = engine.process_tick(symbol, parsed["price"])
@@ -1528,10 +1538,13 @@ class FuturesAnalyzerApp(App):
                     return
                 if update.get("gap_detected"):
                     last_processed_bucket = None
+                    status = builder.status()
+                    gap_message = (
+                        "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
+                        "کندل معتبر: {}/۵۱ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                    ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
                     Clock.schedule_once(
-                        lambda dt: self.update_auto_status(
-                            "شکاف یا قطع داده شناسایی شد؛ برای جلوگیری از تحلیل ناقص، جمع‌آوری کندل از نو آغاز شد."
-                        ), 0
+                        lambda dt, value=gap_message: self.update_auto_status(value), 0
                     )
                     return
                 current_bucket = (builder.current or {}).get("open_time")
@@ -1600,21 +1613,38 @@ class FuturesAnalyzerApp(App):
                     )
 
             def on_error(ws, error):
+                detail = "{}: {}".format(type(error).__name__, str(error)[:140])
                 Clock.schedule_once(
-                    lambda dt: self.update_auto_status(
-                        "خطای جریان معاملات؛ تلاش برای اتصال مجدد. هیچ سفارش واقعی ارسال نمی‌شود."
+                    lambda dt, value=detail: self.update_auto_status(
+                        "خطای جریان معاملات؛ تلاش برای اتصال مجدد. علت: " + value
                     ), 0
                 )
 
+            def on_close(ws, close_status_code, close_message):
+                if not self.auto_stop_event.is_set():
+                    detail = "کد={}; پیام={}".format(
+                        close_status_code, str(close_message or "بدون توضیح")[:100]
+                    )
+                    Clock.schedule_once(
+                        lambda dt, value=detail: self.update_auto_status(
+                            "جریان معاملات بسته شد؛ اتصال مجدد انجام می‌شود. " + value
+                        ), 0
+                    )
+
             app = websocket.WebSocketApp(
                 BROADCAST_URL, on_open=on_open, on_message=on_message,
-                on_error=on_error,
+                on_error=on_error, on_close=on_close,
             )
             self.auto_ws = app
             try:
                 app.run_forever(ping_interval=20, ping_timeout=10)
-            except Exception:
-                pass
+            except Exception as stream_exc:
+                detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:140])
+                Clock.schedule_once(
+                    lambda dt, value=detail: self.update_auto_status(
+                        "خطای اجرای جریان معاملات؛ تلاش مجدد. علت: " + value
+                    ), 0
+                )
             finally:
                 self.auto_ws = None
             if not self.auto_stop_event.is_set():
@@ -1625,9 +1655,12 @@ class FuturesAnalyzerApp(App):
                 )
                 self.auto_stop_event.wait(3)
 
+        final_status = (
+            "شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است. "
+            "برای جزئیات، پیام آخر وضعیت موتور را بررسی کنید."
+        )
         Clock.schedule_once(
-            lambda dt: self.update_auto_status("شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است."),
-            0,
+            lambda dt, value=final_status: self.update_auto_status(value), 0
         )
 
     def update_technical_labels(self, technical):
