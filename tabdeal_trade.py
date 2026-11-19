@@ -188,19 +188,37 @@ class TabdealFuturesTradeClient:
         })
 
     def set_position_sl_tp(self, symbol, position_id, sl_price=None,
-                           tp_price=None, confirm_live=False):
-        """Set exchange-side stop-loss/take-profit for an existing position."""
+                           tp_price=None, position_side=None,
+                           reference_price=None, confirm_live=False):
+        """Set SL/TP only when both levels bracket an explicit live reference.
+
+        reference_price must be the current price using the same trigger basis
+        (for example mark price) selected by the caller. A successful API
+        acknowledgement is not proof that protective orders are active.
+        """
         self._require_live_confirmation(confirm_live)
         symbol = self._validate_symbol(symbol)
         if isinstance(position_id, bool) or not isinstance(position_id, int) or position_id <= 0:
             raise ValueError("position_id must be a positive integer")
-        params = {"symbol": symbol, "positionId": position_id}
-        if sl_price is not None:
-            params["slPrice"] = format(_positive(sl_price, "sl_price"), "f")
-        if tp_price is not None:
-            params["tpPrice"] = format(_positive(tp_price, "tp_price"), "f")
         if sl_price is None or tp_price is None:
             raise ValueError("both sl_price and tp_price are required")
+        if position_side not in ("LONG", "SHORT"):
+            raise ValueError("position_side must be LONG or SHORT")
+        reference = _positive(reference_price, "reference_price")
+        sl = _positive(sl_price, "sl_price")
+        tp = _positive(tp_price, "tp_price")
+        if position_side == "LONG" and not (sl < reference < tp):
+            raise ValueError("LONG requires sl_price < reference_price < tp_price")
+        if position_side == "SHORT" and not (tp < reference < sl):
+            raise ValueError("SHORT requires tp_price < reference_price < sl_price")
+        params = {
+            "symbol": symbol,
+            "positionId": position_id,
+            "slPrice": format(sl, "f"),
+            "tpPrice": format(tp, "f"),
+        }
+        # This returns the exchange acknowledgement only. Callers must not
+        # treat it as verified protection; market entries remain blocked.
         return self._signed_request("POST", "/v1/positionSlTp", params)
 
     def close_position(self, symbol, confirm_live=False):
