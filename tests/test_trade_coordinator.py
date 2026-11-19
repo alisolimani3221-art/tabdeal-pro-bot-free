@@ -138,6 +138,37 @@ class TradeCoordinatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported coordinator state"):
             TradeCoordinator.restore_state({"schema_version": True, "intents": {}})
 
+    def test_restore_rejects_incomplete_top_level_state(self):
+        for state in (
+            {"schema_version": 1},
+            {"schema_version": 1, "halted": False, "halt_reason": None},
+            {"schema_version": 1, "halted": False, "halt_reason": None,
+             "intents": {}, "unexpected": "field"},
+        ):
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                TradeCoordinator.restore_state(state)
+
+    def test_restore_rejects_invalid_halt_metadata(self):
+        base = {
+            "schema_version": 1, "halted": False,
+            "halt_reason": None, "intents": {},
+        }
+        invalid_states = []
+        for value in (0, 1, "false", None):
+            state = copy.deepcopy(base)
+            state["halted"] = value
+            invalid_states.append(state)
+        state = copy.deepcopy(base)
+        state["halt_reason"] = "stale reason while not halted"
+        invalid_states.append(state)
+        state = copy.deepcopy(base)
+        state["halted"] = True
+        state["halt_reason"] = None
+        invalid_states.append(state)
+        for state in invalid_states:
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                TradeCoordinator.restore_state(state)
+
     def test_restart_with_ambiguous_submitted_state_halts(self):
         state = self.coordinator.export_state()
         state["intents"]["ambiguous"] = {
