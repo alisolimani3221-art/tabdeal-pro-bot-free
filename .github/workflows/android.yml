@@ -276,6 +276,7 @@ jobs:
           font = TTFont("NotoNaskhArabic-Regular.ttf")
           cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
           import arabic_reshaper
+          import unicodedata
           from bidi.algorithm import get_display
           samples = [
               "مرکز عیب‌یابی برنامه",
@@ -290,7 +291,10 @@ jobs:
           shaped = set()
           for sample in samples:
               visual = get_display(arabic_reshaper.reshape(sample), base_dir="R")
-              shaped.update(ord(ch) for ch in visual if not ch.isspace())
+              shaped.update(
+                  ord(ch) for ch in visual
+                  if not ch.isspace() and unicodedata.category(ch) != "Cf"
+              )
           missing = sorted(shaped - cmap)
           if missing:
               raise SystemExit("Noto Naskh font lacks shaped UI glyphs: {}".format(
