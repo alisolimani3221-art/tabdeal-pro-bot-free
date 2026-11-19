@@ -315,12 +315,12 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         self.assertEqual(params["slPrice"], "68000")
         self.assertEqual(params["tpPrice"], "64000")
 
-    def test_close_position_is_disabled_until_endpoint_scope_is_verified(self):
+    def test_close_position_is_disabled_because_endpoint_closes_all_symbol_positions(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
             session=self.session
         )
-        with self.assertRaisesRegex(RuntimeError, "close scope is verified"):
+        with self.assertRaisesRegex(RuntimeError, "closes all open positions for the symbol"):
             client.close_position("BTC_USDT", confirm_live=True)
         self.session.delete.assert_not_called()
 
