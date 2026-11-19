@@ -90,7 +90,15 @@ def validate_order_preflight(symbol, side, quantity, reference_price,
     for position in open_positions:
         if not isinstance(position, dict):
             raise ValueError("open position snapshot contains invalid data")
-        amount = position.get("positionAmt", position.get("amount", 0))
+        position_symbol = position.get("symbol")
+        if not isinstance(position_symbol, str) or not position_symbol.strip():
+            raise ValueError("open position symbol is missing or invalid")
+        if "positionAmt" in position:
+            amount = position["positionAmt"]
+        elif "amount" in position:
+            amount = position["amount"]
+        else:
+            raise ValueError("open position amount is missing")
         try:
             amount_value = Decimal(str(amount))
         except (InvalidOperation, TypeError, ValueError):
