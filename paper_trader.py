@@ -54,7 +54,7 @@ def rank_signal(technical):
     score = trend_strength * 10.0 + momentum_strength - volatility_pct * 0.5
     if not math.isfinite(score):
         return None
-    return {"symbol": symbol, "side": signal,
+    return {"symbol": normalized_symbol, "side": signal,
             "price": price, "atr": atr, "rsi": rsi,
             "volatility_pct": volatility_pct, "score": score}
 
@@ -80,9 +80,8 @@ class PaperTradingEngine:
         self.slippage_rate = float(slippage_rate)
         if not 0 <= self.slippage_rate <= 0.01:
             raise ValueError("invalid slippage")
-        self.max_loss_percent = float(max_loss_percent)
-        if (not math.isfinite(self.max_loss_percent)
-                or not 0 < self.max_loss_percent <= 25):
+        self.max_loss_percent = _positive(max_loss_percent, "max_loss_percent")
+        if self.max_loss_percent > 25:
             raise ValueError("max loss must be above 0 and at most 25 percent")
         self.position = None
         self.closed_trades = []
@@ -132,14 +131,16 @@ class PaperTradingEngine:
             max_loss_percent=state["max_loss_percent"],
         )
 
-        def finite(value, name, allow_zero=False):
+        def finite(value, name, allow_zero=False, allow_negative=False):
             if isinstance(value, bool):
                 raise ValueError("{} is invalid".format(name))
             try:
                 number = float(value)
             except (TypeError, ValueError, OverflowError):
                 raise ValueError("{} is invalid".format(name))
-            if not math.isfinite(number) or (number < 0 if allow_zero else number <= 0):
+            if not math.isfinite(number):
+                raise ValueError("{} is invalid".format(name))
+            if not allow_negative and (number < 0 if allow_zero else number <= 0):
                 raise ValueError("{} is invalid".format(name))
             return number
 
@@ -174,7 +175,7 @@ class PaperTradingEngine:
                          "notional", "risk_budget", "risk_limit", "fees_entry"):
                 finite(position[name], "position " + name,
                        allow_zero=(name in ("risk_budget", "risk_limit", "fees_entry")))
-            finite(position["score"], "position score", allow_zero=True)
+            finite(position["score"], "position score", allow_negative=True)
             leverage = position["leverage"]
             if type(leverage) is not int or not 1 <= leverage <= engine.max_leverage:
                 raise ValueError("paper-engine position leverage is invalid")
@@ -194,7 +195,7 @@ class PaperTradingEngine:
             for name in ("entry", "exit", "quantity", "net_pnl"):
                 if name not in trade:
                     raise ValueError("paper-engine trade record is incomplete")
-                finite(trade[name], "trade " + name, allow_zero=(name == "net_pnl"))
+                finite(trade[name], "trade " + name, allow_zero=(name == "net_pnl"), allow_negative=(name == "net_pnl"))
             if (trade.get("side") not in ("BULLISH", "BEARISH")
                     or not isinstance(trade.get("symbol"), str)
                     or not isinstance(trade.get("reason"), str)):
