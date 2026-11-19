@@ -10,6 +10,8 @@ import stat
 import tempfile
 import threading
 
+from trade_state_lock import TradeStateLock
+
 
 class StateStoreError(RuntimeError):
     """Persisted coordinator state could not be safely read or written."""
@@ -37,10 +39,15 @@ class TradeStateStore:
         self.path = os.path.abspath(path)
         self.directory = os.path.dirname(self.path)
         self._lock = threading.RLock()
+        self._process_lock = TradeStateLock(self.path)
+
+    def exclusive(self):
+        \"\"\"Hold the cross-process lock across a complete state transaction.\"\"\"
+        return self._process_lock
 
     def load(self):
         """Return None only when no state file exists; never mask corruption."""
-        with self._lock:
+        with self.exclusive(), self._lock:
             flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
             try:
                 fd = os.open(self.path, flags)
@@ -93,7 +100,7 @@ class TradeStateStore:
         if len(payload) > self.MAX_STATE_BYTES:
             raise StateStoreError("trade state exceeds size limit")
 
-        with self._lock:
+        with self.exclusive(), self._lock:
             temp_path = None
             try:
                 os.makedirs(self.directory, exist_ok=True)
