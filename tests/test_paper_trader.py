@@ -271,5 +271,38 @@ class PaperTraderTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 PaperTradingEngine(capital=8, max_loss_percent=value)
 
+
+    def test_tick_level_stop_closes_long_and_short_positions(self):
+        long_engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        long_engine.process_scan([setup()])
+        long_position = dict(long_engine.position)
+        event = long_engine.process_tick("AAA_USDT", long_position["stop"] - 0.1)
+        self.assertEqual(event["trade"]["reason"], "STOP_TICK")
+        self.assertLessEqual(event["trade"]["exit"], long_position["stop"])
+
+        short_engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        short_engine.process_scan([setup(signal="BEARISH")])
+        short_position = dict(short_engine.position)
+        event = short_engine.process_tick("AAA_USDT", short_position["stop"] + 0.1)
+        self.assertEqual(event["trade"]["reason"], "STOP_TICK")
+        self.assertGreaterEqual(event["trade"]["exit"], short_position["stop"])
+
+    def test_tick_level_target_closes_position_without_reopening(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        position = dict(engine.position)
+        event = engine.process_tick("AAA_USDT", position["target"] + 0.1)
+        self.assertEqual(event["trade"]["reason"], "TARGET_TICK")
+        self.assertIsNone(engine.position)
+        self.assertIsNone(engine.process_tick("AAA_USDT", 100.0))
+
+    def test_tick_reconciliation_ignores_other_symbols_and_bad_prices(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        self.assertIsNone(engine.process_tick("BBB_USDT", 98.0))
+        with self.assertRaises(ValueError):
+            engine.process_tick("AAA_USDT", float("nan"))
+        self.assertIsNotNone(engine.position)
+
 if __name__ == "__main__":
     unittest.main()
