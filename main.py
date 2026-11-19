@@ -723,7 +723,7 @@ class FuturesAnalyzerApp(App):
             # Capture credentials as worker arguments. Reassigning the outer
             # names inside worker would make them local and trigger
             # UnboundLocalError before the first account request.
-            def worker(api_key=key, api_secret=secret):
+            def worker(api_key, api_secret):
                 try:
                     data = read_futures_account(api_key, api_secret, timeout=22)
                     try:
@@ -764,7 +764,14 @@ class FuturesAnalyzerApp(App):
                     self.account_summary.text = fa("\\n".join(lines))
                 else:
                     self.account_summary.text = fa("خطا در خواندن حساب: " + result[1])
-            threading.Thread(target=worker, daemon=True).start()
+            worker_thread = threading.Thread(
+                target=worker, args=(key, secret), daemon=True
+            )
+            # Remove the UI callback's copies; the worker owns the short-lived
+            # arguments and clears them in its finally block.
+            key = ""
+            secret = ""
+            worker_thread.start()
 
         connect.bind(on_press=start_read)
         popup.open()
