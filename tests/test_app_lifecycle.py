@@ -1,4 +1,5 @@
 import ast
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -8,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from app_runtime_guard import AppRuntimeGuard
 from paper_runner_gate import ensure_paper_runner_ready
+from paper_trader import PaperTradingEngine
 from trade_coordinator_session import TradeCoordinatorSession
 
 
@@ -20,7 +22,8 @@ APP_CLASS = next(
     if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
 )
 METHOD_NAMES = {
-    "on_start", "on_stop", "_stop_auto_worker", "start_auto_paper_trader"
+    "on_start", "on_stop", "_stop_auto_worker", "start_auto_paper_trader",
+    "_persist_paper_engine_state"
 }
 METHOD_NODES = [
     node for node in APP_CLASS.body
@@ -29,6 +32,7 @@ METHOD_NODES = [
 ]
 LIFECYCLE_GLOBALS = {
     "os": os,
+    "json": json,
     "threading": threading,
     "AppRuntimeGuard": AppRuntimeGuard,
     "TradeCoordinatorSession": TradeCoordinatorSession,
@@ -47,12 +51,14 @@ class LifecycleHarness:
     on_stop = LIFECYCLE_GLOBALS["on_stop"]
     _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
+    _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
 
     def __init__(self, user_data_dir):
         self.user_data_dir = user_data_dir
         self.auto_stop_event = threading.Event()
         self.auto_trader_thread = None
         self.auto_ws = None
+        self.auto_engine = None
         self.update_auto_status = Mock()
 
 
@@ -155,6 +161,28 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertIs(snapshot["halted"], False)
         self.assertEqual(snapshot["intents"], {})
 
+
+
+    def test_shutdown_persists_open_paper_position_for_tick_recovery(self):
+        app = LifecycleHarness(self.temp.name)
+        app.on_start()
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([{
+            "symbol": "AAA_USDT", "price": 100, "sma20": 99, "sma50": 98,
+            "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
+            "closed_candles": 51,
+        }])
+        self.assertIsNotNone(engine.position)
+        app.auto_engine = engine
+
+        app.on_stop()
+
+        state_path = os.path.join(self.temp.name, "paper-engine-state.json")
+        with open(state_path, "r", encoding="utf-8") as state_file:
+            recovered = PaperTradingEngine.restore_state(json.load(state_file))
+        self.assertEqual(recovered.position["symbol"], "AAA_USDT")
+        self.assertFalse(recovered.halted)
+        self.assertFalse(os.path.exists(state_path + ".tmp"))
 
 if __name__ == "__main__":
     unittest.main()
