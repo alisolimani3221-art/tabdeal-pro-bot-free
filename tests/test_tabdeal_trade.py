@@ -11,6 +11,33 @@ class TradeAdapterSafetyTests(unittest.TestCase):
             "test-key", "test-secret", session=self.session
         )
 
+    def test_constructor_rejects_non_official_api_hosts_and_paths(self):
+        invalid_urls = [
+            "https://attacker.example/fapi",
+            "https://api1.tabdeal.org.attacker.example/fapi",
+            "http://api1.tabdeal.org/fapi",
+            "https://user@api1.tabdeal.org/fapi",
+            "https://api1.tabdeal.org:8443/fapi",
+            "https://api1.tabdeal.org/other",
+            "https://api1.tabdeal.org/fapi?redirect=1",
+        ]
+        for base_url in invalid_urls:
+            with self.subTest(base_url=base_url):
+                with self.assertRaisesRegex(ValueError, "official Tabdeal"):
+                    TabdealFuturesTradeClient(
+                        "test-key", "test-secret", base_url=base_url,
+                        session=self.session
+                    )
+
+    def test_constructor_accepts_official_api_url_with_trailing_slash(self):
+        client = TabdealFuturesTradeClient(
+            "test-key", "test-secret",
+            base_url="https://api1.tabdeal.org/fapi/",
+            session=self.session
+        )
+        self.assertEqual(client.base_url, "https://api1.tabdeal.org/fapi")
+        self.assertEqual(client.read_base_url, "https://api1.tabdeal.org/r/fapi")
+
     def test_signed_request_rejects_unsupported_method_endpoint_pairs(self):
         invalid_pairs = [
             ("POST", "/v1/position"),
