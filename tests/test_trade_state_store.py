@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from trade_state_store import StateStoreError, TradeStateStore\nfrom trade_state_lock import StateLockError
+from trade_state_store import StateStoreError, TradeStateStore
+from trade_state_lock import StateLockError
 
 
 class TradeStateStoreTests(unittest.TestCase):
