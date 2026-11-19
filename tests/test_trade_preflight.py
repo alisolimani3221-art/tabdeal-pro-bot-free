@@ -54,6 +54,19 @@ class TradePreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "limit reached"):
             self.validate(open_positions=[{"symbol": "ETH_USDT", "positionAmt": "1"}])
 
+    def test_rejects_position_snapshot_missing_amount(self):
+        with self.assertRaisesRegex(ValueError, "amount is missing"):
+            self.validate(open_positions=[{"symbol": "ETH_USDT"}])
+
+    def test_rejects_position_snapshot_missing_symbol(self):
+        with self.assertRaisesRegex(ValueError, "symbol is missing"):
+            self.validate(open_positions=[{"positionAmt": "1"}])
+
+    def test_rejects_position_snapshot_with_invalid_amount(self):
+        for amount in ("NaN", "Infinity", "-Infinity", None, True):
+            with self.subTest(amount=amount), self.assertRaisesRegex(ValueError, "amount is invalid"):
+                self.validate(open_positions=[{"symbol": "ETH_USDT", "positionAmt": amount}])
+
     def test_rejects_notional_cap(self):
         with self.assertRaisesRegex(ValueError, "notional cap"):
             self.validate(max_notional_usdt="20")
