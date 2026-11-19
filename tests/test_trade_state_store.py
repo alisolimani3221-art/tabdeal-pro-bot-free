@@ -48,6 +48,15 @@ class TradeStateStoreTests(unittest.TestCase):
                 with self.assertRaises(StateStoreError):
                     self.store.load()
 
+    def test_boolean_schema_version_is_rejected_on_load_and_save(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as handle:
+            json.dump({"schema_version": True}, handle)
+        with self.assertRaises(StateStoreError):
+            self.store.load()
+        with self.assertRaises(ValueError):
+            self.store.save({"schema_version": True})
+
     def test_unknown_schema_is_rejected(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         with open(self.path, "w", encoding="utf-8") as handle:
