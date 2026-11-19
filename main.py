@@ -42,6 +42,8 @@ from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from app_runtime_guard import AppRuntimeGuard
+from trade_coordinator_session import TradeCoordinatorSession
+from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from multi_market_scan import scan_market_universe
 
@@ -1350,8 +1352,14 @@ class FuturesAnalyzerApp(App):
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
         guard = getattr(self, "runtime_guard", None)
-        if guard is None or not guard.held:
-            self.update_auto_status("شروع مسدود شد: قفل انحصاری برنامه در حافظه داخلی تأیید نشده است.")
+        coordinator_session = getattr(self, "coordinator_session", None)
+        try:
+            ensure_paper_runner_ready(guard, coordinator_session)
+        except Exception as exc:
+            self.update_auto_status(
+                "شروع شبیه‌ساز مسدود شد؛ کنترل ایمنی وضعیت پایدار تأیید نشد: "
+                + type(exc).__name__ + ": " + str(exc)[:120]
+            )
             return
         if self.auto_trader_thread is not None and self.auto_trader_thread.is_alive():
             self.update_auto_status("شبیه‌ساز در حال اجراست؛ برای توقف از توقف اضطراری استفاده کنید.")
@@ -1573,6 +1581,22 @@ class FuturesAnalyzerApp(App):
         self.runtime_guard = AppRuntimeGuard(self.user_data_dir)
         self.runtime_lock_ready = self.runtime_guard.start()
         self.runtime_lock_error = self.runtime_guard.error
+        self.coordinator_session = None
+        self.coordinator_session_error = None
+        if self.runtime_lock_ready:
+            try:
+                state_path = os.path.join(self.user_data_dir, "trade-state.json")
+                self.coordinator_session = TradeCoordinatorSession(
+                    state_path, max_open_positions=1
+                )
+                ensure_paper_runner_ready(
+                    self.runtime_guard, self.coordinator_session
+                )
+            except Exception as exc:
+                self.coordinator_session = None
+                self.coordinator_session_error = (
+                    "{}: {}".format(type(exc).__name__, str(exc)[:160])
+                )
 
     def on_stop(self):
         worker_stopped = True
