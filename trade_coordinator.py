@@ -147,14 +147,50 @@ class TradeCoordinator:
         if not isinstance(intents, dict):
             raise ValueError("invalid coordinator intent state")
         for key, intent in intents.items():
-            if not isinstance(key, str) or not isinstance(intent, dict):
-                raise ValueError("invalid persisted intent")
-            if intent.get("state") != "PREPARED_ONLY" or intent.get("live_order_submitted") is not False:
+            if not isinstance(key, str) or not key.strip() or not isinstance(intent, dict):
+                coordinator.emergency_stop("restart found malformed persisted intent")
+                break
+            required = {
+                "idempotency_key", "symbol", "side", "quantity",
+                "reference_price", "notional_usdt", "stop_loss",
+                "take_profit", "state", "live_order_submitted",
+                "execution_enabled",
+            }
+            if (
+                set(intent) != required
+                or intent.get("idempotency_key") != key
+                or intent.get("state") != "PREPARED_ONLY"
+                or intent.get("live_order_submitted") is not False
+                or intent.get("execution_enabled") is not False
+            ):
                 coordinator.emergency_stop("restart found an ambiguous execution state")
                 break
             symbol = intent.get("symbol")
-            if not isinstance(symbol, str) or symbol in coordinator._active_symbols:
+            side = intent.get("side")
+            if (
+                not isinstance(symbol, str) or not symbol.strip()
+                or side not in ("BUY", "SELL")
+                or symbol in coordinator._active_symbols
+                or len(coordinator._intents) >= coordinator.max_open_positions
+            ):
                 coordinator.emergency_stop("restart found conflicting pending intents")
+                break
+            try:
+                quantity = _finite_positive(intent.get("quantity"), "quantity")
+                entry = _finite_positive(intent.get("reference_price"), "reference_price")
+                notional = _finite_positive(intent.get("notional_usdt"), "notional_usdt")
+                sl = _finite_positive(intent.get("stop_loss"), "stop_loss")
+                tp = _finite_positive(intent.get("take_profit"), "take_profit")
+                if notional != quantity * entry:
+                    raise ValueError("persisted notional mismatch")
+                if coordinator.max_notional_usdt is not None and notional > Decimal(coordinator.max_notional_usdt):
+                    raise ValueError("persisted notional exceeds configured cap")
+                if side == "BUY" and not sl < entry < tp:
+                    raise ValueError("persisted BUY protection is invalid")
+                if side == "SELL" and not tp < entry < sl:
+                    raise ValueError("persisted SELL protection is invalid")
+            except (ValueError, TypeError):
+                coordinator.emergency_stop("restart found invalid persisted intent values")
                 break
             coordinator._active_symbols.add(symbol)
             coordinator._intents[key] = copy.deepcopy(intent)
