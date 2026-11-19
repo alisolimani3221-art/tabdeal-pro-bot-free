@@ -42,7 +42,7 @@ class TradeStateStore:
         self._process_lock = TradeStateLock(self.path)
 
     def exclusive(self):
-        \"\"\"Hold the cross-process lock across a complete state transaction.\"\"\"
+        """Hold the cross-process lock across a complete state transaction."""
         return self._process_lock
 
     def load(self):
