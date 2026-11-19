@@ -77,7 +77,8 @@ class UiFontAssignmentTests(unittest.TestCase):
 
     def test_workflow_concurrency_is_scoped_per_branch(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn("tabdeal-free-apk-build-${{ github.ref }}", workflow)
+        self.assertIn("tabdeal-free-apk-build-${{ github.head_ref || github.ref }}", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
 
     def test_font_license_is_bundled_in_validation_workspace(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
