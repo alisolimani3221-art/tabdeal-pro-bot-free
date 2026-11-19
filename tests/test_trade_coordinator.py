@@ -29,6 +29,15 @@ class TradeCoordinatorTests(unittest.TestCase):
         args.update(kwargs)
         return self.coordinator.prepare_entry(**args)
 
+    def test_constructor_rejects_invalid_notional_caps(self):
+        for value in (True, False, 0, -1, "NaN", "Infinity", "-Infinity", "bad"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "max_notional_usdt"):
+                TradeCoordinator(max_notional_usdt=value)
+
+    def test_constructor_normalizes_decimal_notional_cap(self):
+        coordinator = TradeCoordinator(max_notional_usdt="100.000")
+        self.assertEqual(coordinator.max_notional_usdt, "100.000")
+
     def test_prepare_is_local_only_and_includes_protection(self):
         intent = self.prepare()
         self.assertEqual(intent["state"], "PREPARED_ONLY")
