@@ -23,6 +23,7 @@ on:
       - 'requirements.txt'
       - 'paper_trader.py'
       - 'tabdeal_trade.py'
+      - 'trade_state_store.py'
       - 'server_paper_trader.py'
       - 'Dockerfile.paper'
       - 'docker-compose.paper.yml'
