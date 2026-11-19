@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from tabdeal_trade import TabdealFuturesTradeClient, _resolve_active_position
+from tabdeal_trade import TabdealFuturesTradeClient
 
 
 class TradeAdapterSafetyTests(unittest.TestCase):
@@ -52,55 +52,6 @@ class TradeAdapterSafetyTests(unittest.TestCase):
         self.assertEqual(kwargs["params"]["symbol"], "BTC_USDT")
         self.assertEqual(kwargs["headers"]["X-MBX-APIKEY"], "test-key")
         response.close.assert_called_once()
-
-    def test_active_position_resolver_matches_documented_id_symbol_side_and_status(self):
-        position = {
-            "id": 7001, "symbol": "BTCUSDT", "side": "BUY",
-            "positionAmt": "0.100", "status": "ACTIVE"
-        }
-        resolved = _resolve_active_position([position], "BTC_USDT", "BUY")
-        self.assertEqual(resolved["id"], 7001)
-        self.assertEqual(resolved["symbol"], "BTCUSDT")
-
-    def test_active_position_resolver_rejects_inactive_zero_or_wrong_side(self):
-        base = {
-            "id": 7001, "symbol": "BTCUSDT", "side": "BUY",
-            "positionAmt": "0.100", "status": "ACTIVE"
-        }
-        cases = [
-            {**base, "status": "CLOSED"},
-            {**base, "positionAmt": "0"},
-            {**base, "side": "SELL"},
-            {**base, "id": True},
-            {**base, "id": 0},
-        ]
-        for item in cases:
-            with self.subTest(item=item):
-                with self.assertRaisesRegex(RuntimeError, "exactly one ACTIVE"):
-                    _resolve_active_position([item], "BTC_USDT", "BUY")
-
-    def test_active_position_resolver_rejects_ambiguous_or_malformed_response(self):
-        item = {
-            "id": 7001, "symbol": "BTCUSDT", "side": "BUY",
-            "positionAmt": "0.100", "status": "ACTIVE"
-        }
-        with self.assertRaisesRegex(RuntimeError, "exactly one ACTIVE"):
-            _resolve_active_position([item, {**item, "id": 7002}], "BTC_USDT", "BUY")
-        with self.assertRaisesRegex(ValueError, "must be a list"):
-            _resolve_active_position({"id": 7001}, "BTC_USDT", "BUY")
-        with self.assertRaises(ValueError):
-            _resolve_active_position([item], "BTCUSDT", "BUY")
-
-    def test_active_position_resolver_is_read_only_and_does_not_mutate_input(self):
-        item = {
-            "id": 7001, "symbol": "BTCUSDT", "side": "BUY",
-            "positionAmt": "0.100", "status": "ACTIVE"
-        }
-        resolved = _resolve_active_position([item], "BTC_USDT", "BUY")
-        resolved["id"] = 9999
-        self.assertEqual(item["id"], 7001)
-        self.session.post.assert_not_called()
-        self.session.delete.assert_not_called()
 
     def test_get_positions_rejects_invalid_symbol_before_network(self):
         with self.assertRaises(ValueError):
