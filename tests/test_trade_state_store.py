@@ -100,5 +100,20 @@ class TradeStateStoreTests(unittest.TestCase):
             self.store.load()
 
 
+    def test_exclusive_scope_blocks_another_store_instance(self):
+        other = TradeStateStore(self.path)
+        with self.store.exclusive():
+            with self.assertRaises(StateLockError):
+                other.load()
+        self.assertIsNone(other.load())
+
+    def test_exclusive_scope_supports_read_modify_write_transaction(self):
+        with self.store.exclusive():
+            current = self.store.load()
+            current["halted"] = True
+            current["halt_reason"] = "test transaction"
+            self.store.save(current)
+        self.assertTrue(self.store.load()["halted"])
+
 if __name__ == "__main__":
     unittest.main()
