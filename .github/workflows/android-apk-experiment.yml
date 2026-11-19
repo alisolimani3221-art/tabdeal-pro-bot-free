@@ -1,7 +1,19 @@
 name: Experimental APK build (v1.19)
+run-name: Experimental APK v1.19 - ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - automation/apk-build-check
+    paths:
+      - '**.py'
+      - 'buildozer.spec'
+      - 'requirements.txt'
+      - 'assets/**'
+      - 'Noto*.ttf'
+      - '.github/workflows/android-apk-experiment.yml'
 
 permissions:
   contents: read
