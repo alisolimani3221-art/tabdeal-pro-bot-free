@@ -1,19 +1,52 @@
+import ast
 import os
+from pathlib import Path
 import tempfile
 import threading
 import unittest
 from unittest.mock import Mock, patch
 
-import main
+from app_runtime_guard import AppRuntimeGuard
+from paper_runner_gate import ensure_paper_runner_ready
 from trade_coordinator_session import TradeCoordinatorSession
 
 
-class LifecycleHarness:
-    """Exercise the real Kivy lifecycle methods without creating a UI window."""
+# Load the actual lifecycle method bodies from main.py without importing Kivy.
+# The CI validation image intentionally does not install the Android UI runtime.
+MAIN_SOURCE = Path(__file__).resolve().parents[1] / "main.py"
+MAIN_TREE = ast.parse(MAIN_SOURCE.read_text(encoding="utf-8"))
+APP_CLASS = next(
+    node for node in MAIN_TREE.body
+    if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
+)
+METHOD_NAMES = {
+    "on_start", "on_stop", "_stop_auto_worker", "start_auto_paper_trader"
+}
+METHOD_NODES = [
+    node for node in APP_CLASS.body
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    and node.name in METHOD_NAMES
+]
+LIFECYCLE_GLOBALS = {
+    "os": os,
+    "threading": threading,
+    "AppRuntimeGuard": AppRuntimeGuard,
+    "TradeCoordinatorSession": TradeCoordinatorSession,
+    "ensure_paper_runner_ready": ensure_paper_runner_ready,
+}
+exec(
+    compile(ast.Module(body=METHOD_NODES, type_ignores=[]), str(MAIN_SOURCE), "exec"),
+    LIFECYCLE_GLOBALS,
+)
 
-    on_start = main.FuturesAnalyzerApp.on_start
-    on_stop = main.FuturesAnalyzerApp.on_stop
-    _stop_auto_worker = main.FuturesAnalyzerApp._stop_auto_worker
+
+class LifecycleHarness:
+    """Exercise the real lifecycle method bodies without creating a Kivy window."""
+
+    on_start = LIFECYCLE_GLOBALS["on_start"]
+    on_stop = LIFECYCLE_GLOBALS["on_stop"]
+    _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
+    start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
 
     def __init__(self, user_data_dir):
         self.user_data_dir = user_data_dir
@@ -56,8 +89,9 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         guard.start.return_value = False
         guard.error = "simulated flock failure"
 
-        with patch("main.AppRuntimeGuard", return_value=guard), \
-             patch("main.TradeCoordinatorSession") as session_factory:
+        with patch.dict(LIFECYCLE_GLOBALS, {"AppRuntimeGuard": Mock(return_value=guard)}) as patched:
+            session_factory = Mock()
+            patched["TradeCoordinatorSession"] = session_factory
             app = LifecycleHarness(self.temp.name)
             app.on_start()
 
@@ -100,13 +134,12 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         app = LifecycleHarness(self.temp.name)
         app.runtime_guard = Mock(held=False)
         app.coordinator_session = Mock()
-        app.update_auto_status = Mock()
 
-        main.FuturesAnalyzerApp.start_auto_paper_trader(app)
+        app.start_auto_paper_trader()
 
         app.update_auto_status.assert_called_once()
         self.assertIn("شروع شبیه‌ساز مسدود شد", app.update_auto_status.call_args.args[0])
-        self.assertFalse(hasattr(app, "auto_trader_thread"))
+        self.assertIsNone(app.auto_trader_thread)
 
     def test_persisted_state_is_readable_after_clean_restart(self):
         app = LifecycleHarness(self.temp.name)
