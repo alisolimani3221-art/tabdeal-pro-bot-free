@@ -1349,6 +1349,19 @@ class FuturesAnalyzerApp(App):
         else:
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
+    def _persist_paper_engine_state(self, engine):
+        """Atomically persist the paper-only engine snapshot in app-private storage."""
+        state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+        temporary_path = state_path + ".tmp"
+        with open(temporary_path, "w", encoding="utf-8") as state_file:
+            json.dump(
+                engine.export_state(), state_file, ensure_ascii=False,
+                allow_nan=False, separators=(",", ":"),
+            )
+            state_file.flush()
+            os.fsync(state_file.fileno())
+        os.replace(temporary_path, state_path)
+
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
         guard = getattr(self, "runtime_guard", None)
@@ -1370,11 +1383,34 @@ class FuturesAnalyzerApp(App):
             return
         try:
             builder = TradeCandleBuilder(symbol)
-            engine = PaperTradingEngine(
-                capital=self.capital_usdt, risk_percent=0.5, max_leverage=3
-            )
+            state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            if os.path.isfile(state_path):
+                with open(state_path, "r", encoding="utf-8") as state_file:
+                    engine = PaperTradingEngine.restore_state(json.load(state_file))
+                if engine.halted:
+                    if engine.halt_reason == "EMERGENCY_STOP" and engine.position is None:
+                        # Pressing Start is an explicit operator action to begin a
+                        # fresh paper session after the previous emergency stop.
+                        engine = PaperTradingEngine(
+                            capital=self.capital_usdt, risk_percent=0.5,
+                            max_leverage=3, max_loss_percent=3.0,
+                        )
+                    else:
+                        raise RuntimeError(
+                            "موتور به‌علت عبور از سقف زیان متوقف است؛ شروع خودکار مجاز نیست."
+                        )
+            else:
+                engine = PaperTradingEngine(
+                    capital=self.capital_usdt, risk_percent=0.5,
+                    max_leverage=3, max_loss_percent=3.0,
+                )
+            # Persist the initial or recovered state before starting the stream.
+            self._persist_paper_engine_state(engine)
         except Exception as exc:
-            self.update_auto_status("راه‌اندازی ناموفق: " + type(exc).__name__)
+            self.update_auto_status(
+                "راه‌اندازی موتور مسدود شد؛ وضعیت ذخیره‌شده معتبر یا قابل‌بازیابی نیست: "
+                + type(exc).__name__ + ": " + str(exc)[:160]
+            )
             return
         self.auto_stop_event.clear()
         self.auto_engine = engine
@@ -1420,6 +1456,7 @@ class FuturesAnalyzerApp(App):
         if engine is not None:
             try:
                 close_result = engine.emergency_close()
+                self._persist_paper_engine_state(engine)
             except Exception:
                 close_result = None
         if close_result and close_result.get("event") == "CLOSED":
@@ -1467,6 +1504,34 @@ class FuturesAnalyzerApp(App):
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set() or not parsed.get("ok"):
                     return
+                # Tick-level protection also reconciles an open paper position
+                # immediately after a process restart, before candle warm-up ends.
+                try:
+                    tick_event = engine.process_tick(symbol, parsed["price"])
+                    if tick_event:
+                        self._persist_paper_engine_state(engine)
+                        trade = tick_event["trade"]
+                        tick_message = (
+                            "خروج حفاظتی معامله آزمایشی: {}؛ سود/زیان خالص={:.4f} USDT."
+                        ).format(trade["reason"], trade["net_pnl"])
+                        if tick_event["halted"]:
+                            tick_message += " موتور به سقف زیان رسیده و متوقف شد."
+                            self.auto_stop_event.set()
+                        Clock.schedule_once(
+                            lambda dt, value=tick_message: self.update_auto_status(value), 0
+                        )
+                        if self.auto_stop_event.is_set():
+                            ws.close()
+                            return
+                except Exception as persist_exc:
+                    engine.emergency_close()
+                    self.auto_stop_event.set()
+                    Clock.schedule_once(
+                        lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
+                            "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value
+                        ), 0
+                    )
+                    return
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     return
@@ -1490,6 +1555,17 @@ class FuturesAnalyzerApp(App):
                     if self.auto_stop_event.is_set():
                         return
                     result = engine.process_scan([technical])
+                    try:
+                        self._persist_paper_engine_state(engine)
+                    except Exception as persist_exc:
+                        engine.emergency_close()
+                        self.auto_stop_event.set()
+                        Clock.schedule_once(
+                            lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
+                                "ذخیره وضعیت موتور ناموفق بود؛ توقف اضطراری فعال شد: " + value
+                            ), 0
+                        )
+                        return
                     last_processed_bucket = current_bucket
                     events = result.get("events", [])
                     event_text = ""
@@ -1603,6 +1679,14 @@ class FuturesAnalyzerApp(App):
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
         guard = getattr(self, "runtime_guard", None)
+        if worker_stopped:
+            engine = getattr(self, "auto_engine", None)
+            if engine is not None:
+                try:
+                    self._persist_paper_engine_state(engine)
+                except Exception:
+                    # Do not alter trading state on shutdown if storage is unavailable.
+                    pass
         if guard is not None and worker_stopped:
             try:
                 guard.stop()
