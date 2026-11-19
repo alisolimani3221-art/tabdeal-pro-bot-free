@@ -1404,6 +1404,7 @@ class FuturesAnalyzerApp(App):
                     capital=self.capital_usdt, risk_percent=0.5,
                     max_leverage=3, max_loss_percent=3.0,
                 )
+            recovered_position = engine.position is not None
             # Persist the initial or recovered state before starting the stream.
             self._persist_paper_engine_state(engine)
         except Exception as exc:
@@ -1421,13 +1422,20 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
-        self.update_auto_status(
-            "در حال اتصال به جریان معاملات " + symbol + ".\n"
-            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
-            "تا تکمیل ۵۱ کندل بسته‌شده، هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.".format(
-                self.capital_usdt
+        if recovered_position:
+            self.update_auto_status(
+                "در حال اتصال به جریان معاملات " + symbol + ".\n"
+                "موقعیت آزمایشی قبلی بازیابی شد؛ تا دریافت اولین تیک معتبر، وضعیت حدضرر/حدسود قابل تأیید نیست.\n"
+                "ورود جدید فقط پس از تکمیل دوباره ۵۱ کندل بسته‌شده مجاز است."
             )
-        )
+        else:
+            self.update_auto_status(
+                "در حال اتصال به جریان معاملات " + symbol + ".\n"
+                "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
+                "تا تکمیل ۵۱ کندل بسته‌شده، هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.".format(
+                    self.capital_usdt
+                )
+            )
 
     def _stop_auto_worker(self, timeout=3.0):
         """Signal the paper worker and confirm it has exited before touching shared state."""
@@ -1587,6 +1595,9 @@ class FuturesAnalyzerApp(App):
                             event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
                                 trade["reason"], trade["net_pnl"]
                             )
+                    if result.get("halted"):
+                        event_text += " سقف زیان تجمعی فعال شد؛ موتور متوقف است."
+                        self.auto_stop_event.set()
                     message_text = (
                         "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
                         "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
@@ -1594,6 +1605,8 @@ class FuturesAnalyzerApp(App):
                     ).format(symbol, technical["signal"], technical["price"],
                              builder.status()["closed_candles"], result["equity"],
                              result["closed_trades"], event_text)
+                    if result.get("halted"):
+                        ws.close()
                     Clock.schedule_once(
                         lambda dt, value=message_text: self.update_auto_status(value), 0
                     )
