@@ -59,6 +59,47 @@ def rank_signal(technical):
             "volatility_pct": volatility_pct, "score": score}
 
 
+def diagnose_signal(technical):
+    """Explain why a technical candidate is or is not eligible for paper entry."""
+    if not isinstance(technical, dict):
+        return "داده تحلیل نامعتبر است"
+    signal = technical.get("signal")
+    if signal == "NEUTRAL":
+        return "سیگنال خنثی است؛ روند و مومنتوم هم‌جهت نیستند"
+    if signal not in ("BULLISH", "BEARISH"):
+        return "جهت سیگنال قابل‌شناسایی نیست"
+    count = technical.get("closed_candles")
+    if type(count) is not int or count < 51:
+        return "داده کافی نیست: حداقل ۵۱ کندل بسته‌شده لازم است"
+    symbol = str(technical.get("symbol", "")).strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]+_?USDT", symbol):
+        return "نماد معاملاتی نامعتبر است"
+    try:
+        price = _positive(technical["price"], "price")
+        sma20 = _positive(technical["sma20"], "sma20")
+        sma50 = _positive(technical["sma50"], "sma50")
+        rsi = float(technical["rsi14"])
+        atr = _positive(technical["atr14"], "atr14")
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return "یکی از شاخص‌های قیمت، میانگین، RSI یا ATR نامعتبر است"
+    if not math.isfinite(rsi) or not 0 <= rsi <= 100:
+        return "مقدار RSI نامعتبر است"
+    volatility = atr / price * 100.0
+    if not math.isfinite(volatility) or volatility > 2.0:
+        return "نوسان بیش از حد مجاز ۲٪ است"
+    if signal == "BULLISH":
+        if not price > sma20 > sma50:
+            return "ورود خرید رد شد: قیمت باید بالاتر از SMA20 و SMA20 بالاتر از SMA50 باشد"
+        if not 50 <= rsi < 68:
+            return "ورود خرید رد شد: RSI باید از ۵۰ تا کمتر از ۶۸ باشد"
+    else:
+        if not price < sma20 < sma50:
+            return "ورود فروش رد شد: قیمت باید پایین‌تر از SMA20 و SMA20 پایین‌تر از SMA50 باشد"
+        if not 32 < rsi <= 50:
+            return "ورود فروش رد شد: RSI باید بیشتر از ۳۲ و حداکثر ۵۰ باشد"
+    return "شرایط سیگنال تأیید شده؛ ورود آزمایشی مجاز است"
+
+
 class PaperTradingEngine:
     """One-position paper trader with fixed fractional risk and no live orders."""
 
