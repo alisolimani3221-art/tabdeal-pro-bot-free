@@ -251,4 +251,48 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # APK build intentionally paused: continue CI checks without producing or uploading an executable.
+
+      - name: Install Buildozer and Android Python packaging tools
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install buildozer==1.5.0 cython==0.29.36
+          python -m pip install --target vendor arabic-reshaper==3.0.0 python-bidi==0.4.2 future==1.0.0
+          python -m pip install fonttools
+
+      - name: Verify bundled fonts and RTL runtime dependencies
+        run: |
+          test -s NotoSansArabic-Regular.ttf
+          test -s NotoSans-Regular.ttf
+          test -s assets/NotoSansArabic-Regular.ttf
+          test -s assets/NotoSans-Regular.ttf
+          PYTHONPATH=vendor python -c "import arabic_reshaper; from bidi.algorithm import get_display; print(get_display(arabic_reshaper.reshape('آزمایش فارسی'), base_dir='R'))"
+          python -m compileall -q .
+
+      - name: Build Android APK (debug, paper-only)
+        env:
+          BUILDOZER_WARN_ON_ROOT: "0"
+        run: buildozer -v android debug
+
+      - name: Verify APK output and packaged Persian fonts
+        run: |
+          set -eu
+          APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          unzip -t "$APK"
+          unzip -p "$APK" assets/private.tar > /tmp/private.tar
+          test -s /tmp/private.tar
+          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf
+
+          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSans-Regular\.ttf
+
+          echo "Verified APK: $APK"
+          sha256sum "$APK"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 14
