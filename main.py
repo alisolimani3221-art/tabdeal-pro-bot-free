@@ -1510,6 +1510,11 @@ class FuturesAnalyzerApp(App):
                     tick_event = engine.process_tick(symbol, parsed["price"])
                     if tick_event:
                         self._persist_paper_engine_state(engine)
+                        # Do not re-enter on the same minute that a tick closed
+                        # the previous position.
+                        last_processed_bucket = (
+                            parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
+                        )
                         trade = tick_event["trade"]
                         tick_message = (
                             "خروج حفاظتی معامله آزمایشی: {}؛ سود/زیان خالص={:.4f} USDT."
