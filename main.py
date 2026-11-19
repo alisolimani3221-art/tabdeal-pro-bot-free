@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.23"
+APP_VERSION = "1.24"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -735,9 +735,9 @@ class FuturesAnalyzerApp(App):
                 except Exception as exc:
                     result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]), "")
                 finally:
-                    # Do not retain credentials beyond the account request.
-                    key_ref = None
-                    secret_ref = None
+                    # Drop the worker's references as soon as the request finishes.
+                    key = ""
+                    secret = ""
                 Clock.schedule_once(lambda dt, value=result: finish(value), 0)
             def finish(result):
                 popup.dismiss()
