@@ -1,5 +1,5 @@
 import unittest
-from paper_trader import PaperTradingEngine, rank_signal
+from paper_trader import PaperTradingEngine, rank_signal, diagnose_signal
 
 
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
@@ -13,6 +13,12 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
 
 
 class PaperTraderTests(unittest.TestCase):
+    def test_entry_diagnostics_explain_neutral_and_invalid_setups(self):
+        self.assertIn("خنثی", diagnose_signal(dict(setup(), signal="NEUTRAL")))
+        self.assertIn("RSI", diagnose_signal(dict(setup(), rsi14=75)))
+        self.assertIn("نوسان", diagnose_signal(dict(setup(), atr14=3.0)))
+        self.assertIn("تأیید شده", diagnose_signal(setup()))
+
     def test_rejects_signal_without_minimum_closed_candle_provenance(self):
         for value in (None, 0, 50, 50.9, True, "51"):
             with self.subTest(closed_candles=value):
