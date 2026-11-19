@@ -6,6 +6,7 @@ halt trading rather than silently starting with an empty state.
 """
 import json
 import os
+import stat
 import tempfile
 import threading
 
@@ -40,21 +41,25 @@ class TradeStateStore:
     def load(self):
         """Return None only when no state file exists; never mask corruption."""
         with self._lock:
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
             try:
-                info = os.lstat(self.path)
+                fd = os.open(self.path, flags)
             except FileNotFoundError:
                 return None
             except OSError as exc:
-                raise StateStoreError("cannot inspect trade state") from exc
-            if os.path.islink(self.path) or not os.path.isfile(self.path):
-                raise StateStoreError("trade state path is not a regular file")
-            if info.st_size > self.MAX_STATE_BYTES:
-                raise StateStoreError("trade state file exceeds size limit")
+                raise StateStoreError("cannot safely open trade state") from exc
             try:
-                with open(self.path, "r", encoding="utf-8") as handle:
-                    raw = handle.read(self.MAX_STATE_BYTES + 1)
-                if len(raw.encode("utf-8")) > self.MAX_STATE_BYTES:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode):
+                    raise StateStoreError("trade state path is not a regular file")
+                if info.st_size > self.MAX_STATE_BYTES:
                     raise StateStoreError("trade state file exceeds size limit")
+                with os.fdopen(fd, "rb") as handle:
+                    fd = -1
+                    payload = handle.read(self.MAX_STATE_BYTES + 1)
+                if len(payload) > self.MAX_STATE_BYTES:
+                    raise StateStoreError("trade state file exceeds size limit")
+                raw = payload.decode("utf-8", errors="strict")
                 state = json.loads(
                     raw, parse_constant=_reject_constant,
                     object_pairs_hook=_unique_object
@@ -63,6 +68,9 @@ class TradeStateStore:
                 raise
             except (OSError, UnicodeError, ValueError, TypeError) as exc:
                 raise StateStoreError("trade state is unreadable or corrupt") from exc
+            finally:
+                if fd >= 0:
+                    os.close(fd)
             if (not isinstance(state, dict)
                     or type(state.get("schema_version")) is not int
                     or state.get("schema_version") != 1):
@@ -101,16 +109,13 @@ class TradeStateStore:
                         os.fsync(handle.fileno())
                     os.replace(temp_path, self.path)
                     temp_path = None
+                    dir_fd = os.open(self.directory, os.O_RDONLY)
                     try:
-                        dir_fd = os.open(self.directory, os.O_RDONLY)
-                        try:
-                            os.fsync(dir_fd)
-                        finally:
-                            os.close(dir_fd)
-                    except OSError:
-                        # The atomic rename still protects against partial JSON.
-                        # A directory fsync may not be supported on all Android FS.
-                        pass
+                        # If the directory entry cannot be made durable, report
+                        # failure so callers halt instead of assuming persistence.
+                        os.fsync(dir_fd)
+                    finally:
+                        os.close(dir_fd)
                 except Exception:
                     try:
                         os.close(fd)
