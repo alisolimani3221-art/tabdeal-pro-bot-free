@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import math
 import re
+from decimal import Decimal, InvalidOperation
 import time
 from urllib.parse import urlencode
 
@@ -18,13 +19,14 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]+_USDT$")
 
 
 def _positive(value, name):
+    """Parse a positive finite financial value without binary-float rounding."""
     if isinstance(value, bool):
         raise ValueError("{} must be positive and finite".format(name))
     try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
         raise ValueError("{} must be positive and finite".format(name))
-    if not math.isfinite(number) or number <= 0:
+    if not number.is_finite() or number <= 0:
         raise ValueError("{} must be positive and finite".format(name))
     return number
 
@@ -181,7 +183,7 @@ class TabdealFuturesTradeClient:
             "symbol": symbol,
             "side": side,
             "type": "MARKET",
-            "quantity": format(qty, ".16g"),
+            "quantity": format(qty, "f"),
             "reduceOnly": str(reduce_only).lower(),
         })
 
@@ -194,9 +196,9 @@ class TabdealFuturesTradeClient:
             raise ValueError("position_id must be a positive integer")
         params = {"symbol": symbol, "positionId": position_id}
         if sl_price is not None:
-            params["slPrice"] = format(_positive(sl_price, "sl_price"), ".16g")
+            params["slPrice"] = format(_positive(sl_price, "sl_price"), "f")
         if tp_price is not None:
-            params["tpPrice"] = format(_positive(tp_price, "tp_price"), ".16g")
+            params["tpPrice"] = format(_positive(tp_price, "tp_price"), "f")
         if sl_price is None or tp_price is None:
             raise ValueError("both sl_price and tp_price are required")
         return self._signed_request("POST", "/v1/positionSlTp", params)
