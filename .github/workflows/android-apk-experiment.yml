@@ -54,8 +54,8 @@ jobs:
           from pathlib import Path
           app_lines = Path("main.py").read_text(encoding="utf-8").splitlines()
           spec_lines = Path("buildozer.spec").read_text(encoding="utf-8").splitlines()
-          app_version = next((line.split("=", 1)[1].strip().strip("\\"'") for line in app_lines if line.strip().startswith("APP_VERSION") and "=" in line), None)
-          package_version = next((line.split("=", 1)[1].strip() for line in spec_lines if line.strip().startswith("version") and "=" in line), None)
+          app_version = next((line.partition("=")[2].strip().strip('"').strip("'") for line in app_lines if line.strip().startswith("APP_VERSION") and "=" in line), None)
+          package_version = next((line.partition("=")[2].strip() for line in spec_lines if line.strip().startswith("version") and "=" in line), None)
           if app_version != package_version:
               raise SystemExit("App version and Buildozer version do not match")
           if app_version != "1.19":
