@@ -9,6 +9,7 @@ on:
   push:
     paths:
       - 'main.py'
+      - 'paper_runner_gate.py'
       - 'tabdeal_account.py'
       - 'ai_assistant.py'
       - 'market_format.py'
