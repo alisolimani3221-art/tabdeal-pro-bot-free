@@ -24,6 +24,8 @@ on:
       - 'paper_trader.py'
       - 'tabdeal_trade.py'
       - 'trade_state_store.py'
+      - 'trade_coordinator.py'
+      - 'trade_preflight.py'
       - 'server_paper_trader.py'
       - 'Dockerfile.paper'
       - 'docker-compose.paper.yml'
