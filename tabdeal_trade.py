@@ -195,6 +195,13 @@ class TabdealFuturesTradeClient:
         reference_price must be the current price using the same trigger basis
         (for example mark price) selected by the caller. A successful API
         acknowledgement is not proof that protective orders are active.
+
+        The official API reference documents POST /v1/positionSlTp, but does
+        not document a matching read endpoint or a response schema that can
+        independently confirm both active trigger orders for this position.
+        The documented openOrders and positionRisk examples do not establish
+        that linkage. Therefore this method must not be used to authorize a
+        risk-increasing entry; the adapter keeps those entries blocked.
         """
         self._require_live_confirmation(confirm_live)
         symbol = self._validate_symbol(symbol)
@@ -222,9 +229,13 @@ class TabdealFuturesTradeClient:
         return self._signed_request("POST", "/v1/positionSlTp", params)
 
     def close_position(self, symbol, confirm_live=False):
-        """Close the exchange position for a symbol; requires explicit confirmation."""
-        # Fail closed until the exchange's DELETE scope is verified for
-        # one-way/hedge modes and accounts with multiple positions.
+        """Disabled: Tabdeal documents DELETE /v1/position as closing ALL
+        open positions for the supplied symbol, not one positionId.
+
+        This broad symbol-level scope can close multiple positions at once.
+        Keep this operation fail-closed until a separately reviewed workflow
+        can prove that closing every position for that symbol is intended.
+        """
         raise RuntimeError(
-            "Position closing is disabled until exchange-side close scope is verified"
+            "Position closing is disabled: Tabdeal closes all open positions for the symbol"
         )
