@@ -20,18 +20,20 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 - A read-only WebSocket probe observed a redacted Tabdeal trade-event schema; this is empirical, not an official inner-message contract. See `TRADE_STREAM_SCHEMA.md`.
 - A conservative paper-trading engine uses closed-candle indicators, a 0.5% maximum risk budget per simulated trade, at most 3x simulated leverage, stop-loss and take-profit. It never submits exchange orders.
 - The all-market scanner ranks order-book snapshots by spread only; it does not pretend that order-book data is a technical trading signal.
-- `tabdeal_trade.py` contains a separate futures trade adapter based on the official Tabdeal Python SDK endpoint definitions. It is disabled by default and requires both explicit client enablement and per-operation confirmation. It is not yet connected to the Android UI or automatic strategy.
+- `tabdeal_trade.py` contains a separate futures adapter for authenticated read-only account/position/order queries. All mutating order, SL/TP, and close paths remain blocked until exchange-side behavior and protection can be independently verified; the Android automatic runner is paper-only.
 
 ## Build APK
 The standard `Tabdeal Futures CI (APK build paused)` workflow is validation-only: it runs compilation, regression tests, API checks, and read-only market probes. It does **not** build or upload an APK.
 
-A separate manual workflow named **Experimental APK build (v1.19)** is available under **Actions**:
+A separate workflow named **Experimental APK build (v1.19)** is available under **Actions**. It can be run manually from the `main` branch, and it also runs automatically when app source files, Buildozer settings, requirements, bundled fonts/assets, or the workflow itself change on `main`.
+
+For a manual build:
 1. Open the **Actions** tab.
 2. Select **Experimental APK build (v1.19)**.
 3. Choose **Run workflow** on the `main` branch.
 4. Wait for the build to finish successfully, then download `Futures-Analyzer-v1.19-experimental-APK` from that run's Artifacts section.
 
-This is an experimental debug APK, not a verified release build. It uses GitHub-hosted Ubuntu runners, Java 17, and ARM64. Artifacts are retained for 7 days. A successful validation-only CI run does not mean an APK was produced.
+This is an experimental debug APK, not a verified release build. It uses GitHub-hosted Ubuntu runners, Java 17, ARM64, and bundles the Persian/Arabic and Latin Noto fonts. Artifacts are retained for 7 days. A successful validation-only CI run does not mean an APK was produced.
 
 ## Safety
 The current Android app and paper-trading engine do not submit live orders. The new trade adapter is a separately tested integration layer, but it is disabled by default and not wired into the app. Do not enable automatic live trading until exchange-side order behavior, symbol precision/minimums, position reconciliation, protective stop/target placement, restart recovery, and emergency-close behavior are tested against the actual account. Never put exchange API secrets in source files or commit them to this public repository. Paper results do not guarantee future performance.
