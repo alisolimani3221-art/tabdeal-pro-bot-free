@@ -436,24 +436,9 @@ class FuturesAnalyzerApp(App):
         return root
 
     def make_label(self, text, size=15, color=(1, 1, 1, 1), height=dp(48)):
-        # Shape Persian text exactly once and disable Kivy markup/bidi auto-detection.
-        # Markup font runs inside ordinary home-screen labels were a remaining
-        # source of tofu squares on Android even when the bundled font and RTL
-        # libraries passed their standalone diagnostics.
-        return Label(
-            text=fa_plain(text),
-            font_name=FONT_NAME,
-            markup=False,
-            font_size=sp(size),
-            color=color,
-            size_hint_y=None,
-            height=height,
-            halign="center",
-            valign="middle",
-            text_size=(Window.width - dp(40), None),
-            base_direction="ltr",
-            text_language="ar",
-        )
+        return Label(text=fa(text), font_name=font_for_text(text), markup=True, font_size=sp(size), color=color,
+                     size_hint_y=None, height=height, halign="center", valign="middle",
+                     text_size=(Window.width - dp(40), None))
 
     def section_title(self, text):
         return self.make_label(text, size=17, color=(0.35, 0.78, 1, 1), height=dp(38))
