@@ -720,11 +720,14 @@ class FuturesAnalyzerApp(App):
             connect.disabled = True
             delete_saved.disabled = True
             status.text = fa("در حال دریافت امن اطلاعات حساب...")
-            def worker():
+            # Capture credentials as worker arguments. Reassigning the outer
+            # names inside worker would make them local and trigger
+            # UnboundLocalError before the first account request.
+            def worker(api_key=key, api_secret=secret):
                 try:
-                    data = read_futures_account(key, secret, timeout=22)
+                    data = read_futures_account(api_key, api_secret, timeout=22)
                     try:
-                        store.save(key, secret)
+                        store.save(api_key, api_secret)
                         storage_status = "ذخیره امن روی همین دستگاه انجام شد."
                     except Exception as storage_exc:
                         storage_status = (
@@ -736,8 +739,8 @@ class FuturesAnalyzerApp(App):
                     result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]), "")
                 finally:
                     # Drop the worker's references as soon as the request finishes.
-                    key = ""
-                    secret = ""
+                    api_key = ""
+                    api_secret = ""
                 Clock.schedule_once(lambda dt, value=result: finish(value), 0)
             def finish(result):
                 popup.dismiss()
