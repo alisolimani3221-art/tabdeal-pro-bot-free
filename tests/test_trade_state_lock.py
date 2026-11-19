@@ -27,14 +27,16 @@ class TradeStateLockTests(unittest.TestCase):
         )
 
     def test_second_process_cannot_acquire_while_parent_holds_lock(self):
-        lock = TradeStateLock(self.state_path)
-        with lock:
-            result = self._child(
-                "import sys; from trade_state_lock import TradeStateLock, StateLockError; "
-                "p=sys.argv[1]; "
-                "exec('try:\\n TradeStateLock(p).acquire()\\nexcept StateLockError:\\n sys.exit(23)'); "
-                "sys.exit(0)"
-            )
+        code = """import sys
+from trade_state_lock import TradeStateLock, StateLockError
+try:
+    TradeStateLock(sys.argv[1]).acquire()
+except StateLockError:
+    sys.exit(23)
+sys.exit(0)
+"""
+        with TradeStateLock(self.state_path):
+            result = self._child(code)
             self.assertEqual(result.returncode, 23, result.stderr)
         self.assertTrue(os.path.exists(self.state_path + ".lock"))
 
@@ -45,10 +47,12 @@ class TradeStateLockTests(unittest.TestCase):
             self.assertTrue(True)
 
     def test_kernel_releases_lock_after_abnormal_process_exit(self):
-        result = self._child(
-            "import os,sys; from trade_state_lock import TradeStateLock; "
-            "lock=TradeStateLock(sys.argv[1]); lock.acquire(); os._exit(0)"
-        )
+        code = """import os, sys
+from trade_state_lock import TradeStateLock
+TradeStateLock(sys.argv[1]).acquire()
+os._exit(0)
+"""
+        result = self._child(code)
         self.assertEqual(result.returncode, 0, result.stderr)
         with TradeStateLock(self.state_path):
             self.assertTrue(True)
