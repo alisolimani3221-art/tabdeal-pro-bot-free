@@ -134,6 +134,10 @@ class TradeCoordinatorTests(unittest.TestCase):
                 stop_loss="49000", take_profit="53000",
                 account_snapshot_age_seconds=1)
 
+    def test_restore_rejects_boolean_schema_version(self):
+        with self.assertRaisesRegex(ValueError, "unsupported coordinator state"):
+            TradeCoordinator.restore_state({"schema_version": True, "intents": {}})
+
     def test_restart_with_ambiguous_submitted_state_halts(self):
         state = self.coordinator.export_state()
         state["intents"]["ambiguous"] = {
