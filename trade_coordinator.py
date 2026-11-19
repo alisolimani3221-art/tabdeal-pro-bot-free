@@ -149,14 +149,25 @@ class TradeCoordinator:
     @classmethod
     def restore_state(cls, state, max_open_positions=1, max_notional_usdt=None):
         """Restore local state; halt if a prior run may have submitted an order."""
-        if (not isinstance(state, dict)
-                or type(state.get("schema_version")) is not int
-                or state.get("schema_version") != 1):
-            raise ValueError("unsupported coordinator state")
+        required_state_keys = {"schema_version", "halted", "halt_reason", "intents"}
+        if (
+            not isinstance(state, dict)
+            or set(state) != required_state_keys
+            or type(state.get("schema_version")) is not int
+            or state.get("schema_version") != 1
+        ):
+            raise ValueError("unsupported or incomplete coordinator state")
+        halted = state.get("halted")
+        halt_reason = state.get("halt_reason")
+        intents = state.get("intents")
+        if (
+            type(halted) is not bool
+            or not isinstance(intents, dict)
+            or (halted and (not isinstance(halt_reason, str) or not halt_reason.strip()))
+            or (not halted and halt_reason is not None)
+        ):
+            raise ValueError("invalid coordinator recovery metadata")
         coordinator = cls(max_open_positions, max_notional_usdt)
-        intents = state.get("intents", {})
-        if not isinstance(intents, dict):
-            raise ValueError("invalid coordinator intent state")
         for key, intent in intents.items():
             if not isinstance(key, str) or not key.strip() or not isinstance(intent, dict):
                 coordinator.emergency_stop("restart found malformed persisted intent")
