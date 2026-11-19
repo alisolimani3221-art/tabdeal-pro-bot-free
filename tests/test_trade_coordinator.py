@@ -55,6 +55,35 @@ class TradeCoordinatorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "pending intent"):
             self.prepare(idempotency_key="intent-2")
 
+    def test_pending_intent_consumes_global_position_capacity(self):
+        self.prepare()
+        eth_info = copy.deepcopy(self.info)
+        eth_info["symbol"] = "ETH_USDT"
+        with self.assertRaisesRegex(RuntimeError, "including pending intents"):
+            self.prepare(
+                idempotency_key="intent-2", symbol="ETH_USDT",
+                symbol_info=eth_info,
+            )
+
+    def test_open_positions_and_pending_intents_share_global_capacity(self):
+        coordinator = TradeCoordinator(max_open_positions=2, max_notional_usdt="100")
+        coordinator.prepare_entry(
+            idempotency_key="intent-1", symbol="BTC_USDT", side="BUY",
+            quantity="0.001", reference_price="50000", symbol_info=self.info,
+            open_positions=[], stop_loss="49000", take_profit="53000",
+            account_snapshot_age_seconds=1,
+        )
+        eth_info = copy.deepcopy(self.info)
+        eth_info["symbol"] = "ETH_USDT"
+        with self.assertRaisesRegex(RuntimeError, "including pending intents"):
+            coordinator.prepare_entry(
+                idempotency_key="intent-2", symbol="ETH_USDT", side="BUY",
+                quantity="0.001", reference_price="50000", symbol_info=eth_info,
+                open_positions=[{"symbol": "XRP_USDT", "positionAmt": "1"}],
+                stop_loss="49000", take_profit="53000",
+                account_snapshot_age_seconds=1,
+            )
+
     def test_stale_account_snapshot_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "stale"):
             self.prepare(account_snapshot_age_seconds=11)
