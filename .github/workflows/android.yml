@@ -262,6 +262,22 @@ jobs:
           python -m pip install --target vendor arabic-reshaper==3.0.0 python-bidi==0.4.2 future==1.0.0
           python -m pip install fonttools
 
+      - name: Restore v1.15 unified Arabic and Latin runtime font
+        run: |
+          python - <<'PY'
+          import os
+          from fontTools.merge import Merger
+          arabic = "NotoSansArabic-Regular.ttf"
+          latin = "NotoSans-Regular.ttf"
+          if not os.path.isfile(arabic) or not os.path.isfile(latin):
+              raise SystemExit("Arabic and Latin source fonts are both required")
+          merged = Merger().merge([arabic, latin])
+          merged.save(arabic)
+          os.makedirs("assets", exist_ok=True)
+          merged.save("assets/NotoSansArabic-Regular.ttf")
+          print("Unified Arabic+Latin Noto font restored from the v1.15 build path")
+          PY
+
       - name: Verify bundled fonts and RTL runtime dependencies
         run: |
           test -s NotoSansArabic-Regular.ttf
@@ -273,7 +289,7 @@ jobs:
           PYTHONPATH=vendor python -c "import arabic_reshaper; from bidi.algorithm import get_display; print(get_display(arabic_reshaper.reshape('آزمایش فارسی'), base_dir='R'))"
           PYTHONPATH=vendor python - <<'PY'
           from fontTools.ttLib import TTFont
-          font = TTFont("NotoNaskhArabic-Regular.ttf")
+          font = TTFont("NotoSansArabic-Regular.ttf")
           cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
           import arabic_reshaper
           import unicodedata
@@ -297,9 +313,9 @@ jobs:
               )
           missing = sorted(shaped - cmap)
           if missing:
-              raise SystemExit("Noto Naskh font lacks shaped UI glyphs: {}".format(
+              raise SystemExit("Unified Noto Sans Arabic font lacks shaped UI glyphs: {}".format(
                   ["U+{:04X}".format(cp) for cp in missing]))
-          print("Noto Naskh Arabic glyph coverage for representative Persian UI strings: OK")
+          print("Unified Noto Sans Arabic + Latin glyph coverage for representative Persian UI strings: OK")
           PY
           python -m compileall -q .
 
