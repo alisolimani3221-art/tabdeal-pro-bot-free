@@ -52,13 +52,13 @@ from multi_market_scan import scan_market_universe
 # covers Persian letters and Latin digits in one face; also check Android's
 # system Noto font locations as a last-resort fallback.
 FONT_CANDIDATES = [
-    # Use Noto Sans Arabic as the app-wide default: Kivy widgets that implicitly
-    # request Roboto (buttons, spinners, popup titles, text inputs) must also
-    # receive Persian glyphs, not only labels explicitly styled as Persian.
-    os.path.join(BASE_DIR, "NotoSansArabic-Regular.ttf"),
-    os.path.join(BASE_DIR, "assets", "NotoSansArabic-Regular.ttf"),
+    # arabic_reshaper emits Arabic Presentation Forms. Prefer Noto Naskh
+    # because its cmap covers those presentation glyphs reliably on Android.
+    # Noto Sans Arabic remains a fallback for systems without the Naskh file.
     os.path.join(BASE_DIR, "NotoNaskhArabic-Regular.ttf"),
     os.path.join(BASE_DIR, "assets", "NotoNaskhArabic-Regular.ttf"),
+    os.path.join(BASE_DIR, "NotoSansArabic-Regular.ttf"),
+    os.path.join(BASE_DIR, "assets", "NotoSansArabic-Regular.ttf"),
     "/system/fonts/NotoNaskhArabicUI-Regular.ttf",
     "/system/fonts/NotoNaskhArabic-Regular.ttf",
     "/system/fonts/NotoSansArabic-Regular.ttf",
