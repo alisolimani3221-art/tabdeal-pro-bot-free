@@ -7,7 +7,7 @@ def candles(count=56):
     rows = []
     for i in range(count):
         close = 100 + i
-        rows.append([i, close - 1, close + 1, close - 2, close, 1])
+        rows.append([i * 60_000, close - 1, close + 1, close - 2, close, 1])
     return rows
 
 
@@ -85,6 +85,14 @@ class RiskAnalysisTests(unittest.TestCase):
         rows = candles()
         rows[20][0] = rows[19][0]
         with self.assertRaises(ValueError):
+            analyze_klines(rows)
+
+    def test_analysis_rejects_gaps_in_one_minute_history(self):
+        rows = candles()
+        rows[20][0] += 60_000
+        for index in range(21, len(rows)):
+            rows[index][0] += 60_000
+        with self.assertRaisesRegex(ValueError, "gap-free"):
             analyze_klines(rows)
 
     def test_analysis_rejects_negative_timestamp_or_volume(self):

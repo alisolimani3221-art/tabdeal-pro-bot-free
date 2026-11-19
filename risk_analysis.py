@@ -3,6 +3,9 @@
 import math
 
 
+CANDLE_INTERVAL_MS = 60_000
+
+
 def _finite(value, name):
     if isinstance(value, bool):
         raise ValueError("{} must be a finite number".format(name))
@@ -54,6 +57,9 @@ def analyze_klines(candles):
 
     if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
         raise ValueError("candle timestamps must be strictly increasing")
+    if any(current - previous != CANDLE_INTERVAL_MS
+           for previous, current in zip(timestamps, timestamps[1:])):
+        raise ValueError("one-minute candle history must be gap-free")
 
     sma20 = sum(closes[-20:]) / 20.0
     sma50 = sum(closes[-50:]) / 50.0

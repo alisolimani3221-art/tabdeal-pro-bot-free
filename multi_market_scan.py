@@ -6,6 +6,7 @@ from order-book prices and never submits exchange orders.
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import certifi
+from android_tls import mount_tabdeal_tls_compat
 
 from market_symbols import list_market_symbols
 from orderbook import parse_order_book
@@ -30,6 +31,7 @@ def extract_active_symbols(payload):
 
 def _request_json(path, params=None, timeout=18):
     with requests.Session() as session:
+        mount_tabdeal_tls_compat(session, certifi.where())
         session.headers.update({
             "User-Agent": "FuturesAnalyzer-ReadOnly-Scanner/1.0",
             "Accept": "application/json",
