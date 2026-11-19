@@ -213,5 +213,63 @@ class PaperTraderTests(unittest.TestCase):
         self.assertFalse(hasattr(engine, "new_order"))
 
 
+
+    def test_max_cumulative_loss_closes_and_halts_engine(self):
+        engine = PaperTradingEngine(
+            capital=8, risk_percent=0.5, max_loss_percent=0.1,
+            fee_rate=0.0005, slippage_rate=0,
+        )
+        engine.process_scan([setup()])
+        result = engine.process_scan([
+            dict(setup(price=98.0), signal="NEUTRAL")
+        ])
+        self.assertTrue(result["halted"])
+        self.assertEqual(result["halt_reason"], "MAX_LOSS")
+        self.assertEqual(result["events"][-1]["trade"]["reason"], "STOP")
+        blocked = engine.process_scan([setup("BBB_USDT")])
+        self.assertTrue(blocked["halted"])
+        self.assertEqual(blocked["events"], [])
+
+    def test_state_round_trip_preserves_open_position_and_negative_closed_pnl(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        restored = PaperTradingEngine.restore_state(engine.export_state())
+        self.assertEqual(restored.position, engine.position)
+        self.assertAlmostEqual(restored.cash, engine.cash)
+
+        closed = restored.process_scan([
+            dict(setup(price=98.0), signal="NEUTRAL")
+        ])
+        self.assertEqual(closed["events"][0]["trade"]["reason"], "STOP")
+        self.assertLess(closed["events"][0]["trade"]["net_pnl"], 0)
+        recovered = PaperTradingEngine.restore_state(restored.export_state())
+        self.assertIsNone(recovered.position)
+        self.assertEqual(len(recovered.closed_trades), 1)
+        self.assertLess(recovered.closed_trades[0]["net_pnl"], 0)
+
+    def test_restore_rejects_corrupt_or_inconsistent_state(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        valid = engine.export_state()
+        invalid_states = []
+        bad = dict(valid)
+        bad["schema_version"] = True
+        invalid_states.append(bad)
+        bad = dict(valid)
+        bad["cash"] = float("inf")
+        invalid_states.append(bad)
+        bad = dict(valid)
+        bad["halted"] = True
+        bad["halt_reason"] = "unexpected halt"
+        invalid_states.append(bad)
+        for state in invalid_states:
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                PaperTradingEngine.restore_state(state)
+
+    def test_max_loss_setting_rejects_boolean_and_out_of_range_values(self):
+        for value in (True, False, 0, float("nan"), 25.1):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                PaperTradingEngine(capital=8, max_loss_percent=value)
+
 if __name__ == "__main__":
     unittest.main()
