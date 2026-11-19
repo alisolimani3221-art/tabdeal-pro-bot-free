@@ -1474,6 +1474,9 @@ class FuturesAnalyzerApp(App):
 
         last_processed_bucket = None
         last_progress_count = -1
+        last_status_update = 0.0
+        received_messages = 0
+        valid_messages = 0
         connected_once = False
         while not self.auto_stop_event.is_set():
             def on_open(ws):
@@ -1491,14 +1494,57 @@ class FuturesAnalyzerApp(App):
 
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
+                nonlocal last_status_update, received_messages, valid_messages
+                received_messages += 1
                 parsed = parse_trade_message(message, expected_symbol=symbol)
-                if self.auto_stop_event.is_set() or not parsed.get("ok"):
+                if self.auto_stop_event.is_set():
                     return
+                if not parsed.get("ok"):
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "اتصال برقرار است، اما قالب پیام بازار معتبر نیست. "
+                            "دریافتی: {} | معتبر: {} | علت آخر: {}. "
+                            "ساخت کندل تا دریافت داده معتبر متوقف می‌ماند."
+                        ).format(received_messages, valid_messages,
+                                 str(parsed.get("reason", "unknown"))[:48])
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
+                    return
+                valid_messages += 1
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "پیام معتبر دریافت شد، اما برای کندل‌سازی رد شد. "
+                            "معتبر: {} | کندل بسته: {}/51 | علت: {}"
+                        ).format(valid_messages, builder.status()["closed_candles"],
+                                 str(update.get("reason", "unknown"))[:48])
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
                     return
-                # Surface warm-up progress instead of leaving the UI apparently idle.
+                # Surface periodic stream and warm-up diagnostics while preserving
+                # the v1.22 persistence, tick-level protection and signal gates.
                 if not update.get("ready"):
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        stream_status = builder.status()
+                        status_text = (
+                            "جریان معاملات فعال است. کندل بسته: {}/51 | "
+                            "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
+                            "پس از تکمیل داده کافی، تحلیل شروع می‌شود."
+                        ).format(stream_status["closed_candles"], received_messages,
+                                 valid_messages, stream_status["rejected_trades"],
+                                 stream_status["gaps"])
+                        Clock.schedule_once(
+                            lambda dt, value=status_text: self.update_auto_status(value), 0
+                        )
                     closed_count = int(update.get("closed_candles", 0))
                     if closed_count != last_progress_count and (
                             closed_count == 0 or closed_count % 5 == 0):
