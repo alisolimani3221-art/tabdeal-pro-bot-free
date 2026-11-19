@@ -282,10 +282,8 @@ jobs:
           unzip -t "$APK"
           unzip -p "$APK" assets/private.tar > /tmp/private.tar
           test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSansArabic-Regular\.ttf
-
-          tar -tf /tmp/private.tar | grep -E '(^|/)NotoSans-Regular\.ttf
-
+          tar -tf /tmp/private.tar | grep -F 'NotoSansArabic-Regular.ttf'
+          tar -tf /tmp/private.tar | grep -F 'NotoSans-Regular.ttf'
           echo "Verified APK: $APK"
           sha256sum "$APK"
 
