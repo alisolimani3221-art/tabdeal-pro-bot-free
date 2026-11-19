@@ -25,6 +25,7 @@ on:
       - 'tabdeal_trade.py'
       - 'trade_state_store.py'
       - 'trade_state_lock.py'
+      - 'app_runtime_guard.py'
       - 'trade_coordinator.py'
       - 'trade_preflight.py'
       - 'server_paper_trader.py'
