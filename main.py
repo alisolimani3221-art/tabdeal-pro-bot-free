@@ -1447,6 +1447,9 @@ class FuturesAnalyzerApp(App):
 
         last_processed_bucket = None
         connected_once = False
+        last_status_update = 0.0
+        received_messages = 0
+        valid_messages = 0
         while not self.auto_stop_event.is_set():
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
@@ -1457,26 +1460,66 @@ class FuturesAnalyzerApp(App):
                 ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال جمع‌آوری معاملات برای ساخت کندل‌های یک‌دقیقه‌ای."
+                        "اتصال برقرار شد: " + symbol + ". منتظر پیام‌های معاملات بازار هستم؛ هنوز هیچ معامله‌ای انجام نشده است."
                     ), 0
                 )
 
             def on_message(ws, message):
-                nonlocal last_processed_bucket
+                nonlocal last_processed_bucket, last_status_update
+                nonlocal received_messages, valid_messages
+                received_messages += 1
                 parsed = parse_trade_message(message, expected_symbol=symbol)
-                if self.auto_stop_event.is_set() or not parsed.get("ok"):
+                if self.auto_stop_event.is_set():
                     return
+                if not parsed.get("ok"):
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "اتصال برقرار است، اما قالب پیام بازار با الگوی تأییدشده سازگار نیست. "
+                            "پیام دریافتی: {} | پیام معتبر: {} | علت آخر: {}. "
+                            "برای ایمنی، ساخت کندل و معامله متوقف مانده است."
+                        ).format(received_messages, valid_messages,
+                                 str(parsed.get("reason", "unknown"))[:48])
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
+                    return
+                valid_messages += 1
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "پیام بازار دریافت شد، اما برای ساخت کندل رد شد. "
+                            "پیام معتبر: {} | کندل بسته: {}/51 | علت: {}"
+                        ).format(valid_messages, builder.status()["closed_candles"],
+                                 str(update.get("reason", "unknown"))[:48])
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
                     return
                 if update.get("gap_detected"):
                     last_processed_bucket = None
                     Clock.schedule_once(
                         lambda dt: self.update_auto_status(
-                            "شکاف یا قطع داده شناسایی شد؛ برای جلوگیری از تحلیل ناقص، جمع‌آوری کندل از نو آغاز شد."
+                            "شکاف یا قطع داده شناسایی شد؛ تاریخچه کندل پاک شد و گرم‌سازی از نو آغاز شد."
                         ), 0
                     )
                     return
+                now = time.monotonic()
+                if now - last_status_update >= 10 and not builder.is_ready:
+                    last_status_update = now
+                    status = (
+                        "جریان معاملات فعال است و داده معتبر می‌رسد. "
+                        "کندل‌های بسته‌شده: {}/51 | پیام معتبر: {} | ردشده: {}. "
+                        "پس از تکمیل داده کافی، تحلیل آغاز می‌شود."
+                    ).format(builder.status()["closed_candles"], valid_messages,
+                             builder.status()["rejected_trades"])
+                    Clock.schedule_once(
+                        lambda dt, value=status: self.update_auto_status(value), 0
+                    )
                 current_bucket = (builder.current or {}).get("open_time")
                 if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
                     return
@@ -1523,15 +1566,25 @@ class FuturesAnalyzerApp(App):
                     )
 
             def on_error(ws, error):
+                detail = (type(error).__name__ + ": " + str(error))[:120]
+                status = "خطای جریان معاملات: " + detail + " | تلاش برای اتصال مجدد؛ سفارش واقعی ارسال نمی‌شود."
                 Clock.schedule_once(
-                    lambda dt: self.update_auto_status(
-                        "خطای جریان معاملات؛ تلاش برای اتصال مجدد. هیچ سفارش واقعی ارسال نمی‌شود."
-                    ), 0
+                    lambda dt, value=status: self.update_auto_status(value), 0
                 )
+
+            def on_close(ws, close_status_code, close_message):
+                if not self.auto_stop_event.is_set():
+                    detail = "کد بسته‌شدن: {}".format(close_status_code)
+                    if close_message:
+                        detail += " | " + str(close_message)[:70]
+                    status = "جریان معاملات بسته شد؛ " + detail + " | تلاش برای اتصال مجدد."
+                    Clock.schedule_once(
+                        lambda dt, value=status: self.update_auto_status(value), 0
+                    )
 
             app = websocket.WebSocketApp(
                 BROADCAST_URL, on_open=on_open, on_message=on_message,
-                on_error=on_error,
+                on_error=on_error, on_close=on_close,
             )
             self.auto_ws = app
             try:
