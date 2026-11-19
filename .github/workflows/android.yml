@@ -22,6 +22,7 @@ on:
       - 'risk_analysis.py'
       - 'requirements.txt'
       - 'paper_trader.py'
+      - 'tabdeal_trade.py'
       - 'server_paper_trader.py'
       - 'Dockerfile.paper'
       - 'docker-compose.paper.yml'
