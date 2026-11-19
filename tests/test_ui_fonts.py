@@ -86,14 +86,15 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("assets/*.txt", spec)
         self.assertIn('cp "$FONT_LICENSE" assets/FONT-LICENSE.txt', workflow)
 
-    def test_workflow_is_validation_only_and_does_not_build_or_upload_apk(self):
+    def test_workflow_builds_debug_paper_only_apk_and_verifies_fonts(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn("APK build paused", workflow)
         self.assertIn("Run full regression suite", workflow)
-        self.assertNotIn("Install Buildozer", workflow)
-        self.assertNotIn("Build APK", workflow)
-        self.assertNotIn("Upload APK", workflow)
-        self.assertNotIn("assets/private.tar", workflow)
+        self.assertIn("Install Buildozer and Android Python packaging tools", workflow)
+        self.assertIn("Build Android APK (debug, paper-only)", workflow)
+        self.assertIn("Verify APK output and packaged Persian fonts", workflow)
+        self.assertIn("Upload installable APK", workflow)
+        self.assertIn("assets/private.tar", workflow)
+        self.assertIn("tar -tf /tmp/private.tar", workflow)
 
 
 if __name__ == "__main__":
