@@ -63,13 +63,17 @@ class TradeStateStore:
                 raise
             except (OSError, UnicodeError, ValueError, TypeError) as exc:
                 raise StateStoreError("trade state is unreadable or corrupt") from exc
-            if not isinstance(state, dict) or state.get("schema_version") != 1:
+            if (not isinstance(state, dict)
+                    or type(state.get("schema_version")) is not int
+                    or state.get("schema_version") != 1):
                 raise StateStoreError("trade state schema is invalid")
             return state
 
     def save(self, state):
         """Atomically replace state; fsync file and directory before returning."""
-        if not isinstance(state, dict) or state.get("schema_version") != 1:
+        if (not isinstance(state, dict)
+                or type(state.get("schema_version")) is not int
+                or state.get("schema_version") != 1):
             raise ValueError("unsupported coordinator state")
         try:
             payload = json.dumps(
