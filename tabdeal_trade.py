@@ -67,19 +67,18 @@ class TabdealFuturesTradeClient:
         return symbol
 
     def _signed_request(self, method, path, params):
-        # Allow only the exact HTTP-method/endpoint pairs used by public methods.
-        # This prevents an otherwise permitted path from being reused with a
-        # different verb that could change exchange state unexpectedly.
-        allowed_endpoints = {
-            "GET": {
-                "/v1/position", "/v1/order", "/v1/openOrders",
-                "/v3/positionRisk",
-            },
-            "POST": {"/v1/order", "/v1/positionSlTp"},
-            "DELETE": {"/v1/position"},
+        """Perform authenticated read-only requests only.
+
+        Mutating HTTP verbs are deliberately unavailable through this generic
+        transport. This prevents callers from bypassing the public trading
+        methods' safety gates by invoking the transport directly.
+        """
+        allowed_reads = {
+            "/v1/position", "/v1/order", "/v1/openOrders",
+            "/v3/positionRisk",
         }
-        if method not in allowed_endpoints or path not in allowed_endpoints[method]:
-            raise ValueError("unsupported HTTP method/endpoint combination")
+        if method != "GET" or path not in allowed_reads:
+            raise ValueError("unsupported or mutating HTTP method/endpoint")
         values = dict(params)
         values["timestamp"] = int(time.time() * 1000)
         query = urlencode(values)
@@ -87,32 +86,14 @@ class TabdealFuturesTradeClient:
             self._api_secret.encode("utf-8"), query.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        url = (self.read_base_url if method == "GET" else self.base_url) + path
         response = None
         try:
-            if method == "GET":
-                response = self.session.get(
-                    url, params=values,
-                    headers={"X-MBX-APIKEY": self._api_key,
-                             "Accept": "application/json"},
-                    timeout=self.timeout,
-                )
-            elif method == "POST":
-                response = self.session.post(
-                    url, data=values,
-                    headers={"X-MBX-APIKEY": self._api_key,
-                             "Accept": "application/json"},
-                    timeout=self.timeout,
-                )
-            elif method == "DELETE":
-                response = self.session.delete(
-                    url, params=values,
-                    headers={"X-MBX-APIKEY": self._api_key,
-                             "Accept": "application/json"},
-                    timeout=self.timeout,
-                )
-            else:
-                raise ValueError("unsupported HTTP method")
+            response = self.session.get(
+                self.read_base_url + path, params=values,
+                headers={"X-MBX-APIKEY": self._api_key,
+                         "Accept": "application/json"},
+                timeout=self.timeout,
+            )
             if not response.ok:
                 detail = str(getattr(response, "text", ""))[:240]
                 raise RuntimeError("Tabdeal HTTP {}: {}".format(
@@ -163,70 +144,30 @@ class TabdealFuturesTradeClient:
 
     def place_market_order(self, symbol, side, quantity, reduce_only=False,
                            confirm_live=False):
-        """Submit a MARKET order only after two explicit live-trading gates."""
-        self._require_live_confirmation(confirm_live)
-        symbol = self._validate_symbol(symbol)
-        side = str(side).upper()
-        if side not in ("BUY", "SELL"):
-            raise ValueError("side must be BUY or SELL")
-        qty = _positive(quantity, "quantity")
-        if not isinstance(reduce_only, bool):
-            raise ValueError("reduce_only must be boolean")
-        # Until an exchange-verified protected-entry transaction exists, this
-        # adapter must never create new exposure through a naked market order.
-        if not reduce_only:
-            raise RuntimeError(
-                "Risk-increasing market entries are blocked until protective "
-                "stop-loss/take-profit placement can be verified"
-            )
-        return self._signed_request("POST", "/v1/order", {
-            "symbol": symbol,
-            "side": side,
-            "type": "MARKET",
-            "quantity": format(qty, "f"),
-            "reduceOnly": str(reduce_only).lower(),
-        })
+        """Disabled until reduceOnly behavior is independently verified.
+
+        A mock proving that a flag is sent does not prove that the exchange
+        cannot increase exposure in the user's account/position mode.
+        """
+        raise RuntimeError(
+            "All MARKET orders are disabled until reduceOnly semantics and "
+            "position-side behavior are verified against Tabdeal"
+        )
 
     def set_position_sl_tp(self, symbol, position_id, sl_price=None,
                            tp_price=None, position_side=None,
                            reference_price=None, confirm_live=False):
-        """Set SL/TP only when both levels bracket an explicit live reference.
+        """Disabled until position identity and active trigger state are verifiable.
 
-        reference_price must be the current price using the same trigger basis
-        (for example mark price) selected by the caller. A successful API
-        acknowledgement is not proof that protective orders are active.
-
-        The official API reference documents POST /v1/positionSlTp, but does
-        not document a matching read endpoint or a response schema that can
-        independently confirm both active trigger orders for this position.
-        The documented openOrders and positionRisk examples do not establish
-        that linkage. Therefore this method must not be used to authorize a
-        risk-increasing entry; the adapter keeps those entries blocked.
+        The current documented read responses do not establish an independently
+        verifiable link between both active SL/TP triggers and this position.
+        Caller-provided IDs, direction, and reference prices are not sufficient
+        evidence. Do not treat an API acknowledgement as proof of protection.
         """
-        self._require_live_confirmation(confirm_live)
-        symbol = self._validate_symbol(symbol)
-        if isinstance(position_id, bool) or not isinstance(position_id, int) or position_id <= 0:
-            raise ValueError("position_id must be a positive integer")
-        if sl_price is None or tp_price is None:
-            raise ValueError("both sl_price and tp_price are required")
-        if position_side not in ("LONG", "SHORT"):
-            raise ValueError("position_side must be LONG or SHORT")
-        reference = _positive(reference_price, "reference_price")
-        sl = _positive(sl_price, "sl_price")
-        tp = _positive(tp_price, "tp_price")
-        if position_side == "LONG" and not (sl < reference < tp):
-            raise ValueError("LONG requires sl_price < reference_price < tp_price")
-        if position_side == "SHORT" and not (tp < reference < sl):
-            raise ValueError("SHORT requires tp_price < reference_price < sl_price")
-        params = {
-            "symbol": symbol,
-            "positionId": position_id,
-            "slPrice": format(sl, "f"),
-            "tpPrice": format(tp, "f"),
-        }
-        # This returns the exchange acknowledgement only. Callers must not
-        # treat it as verified protection; market entries remain blocked.
-        return self._signed_request("POST", "/v1/positionSlTp", params)
+        raise RuntimeError(
+            "SL/TP writes are disabled until the live position, trigger basis, "
+            "and both active protective orders can be independently verified"
+        )
 
     def close_position(self, symbol, confirm_live=False):
         """Disabled: Tabdeal documents DELETE /v1/position as closing ALL
