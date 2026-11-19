@@ -10,7 +10,7 @@ import math
 import re
 from decimal import Decimal, InvalidOperation
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 
@@ -43,17 +43,24 @@ class TabdealFuturesTradeClient:
             raise ValueError("live_enabled must be boolean")
         if isinstance(timeout, bool) or not math.isfinite(float(timeout)) or float(timeout) <= 0:
             raise ValueError("timeout must be positive and finite")
-        if not isinstance(base_url, str) or not base_url.startswith("https://"):
-            raise ValueError("base_url must use HTTPS")
+        if not isinstance(base_url, str):
+            raise ValueError("base_url must be the official Tabdeal Futures API URL")
+        parsed_base = urlsplit(base_url.rstrip("/"))
+        if (
+            parsed_base.scheme != "https"
+            or parsed_base.netloc != "api1.tabdeal.org"
+            or parsed_base.path != "/fapi"
+            or parsed_base.query
+            or parsed_base.fragment
+        ):
+            raise ValueError("base_url must be exactly the official Tabdeal Futures API URL")
         self._api_key = str(api_key)
         self._api_secret = str(api_secret)
         self.live_enabled = live_enabled
         self.timeout = float(timeout)
         self.session = session or requests
-        self.base_url = base_url.rstrip("/")
-        if not self.base_url.endswith("/fapi"):
-            raise ValueError("base_url must end with /fapi")
-        self.read_base_url = self.base_url[:-5] + "/r/fapi"
+        self.base_url = TRADE_BASE_URL
+        self.read_base_url = "https://api1.tabdeal.org/r/fapi"
 
     def _require_live_confirmation(self, confirm_live):
         if not self.live_enabled or confirm_live is not True:
