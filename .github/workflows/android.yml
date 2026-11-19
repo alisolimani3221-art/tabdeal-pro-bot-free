@@ -271,7 +271,7 @@ jobs:
           test -s assets/NotoNaskhArabic-Regular.ttf
           test -s assets/NotoSans-Regular.ttf
           PYTHONPATH=vendor python -c "import arabic_reshaper; from bidi.algorithm import get_display; print(get_display(arabic_reshaper.reshape('آزمایش فارسی'), base_dir='R'))"
-          python - <<'PY'
+          PYTHONPATH=vendor python - <<'PY'
           from fontTools.ttLib import TTFont
           font = TTFont("NotoNaskhArabic-Regular.ttf")
           cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
