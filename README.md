@@ -4,7 +4,7 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 
 ## Current release status (1.19)
 - Android app version and Buildozer package version are 1.19 (versionCode 119).
-- The repository currently defines a manual experimental **debug** APK workflow only. A persistent release-signing keystore and a verified signed release artifact have not been established; do not treat the experimental APK as a production release or assume it can update an APK signed with a different key.
+- The repository defines an experimental **debug** APK workflow that supports manual runs and automatic builds after relevant app/build changes on `main`. A persistent release-signing keystore and a verified signed release artifact have not been established; do not treat the experimental APK as a production release or assume it can update an APK signed with a different key.
 - The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
 - Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
 - Persian UI font bundling and RTL support are verified during the Android build.
@@ -36,7 +36,7 @@ For a manual build:
 This is an experimental debug APK, not a verified release build. It uses GitHub-hosted Ubuntu runners, Java 17, ARM64, and bundles the Persian/Arabic and Latin Noto fonts. Artifacts are retained for 7 days. A successful validation-only CI run does not mean an APK was produced.
 
 ## Safety
-The current Android app and paper-trading engine do not submit live orders. The new trade adapter is a separately tested integration layer, but it is disabled by default and not wired into the app. Do not enable automatic live trading until exchange-side order behavior, symbol precision/minimums, position reconciliation, protective stop/target placement, restart recovery, and emergency-close behavior are tested against the actual account. Never put exchange API secrets in source files or commit them to this public repository. Paper results do not guarantee future performance.
+The current Android app and paper-trading engine do not submit live orders. The trade adapter exposes authenticated read-only queries; every mutating order, SL/TP, and close path remains blocked and is not wired into the app. Do not enable automatic live trading until exchange-side order behavior, symbol precision/minimums, position reconciliation, protective stop/target placement, restart recovery, and emergency-close behavior are tested against the actual account. Never put exchange API secrets in source files or commit them to this public repository. Paper results do not guarantee future performance.
 
 The on-device stream only runs while the app remains active; Android may suspend it in the background, so it is not an always-on cloud service.
 
