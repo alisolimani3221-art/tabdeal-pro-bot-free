@@ -87,7 +87,7 @@ class TabdealApiContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn("new_order", source)
                 self.assertNotIn("create_order", source)
-                self.assertNotRegex(source, r"\\b(?:requests|session|self\\.session)\\.(?:post|put|delete)\\s*\\(")
+                self.assertNotRegex(source, r"\b(?:requests|session|self\.session)\.(?:post|put|delete)\s*\(")
 
     def test_private_account_client_uses_signed_read_gateway_and_is_get_only(self):
         source = self.read("tabdeal_account.py").lower()
