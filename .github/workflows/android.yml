@@ -6,6 +6,7 @@ on:
   pull_request:
     branches:
       - main
+      - audit/pr12-decimal-safety
   push:
     paths:
       - 'main.py'
