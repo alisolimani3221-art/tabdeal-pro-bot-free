@@ -6,8 +6,9 @@ import threading
 import time
 import requests
 import certifi
+from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.21"
+APP_VERSION = "1.22"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -491,6 +492,7 @@ class FuturesAnalyzerApp(App):
 
     def check_services(self, requested_symbol="BTC_USDT"):
         session = requests.Session()
+        mount_tabdeal_tls_compat(session, certifi.where())
         session.headers.update({
             "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
             "Accept": "application/json",
@@ -1348,6 +1350,17 @@ class FuturesAnalyzerApp(App):
         else:
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
+    def _persist_paper_engine_state(self, engine):
+        """Atomically persist the paper-only engine snapshot in app-private storage."""
+        state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+        temporary_path = state_path + ".tmp"
+        with open(temporary_path, "w", encoding="utf-8") as state_file:
+            json.dump(engine.export_state(), state_file, ensure_ascii=False,
+                      allow_nan=False, separators=(",", ":"))
+            state_file.flush()
+            os.fsync(state_file.fileno())
+        os.replace(temporary_path, state_path)
+
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
         guard = getattr(self, "runtime_guard", None)
@@ -1369,11 +1382,25 @@ class FuturesAnalyzerApp(App):
             return
         try:
             builder = TradeCandleBuilder(symbol)
-            engine = PaperTradingEngine(
-                capital=self.capital_usdt, risk_percent=0.5, max_leverage=3
-            )
+            state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            if os.path.isfile(state_path):
+                with open(state_path, "r", encoding="utf-8") as state_file:
+                    engine = PaperTradingEngine.restore_state(json.load(state_file))
+                if engine.position is not None and engine.position["symbol"] != symbol:
+                    raise RuntimeError("یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(engine.position["symbol"]))
+                if engine.halted:
+                    if engine.halt_reason == "EMERGENCY_STOP" and engine.position is None:
+                        engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
+                                                    max_leverage=3, max_loss_percent=3.0)
+                    else:
+                        raise RuntimeError("موتور به‌علت عبور از سقف زیان متوقف است؛ شروع خودکار مجاز نیست.")
+            else:
+                engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
+                                            max_leverage=3, max_loss_percent=3.0)
+            self._persist_paper_engine_state(engine)
         except Exception as exc:
-            self.update_auto_status("راه‌اندازی ناموفق: " + type(exc).__name__)
+            self.update_auto_status("راه‌اندازی موتور مسدود شد؛ وضعیت ذخیره‌شده معتبر یا قابل‌بازیابی نیست: "
+                                    + type(exc).__name__ + ": " + str(exc)[:160])
             return
         self.auto_stop_event.clear()
         self.auto_engine = engine
@@ -1419,6 +1446,7 @@ class FuturesAnalyzerApp(App):
         if engine is not None:
             try:
                 close_result = engine.emergency_close()
+                self._persist_paper_engine_state(engine)
             except Exception:
                 close_result = None
         if close_result and close_result.get("event") == "CLOSED":
@@ -1469,6 +1497,35 @@ class FuturesAnalyzerApp(App):
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     return
+                # Reconcile any restored open paper position on every validated trade tick.
+                try:
+                    tick_event = engine.process_tick(symbol, parsed["price"])
+                    if tick_event:
+                        self._persist_paper_engine_state(engine)
+                        last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
+                        trade = tick_event["trade"]
+                        tick_message = "خروج حفاظتی معامله آزمایشی: {}؛ سود/زیان خالص={:.4f} USDT.".format(trade["reason"], trade["net_pnl"])
+                        if tick_event["halted"]:
+                            tick_message += " موتور به سقف زیان رسیده و متوقف شد."
+                            self.auto_stop_event.set()
+                        Clock.schedule_once(lambda dt, value=tick_message: self.update_auto_status(value), 0)
+                        if self.auto_stop_event.is_set():
+                            ws.close()
+                            return
+                except Exception as persist_exc:
+                    try:
+                        engine.emergency_close()
+                        self._persist_paper_engine_state(engine)
+                    except Exception:
+                        pass
+                    self.auto_stop_event.set()
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
+                        "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
+                    return
                 if update.get("gap_detected"):
                     last_processed_bucket = None
                     Clock.schedule_once(
@@ -1489,6 +1546,22 @@ class FuturesAnalyzerApp(App):
                     if self.auto_stop_event.is_set():
                         return
                     result = engine.process_scan([technical])
+                    try:
+                        self._persist_paper_engine_state(engine)
+                    except Exception as persist_exc:
+                        try:
+                            engine.emergency_close()
+                            self._persist_paper_engine_state(engine)
+                        except Exception:
+                            pass
+                        self.auto_stop_event.set()
+                        try:
+                            ws.close()
+                        except Exception:
+                            pass
+                        Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
+                            "ذخیره وضعیت موتور ناموفق بود؛ توقف اضطراری فعال شد: " + value), 0)
+                        return
                     last_processed_bucket = current_bucket
                     events = result.get("events", [])
                     event_text = ""
@@ -1505,6 +1578,10 @@ class FuturesAnalyzerApp(App):
                             event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
                                 trade["reason"], trade["net_pnl"]
                             )
+                    if result.get("halted"):
+                        event_text += " سقف زیان تجمعی فعال شد؛ موتور متوقف است."
+                        self.auto_stop_event.set()
+                        ws.close()
                     message_text = (
                         "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
                         "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
@@ -1602,6 +1679,13 @@ class FuturesAnalyzerApp(App):
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
         guard = getattr(self, "runtime_guard", None)
+        if worker_stopped:
+            engine = getattr(self, "auto_engine", None)
+            if engine is not None:
+                try:
+                    self._persist_paper_engine_state(engine)
+                except Exception:
+                    pass
         if guard is not None and worker_stopped:
             try:
                 guard.stop()
