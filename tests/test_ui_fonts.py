@@ -85,14 +85,8 @@ class UiFontAssignmentTests(unittest.TestCase):
                               and node.name == "open_account_connection")
         worker = next(node for node in ast.walk(account_method)
                       if isinstance(node, ast.FunctionDef) and node.name == "worker")
-        defaults = dict(zip(
-            [arg.arg for arg in worker.args.args[-len(worker.args.defaults):]],
-            worker.args.defaults,
-        ))
-        self.assertIsInstance(defaults.get("api_key"), ast.Name)
-        self.assertEqual(defaults["api_key"].id, "key")
-        self.assertIsInstance(defaults.get("api_secret"), ast.Name)
-        self.assertEqual(defaults["api_secret"].id, "secret")
+        self.assertEqual([arg.arg for arg in worker.args.args], ["api_key", "api_secret"])
+        self.assertEqual(worker.args.defaults, [])
         calls = [node for node in ast.walk(worker)
                  if isinstance(node, ast.Call)
                  and isinstance(node.func, ast.Name)
@@ -101,6 +95,18 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertEqual([arg.id for arg in calls[0].args
                           if isinstance(arg, ast.Name)],
                          ["api_key", "api_secret"])
+        thread_calls = [node for node in ast.walk(account_method)
+                        if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "Thread"]
+        self.assertTrue(any(
+            any(keyword.arg == "args"
+                and isinstance(keyword.value, ast.Tuple)
+                and [item.id for item in keyword.value.elts
+                     if isinstance(item, ast.Name)] == ["key", "secret"]
+                for keyword in call.keywords)
+            for call in thread_calls
+        ))
 
     def test_workflow_concurrency_is_scoped_per_branch(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
