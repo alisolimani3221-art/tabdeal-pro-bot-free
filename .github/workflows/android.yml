@@ -275,11 +275,27 @@ jobs:
           from fontTools.ttLib import TTFont
           font = TTFont("NotoNaskhArabic-Regular.ttf")
           cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
-          required = {0xFE8D, 0xFE8E, 0xFB8E, 0xFB8F, 0xFEE2}
-          missing = sorted(required - cmap)
+          import arabic_reshaper
+          from bidi.algorithm import get_display
+          samples = [
+              "مرکز عیب‌یابی برنامه",
+              "اتصال به بازار برقرار شد",
+              "بهترین قیمت خرید و فروش",
+              "دفتر سفارش خرید و فروش",
+              "نمادهای فعال فیوچرز",
+              "شروع آزمایش و توقف اضطراری",
+              "دریافت داده بازار ناموفق بود",
+              "قیمت میانی و اختلاف خرید و فروش",
+          ]
+          shaped = set()
+          for sample in samples:
+              visual = get_display(arabic_reshaper.reshape(sample), base_dir="R")
+              shaped.update(ord(ch) for ch in visual if not ch.isspace())
+          missing = sorted(shaped - cmap)
           if missing:
-              raise SystemExit("Noto Naskh font lacks required Arabic presentation glyphs: {}".format(missing))
-          print("Noto Naskh Arabic presentation-form glyph coverage: OK")
+              raise SystemExit("Noto Naskh font lacks shaped UI glyphs: {}".format(
+                  ["U+{:04X}".format(cp) for cp in missing]))
+          print("Noto Naskh Arabic glyph coverage for representative Persian UI strings: OK")
           PY
           python -m compileall -q .
 
