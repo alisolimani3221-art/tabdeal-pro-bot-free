@@ -249,6 +249,44 @@ class PaperTradingEngine:
                 return {"event": "STOPPED", "trade": None}
             return self._close(self.position["last_price"], "EMERGENCY_STOP")
 
+    def process_tick(self, symbol, price):
+        """Reconcile an open paper position against each validated live trade tick."""
+        with self._lock:
+            if self.halted or self.position is None:
+                return None
+            if not isinstance(symbol, str) or symbol.upper() != self.position["symbol"]:
+                return None
+            latest = _positive(price, "tick price")
+            p = self.position
+            p["last_price"] = latest
+            if p["side"] == "BULLISH":
+                if latest <= p["stop"]:
+                    event = self._close(min(p["stop"], latest), "STOP_TICK")
+                elif latest >= p["target"]:
+                    event = self._close(p["target"], "TARGET_TICK")
+                else:
+                    return None
+            else:
+                if latest >= p["stop"]:
+                    event = self._close(max(p["stop"], latest), "STOP_TICK")
+                elif latest <= p["target"]:
+                    event = self._close(p["target"], "TARGET_TICK")
+                else:
+                    return None
+
+            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+            if self.cash <= loss_floor:
+                self.halted = True
+                self.halt_reason = "MAX_LOSS"
+            return {
+                "event": event["event"],
+                "trade": event["trade"],
+                "halted": self.halted,
+                "halt_reason": self.halt_reason,
+                "cash": self.cash,
+                "equity": self.equity,
+            }
+
     def _process_scan(self, candidates):
         """Update the open position and optionally enter the best valid setup."""
         if self.halted:
