@@ -137,35 +137,18 @@ class TradeAdapterSafetyTests(unittest.TestCase):
                     )
         self.session.post.assert_not_called()
 
-    def test_financial_values_preserve_decimal_precision(self):
-        client = TabdealFuturesTradeClient(
-            "test-key", "test-secret", live_enabled=True,
-            session=self.session
-        )
-        response = Mock()
-        response.ok = True
-        response.json.return_value = {"orderId": 321}
-        self.session.post.return_value = response
-        client.place_market_order(
-            "BTC_USDT", "SELL", "0.000000000000000123",
-            reduce_only=True, confirm_live=True
-        )
+    def test_financial_values_preserve_decimal_precision_without_network_writes(self):
+        from tabdeal_trade import _positive
         self.assertEqual(
-            self.session.post.call_args.kwargs["data"]["quantity"],
+            format(_positive("0.000000000000000123", "quantity"), "f"),
             "0.000000000000000123"
         )
-
-        self.session.post.reset_mock()
-        client.set_position_sl_tp(
-            "BTC_USDT", 42,
-            sl_price="65000.000000000000123",
-            tp_price="68000.000000000000456",
-            position_side="LONG", reference_price="66000",
-            confirm_live=True
+        self.assertEqual(
+            format(_positive("65000.000000000000123", "sl_price"), "f"),
+            "65000.000000000000123"
         )
-        params = self.session.post.call_args.kwargs["data"]
-        self.assertEqual(params["slPrice"], "65000.000000000000123")
-        self.assertEqual(params["tpPrice"], "68000.000000000000456")
+        self.session.post.assert_not_called()
+        self.session.delete.assert_not_called()
 
     def test_decimal_parser_rejects_non_finite_and_boolean_values(self):
         client = TabdealFuturesTradeClient(
@@ -193,28 +176,17 @@ class TradeAdapterSafetyTests(unittest.TestCase):
             )
         self.session.post.assert_not_called()
 
-    def test_valid_order_uses_official_futures_order_endpoint(self):
+    def test_reduce_only_market_order_is_blocked_until_exchange_semantics_verified(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
             session=self.session
         )
-        response = Mock()
-        response.ok = True
-        response.json.return_value = {"orderId": 123}
-        self.session.post.return_value = response
-        result = client.place_market_order(
-            "BTC_USDT", "BUY", "0.001", reduce_only=True,
-            confirm_live=True
-        )
-        self.assertEqual(result["orderId"], 123)
-        args, kwargs = self.session.post.call_args
-        self.assertEqual(args[0], "https://api1.tabdeal.org/fapi/v1/order")
-        self.assertEqual(kwargs["data"]["type"], "MARKET")
-        self.assertEqual(kwargs["data"]["symbol"], "BTC_USDT")
-        self.assertEqual(kwargs["data"]["reduceOnly"], "true")
-        self.assertIn("signature", kwargs["data"])
-        self.assertEqual(kwargs["headers"]["X-MBX-APIKEY"], "test-key")
-        response.close.assert_called_once()
+        with self.assertRaisesRegex(RuntimeError, "All MARKET orders are disabled"):
+            client.place_market_order(
+                "BTC_USDT", "SELL", "0.001", reduce_only=True,
+                confirm_live=True
+            )
+        self.session.post.assert_not_called()
 
     def test_sl_tp_requires_both_valid_protective_prices(self):
         client = TabdealFuturesTradeClient(
@@ -239,25 +211,18 @@ class TradeAdapterSafetyTests(unittest.TestCase):
             )
         self.session.post.assert_not_called()
 
-    def test_sl_tp_uses_documented_endpoint_and_parameters(self):
+    def test_sl_tp_write_is_blocked_until_exchange_protection_is_verifiable(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
             session=self.session
         )
-        response = Mock()
-        response.ok = True
-        response.json.return_value = {"ok": True}
-        self.session.post.return_value = response
-        client.set_position_sl_tp(
-            "BTC_USDT", 42, sl_price="65000", tp_price="68000",
-            position_side="LONG", reference_price="66000",
-            confirm_live=True
-        )
-        args, kwargs = self.session.post.call_args
-        self.assertEqual(args[0], "https://api1.tabdeal.org/fapi/v1/positionSlTp")
-        self.assertEqual(kwargs["data"]["positionId"], 42)
-        self.assertEqual(kwargs["data"]["slPrice"], "65000")
-        self.assertEqual(kwargs["data"]["tpPrice"], "68000")
+        with self.assertRaisesRegex(RuntimeError, "SL/TP writes are disabled"):
+            client.set_position_sl_tp(
+                "BTC_USDT", 42, sl_price="65000", tp_price="68000",
+                position_side="LONG", reference_price="66000",
+                confirm_live=True
+            )
+        self.session.post.assert_not_called()
 
     def test_sl_tp_requires_direction_and_reference_price(self):
         client = TabdealFuturesTradeClient(
@@ -297,23 +262,18 @@ class TradeAdapterSafetyTests(unittest.TestCase):
                     )
         self.session.post.assert_not_called()
 
-    def test_short_sl_tp_accepts_correct_bracketing(self):
+    def test_short_sl_tp_write_is_also_blocked(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
             session=self.session
         )
-        response = Mock()
-        response.ok = True
-        response.json.return_value = {"code": 0, "msg": "accepted"}
-        self.session.post.return_value = response
-        client.set_position_sl_tp(
-            "BTC_USDT", 42, sl_price="68000", tp_price="64000",
-            position_side="SHORT", reference_price="66000",
-            confirm_live=True
-        )
-        params = self.session.post.call_args.kwargs["data"]
-        self.assertEqual(params["slPrice"], "68000")
-        self.assertEqual(params["tpPrice"], "64000")
+        with self.assertRaisesRegex(RuntimeError, "SL/TP writes are disabled"):
+            client.set_position_sl_tp(
+                "BTC_USDT", 42, sl_price="68000", tp_price="64000",
+                position_side="SHORT", reference_price="66000",
+                confirm_live=True
+            )
+        self.session.post.assert_not_called()
 
     def test_close_position_is_disabled_because_endpoint_closes_all_symbol_positions(self):
         client = TabdealFuturesTradeClient(
