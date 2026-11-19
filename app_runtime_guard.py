@@ -13,7 +13,9 @@ class AppRuntimeGuard:
         if not isinstance(user_data_dir, str) or not user_data_dir.strip():
             raise ValueError("app-private data directory is required")
         self.directory = os.path.abspath(user_data_dir)
-        self.lock = TradeStateLock(os.path.join(self.directory, "app-runtime"))
+        # Construct lazily in start(): unsupported flock/filesystems must
+        # disable the guarded feature, not crash the whole Android app at boot.
+        self.lock = None
         self.error = None
         self.started = False
 
@@ -22,6 +24,8 @@ class AppRuntimeGuard:
             return True
         try:
             os.makedirs(self.directory, mode=0o700, exist_ok=True)
+            if self.lock is None:
+                self.lock = TradeStateLock(os.path.join(self.directory, "app-runtime"))
             self.lock.acquire()
             self.started = True
             self.error = None
@@ -40,4 +44,4 @@ class AppRuntimeGuard:
 
     @property
     def held(self):
-        return self.started and self.lock.held
+        return self.started and self.lock is not None and self.lock.held
