@@ -1387,6 +1387,12 @@ class FuturesAnalyzerApp(App):
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
                     engine = PaperTradingEngine.restore_state(json.load(state_file))
+                if engine.position is not None and engine.position["symbol"] != symbol:
+                    raise RuntimeError(
+                        "یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(
+                            engine.position["symbol"]
+                        )
+                    )
                 if engine.halted:
                     if engine.halt_reason == "EMERGENCY_STOP" and engine.position is None:
                         # Pressing Start is an explicit operator action to begin a
