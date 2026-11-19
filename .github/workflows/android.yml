@@ -78,18 +78,21 @@ jobs:
           SANS_FONT="$(find /usr/share/fonts -type f -iname 'NotoSansArabic-Regular.ttf' -print -quit)"
           NASKH_FONT="$(find /usr/share/fonts -type f -iname 'NotoNaskhArabic-Regular.ttf' -print -quit)"
           LATIN_FONT="$(find /usr/share/fonts -type f -iname 'NotoSans-Regular.ttf' -print -quit)"
+          if [ -z "$NASKH_FONT" ]; then
+            echo "Noto Naskh Arabic is required for Arabic Presentation Forms coverage" >&2
+            exit 1
+          fi
           if [ -n "$SANS_FONT" ]; then
             cp "$SANS_FONT" assets/NotoSansArabic-Regular.ttf
             cp "$SANS_FONT" NotoSansArabic-Regular.ttf
-          elif [ -n "$NASKH_FONT" ]; then
-            # Keep a deterministic runtime filename even on runners that
-            # provide Naskh but not Noto Sans Arabic.
+          else
             cp "$NASKH_FONT" assets/NotoSansArabic-Regular.ttf
             cp "$NASKH_FONT" NotoSansArabic-Regular.ttf
-          else
-            echo "No Arabic-capable Noto font found" >&2
-            exit 1
           fi
+          # The runtime selects this font first: arabic_reshaper emits
+          # Arabic Presentation Forms, which must exist in the selected face.
+          cp "$NASKH_FONT" assets/NotoNaskhArabic-Regular.ttf
+          cp "$NASKH_FONT" NotoNaskhArabic-Regular.ttf
           if [ -n "$LATIN_FONT" ]; then
             cp "$LATIN_FONT" assets/NotoSans-Regular.ttf
             cp "$LATIN_FONT" NotoSans-Regular.ttf
@@ -127,7 +130,7 @@ jobs:
           numeric_version = re.search(r'^android\.numeric_version\s*=\s*(\d+)', spec, re.M)
           if not app_version or not package_version or app_version.group(1) != package_version.group(1):
               raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
-          if not numeric_version or int(numeric_version.group(1)) < 119:
+          if not numeric_version or int(numeric_version.group(1)) < 120:
               raise SystemExit("android.numeric_version must be set and monotonically increased")
           print("App/APK versions match:", app_version.group(1), "versionCode:", numeric_version.group(1))
           PY
@@ -262,10 +265,22 @@ jobs:
       - name: Verify bundled fonts and RTL runtime dependencies
         run: |
           test -s NotoSansArabic-Regular.ttf
+          test -s NotoNaskhArabic-Regular.ttf
           test -s NotoSans-Regular.ttf
           test -s assets/NotoSansArabic-Regular.ttf
+          test -s assets/NotoNaskhArabic-Regular.ttf
           test -s assets/NotoSans-Regular.ttf
           PYTHONPATH=vendor python -c "import arabic_reshaper; from bidi.algorithm import get_display; print(get_display(arabic_reshaper.reshape('آزمایش فارسی'), base_dir='R'))"
+          python - <<'PY'
+          from fontTools.ttLib import TTFont
+          font = TTFont("NotoNaskhArabic-Regular.ttf")
+          cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
+          required = {0xFE8D, 0xFE8E, 0xFB8E, 0xFB8F, 0xFEE2}
+          missing = sorted(required - cmap)
+          if missing:
+              raise SystemExit("Noto Naskh font lacks required Arabic presentation glyphs: {}".format(missing))
+          print("Noto Naskh Arabic presentation-form glyph coverage: OK")
+          PY
           python -m compileall -q .
 
       - name: Build Android APK (debug, paper-only)
