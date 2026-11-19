@@ -41,6 +41,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from app_runtime_guard import AppRuntimeGuard
 from tabdeal_account import read_futures_account
 from multi_market_scan import scan_market_universe
 
@@ -1340,9 +1341,18 @@ class FuturesAnalyzerApp(App):
         stop_button.bind(on_press=lambda _button: self.stop_auto_paper_trader())
         close_button.bind(on_press=popup.dismiss)
         popup.open()
+        if not getattr(self, "runtime_lock_ready", False):
+            detail = getattr(self, "runtime_lock_error", None) or "قفل اجرا برقرار نیست."
+            self.update_auto_status("شروع شبیه‌ساز مسدود شد؛ قفل ایمنی حافظه داخلی برقرار نشد. " + detail)
+        else:
+            self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
+        guard = getattr(self, "runtime_guard", None)
+        if guard is None or not guard.held:
+            self.update_auto_status("شروع مسدود شد: قفل انحصاری برنامه در حافظه داخلی تأیید نشده است.")
+            return
         if self.auto_trader_thread is not None and self.auto_trader_thread.is_alive():
             self.update_auto_status("شبیه‌ساز در حال اجراست؛ برای توقف از توقف اضطراری استفاده کنید.")
             return
@@ -1544,6 +1554,13 @@ class FuturesAnalyzerApp(App):
             label.base_direction = "ltr"
             label.text_language = "ar"
 
+    def on_start(self):
+        # Kivy user_data_dir is the app-private writable storage on Android.
+        # If flock or this filesystem is unavailable, keep the paper runner disabled.
+        self.runtime_guard = AppRuntimeGuard(self.user_data_dir)
+        self.runtime_lock_ready = self.runtime_guard.start()
+        self.runtime_lock_error = self.runtime_guard.error
+
     def on_stop(self):
         if hasattr(self, "auto_stop_event"):
             self.auto_stop_event.set()
@@ -1552,6 +1569,13 @@ class FuturesAnalyzerApp(App):
             try:
                 ws.close()
             except Exception:
+                pass
+        guard = getattr(self, "runtime_guard", None)
+        if guard is not None:
+            try:
+                guard.stop()
+            except Exception:
+                # The process exit will release the kernel lock regardless.
                 pass
 
 
