@@ -14,6 +14,9 @@ class TradeAdapterSafetyTests(unittest.TestCase):
     def test_signed_request_rejects_unsupported_method_endpoint_pairs(self):
         invalid_pairs = [
             ("POST", "/v1/position"),
+            ("POST", "/v1/order"),
+            ("POST", "/v1/positionSlTp"),
+            ("DELETE", "/v1/position"),
             ("DELETE", "/v1/order"),
             ("POST", "/v1/openOrders"),
             ("PUT", "/v1/order"),
