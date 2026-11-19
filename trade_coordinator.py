@@ -156,7 +156,7 @@ class TradeCoordinator:
             or type(state.get("schema_version")) is not int
             or state.get("schema_version") != 1
         ):
-            raise ValueError("unsupported or incomplete coordinator state")
+            raise ValueError("unsupported coordinator state (incomplete or invalid)")
         halted = state.get("halted")
         halt_reason = state.get("halt_reason")
         intents = state.get("intents")
