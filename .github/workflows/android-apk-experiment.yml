@@ -1,4 +1,5 @@
 name: Experimental APK build (v1.19)
+run-name: Experimental APK v1.19 - ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
