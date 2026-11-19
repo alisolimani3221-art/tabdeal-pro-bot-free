@@ -1543,8 +1543,15 @@ class FuturesAnalyzerApp(App):
                             ws.close()
                             return
                 except Exception as persist_exc:
-                    engine.emergency_close()
+                    try:
+                        engine.emergency_close()
+                    except Exception:
+                        pass
                     self.auto_stop_event.set()
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
                     Clock.schedule_once(
                         lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                             "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value
@@ -1577,8 +1584,15 @@ class FuturesAnalyzerApp(App):
                     try:
                         self._persist_paper_engine_state(engine)
                     except Exception as persist_exc:
-                        engine.emergency_close()
+                        try:
+                            engine.emergency_close()
+                        except Exception:
+                            pass
                         self.auto_stop_event.set()
+                        try:
+                            ws.close()
+                        except Exception:
+                            pass
                         Clock.schedule_once(
                             lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                                 "ذخیره وضعیت موتور ناموفق بود؛ توقف اضطراری فعال شد: " + value
