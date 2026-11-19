@@ -8,7 +8,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json,ttf,txt
 source.include_patterns = assets/*.ttf,assets/*.txt
 
-version = 1.21
+version = 1.24
 requirements = python3,kivy,requests,websocket-client==1.8.0,certifi,arabic-reshaper==3.0.0,python-bidi==0.4.2,future==1.0.0
 
 orientation = portrait
@@ -19,8 +19,8 @@ android.permissions = INTERNET
 android.api = 35
 android.minapi = 23
 android.archs = arm64-v8a
-android.numeric_version = 121
-android.allow_backup = True
+android.numeric_version = 124
+android.allow_backup = False
 android.release_artifact = apk
 
 p4a.branch = v2024.01.21
