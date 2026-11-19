@@ -36,7 +36,36 @@ jobs:
           sudo apt-get install -y \
             build-essential git zip unzip openjdk-17-jdk \
             autoconf automake libtool pkg-config cmake \
-            zlib1g-dev libncurses5-dev libffi-dev libssl-dev
+            zlib1g-dev libncurses5-dev libffi-dev libssl-dev fonts-noto-core
+
+      - name: Bundle Persian and Latin runtime fonts
+        run: |
+          mkdir -p assets
+          SANS_FONT="$(find /usr/share/fonts -type f -iname 'NotoSansArabic-Regular.ttf' -print -quit)"
+          NASKH_FONT="$(find /usr/share/fonts -type f -iname 'NotoNaskhArabic-Regular.ttf' -print -quit)"
+          LATIN_FONT="$(find /usr/share/fonts -type f -iname 'NotoSans-Regular.ttf' -print -quit)"
+          if [ -n "$SANS_FONT" ]; then
+            cp "$SANS_FONT" assets/NotoSansArabic-Regular.ttf
+            cp "$SANS_FONT" NotoSansArabic-Regular.ttf
+          elif [ -n "$NASKH_FONT" ]; then
+            cp "$NASKH_FONT" assets/NotoSansArabic-Regular.ttf
+            cp "$NASKH_FONT" NotoSansArabic-Regular.ttf
+          else
+            echo "No Arabic-capable Noto font found" >&2
+            exit 1
+          fi
+          if [ -z "$LATIN_FONT" ]; then
+            echo "No Noto Sans Latin font found" >&2
+            exit 1
+          fi
+          cp "$LATIN_FONT" assets/NotoSans-Regular.ttf
+          cp "$LATIN_FONT" NotoSans-Regular.ttf
+          FONT_LICENSE="/usr/share/doc/fonts-noto-core/copyright"
+          test -s "$FONT_LICENSE"
+          cp "$FONT_LICENSE" assets/FONT-LICENSE.txt
+          test -s NotoSansArabic-Regular.ttf
+          test -s NotoSans-Regular.ttf
+          ls -lh Noto*Regular.ttf assets/FONT-LICENSE.txt
 
       - name: Select Java 17 for Gradle and Buildozer
         uses: actions/setup-java@v4
