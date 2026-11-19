@@ -251,3 +251,5 @@ jobs:
           retention-days: 7
 
       # APK build intentionally paused: continue CI checks without producing or uploading an executable.
+
+# CI trigger: validate PR18 head c736c7fd36801fa872853c51bd049484dfe13410 on an isolated verification branch.
