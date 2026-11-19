@@ -144,11 +144,20 @@ class TabdealFuturesTradeClient:
 
     def place_market_order(self, symbol, side, quantity, reduce_only=False,
                            confirm_live=False):
-        """Disabled until reduceOnly behavior is independently verified.
-
-        A mock proving that a flag is sent does not prove that the exchange
-        cannot increase exposure in the user's account/position mode.
-        """
+        """Validate inputs, then fail closed for every unverified MARKET write."""
+        self._require_live_confirmation(confirm_live)
+        symbol = self._validate_symbol(symbol)
+        side = str(side).upper()
+        if side not in ("BUY", "SELL"):
+            raise ValueError("side must be BUY or SELL")
+        _positive(quantity, "quantity")
+        if not isinstance(reduce_only, bool):
+            raise ValueError("reduce_only must be boolean")
+        if not reduce_only:
+            raise RuntimeError(
+                "Risk-increasing market entries are blocked until protective "
+                "stop-loss/take-profit placement can be verified"
+            )
         raise RuntimeError(
             "All MARKET orders are disabled until reduceOnly semantics and "
             "position-side behavior are verified against Tabdeal"
@@ -157,13 +166,28 @@ class TabdealFuturesTradeClient:
     def set_position_sl_tp(self, symbol, position_id, sl_price=None,
                            tp_price=None, position_side=None,
                            reference_price=None, confirm_live=False):
-        """Disabled until position identity and active trigger state are verifiable.
+        """Validate requested levels, then fail closed until protection is verifiable.
 
         The current documented read responses do not establish an independently
         verifiable link between both active SL/TP triggers and this position.
         Caller-provided IDs, direction, and reference prices are not sufficient
         evidence. Do not treat an API acknowledgement as proof of protection.
         """
+        self._require_live_confirmation(confirm_live)
+        self._validate_symbol(symbol)
+        if isinstance(position_id, bool) or not isinstance(position_id, int) or position_id <= 0:
+            raise ValueError("position_id must be a positive integer")
+        if sl_price is None or tp_price is None:
+            raise ValueError("both sl_price and tp_price are required")
+        if position_side not in ("LONG", "SHORT"):
+            raise ValueError("position_side must be LONG or SHORT")
+        reference = _positive(reference_price, "reference_price")
+        sl = _positive(sl_price, "sl_price")
+        tp = _positive(tp_price, "tp_price")
+        if position_side == "LONG" and not (sl < reference < tp):
+            raise ValueError("LONG requires sl_price < reference_price < tp_price")
+        if position_side == "SHORT" and not (tp < reference < sl):
+            raise ValueError("SHORT requires tp_price < reference_price < sl_price")
         raise RuntimeError(
             "SL/TP writes are disabled until the live position, trigger basis, "
             "and both active protective orders can be independently verified"
