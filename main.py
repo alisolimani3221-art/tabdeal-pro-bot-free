@@ -1385,8 +1385,8 @@ class FuturesAnalyzerApp(App):
             )
         )
 
-    def stop_auto_paper_trader(self):
-        """Stop the paper stream and close any simulated position at its last mark."""
+    def _stop_auto_worker(self, timeout=3.0):
+        """Signal the paper worker and confirm it has exited before touching shared state."""
         self.auto_stop_event.set()
         ws = getattr(self, "auto_ws", None)
         if ws is not None:
@@ -1394,6 +1394,19 @@ class FuturesAnalyzerApp(App):
                 ws.close()
             except Exception:
                 pass
+        worker = getattr(self, "auto_trader_thread", None)
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=max(0.0, float(timeout)))
+        return worker is None or not worker.is_alive()
+
+    def stop_auto_paper_trader(self):
+        """Stop the paper stream before closing its simulated position."""
+        if not self._stop_auto_worker(timeout=3.0):
+            self.update_auto_status(
+                "توقف درخواست شد، اما پایان کامل رشته شبیه‌ساز هنوز تأیید نشده است؛ "
+                "برای جلوگیری از تغییر هم‌زمان وضعیت، بستن موقعیت مجازی انجام نشد."
+            )
+            return
         engine = getattr(self, "auto_engine", None)
         close_result = None
         if engine is not None:
@@ -1562,21 +1575,18 @@ class FuturesAnalyzerApp(App):
         self.runtime_lock_error = self.runtime_guard.error
 
     def on_stop(self):
+        worker_stopped = True
         if hasattr(self, "auto_stop_event"):
-            self.auto_stop_event.set()
-        ws = getattr(self, "auto_ws", None)
-        if ws is not None:
-            try:
-                ws.close()
-            except Exception:
-                pass
+            worker_stopped = self._stop_auto_worker(timeout=3.0)
         guard = getattr(self, "runtime_guard", None)
-        if guard is not None:
+        if guard is not None and worker_stopped:
             try:
                 guard.stop()
             except Exception:
                 # The process exit will release the kernel lock regardless.
                 pass
+        # If the worker did not exit in time, deliberately keep the app lock
+        # held until process termination so a second instance cannot overlap it.
 
 
 if __name__ == "__main__":
