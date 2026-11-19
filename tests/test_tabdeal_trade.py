@@ -137,6 +137,49 @@ class TradeAdapterSafetyTests(unittest.TestCase):
                     )
         self.session.post.assert_not_called()
 
+    def test_financial_values_preserve_decimal_precision(self):
+        client = TabdealFuturesTradeClient(
+            "test-key", "test-secret", live_enabled=True,
+            session=self.session
+        )
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"orderId": 321}
+        self.session.post.return_value = response
+        client.place_market_order(
+            "BTC_USDT", "SELL", "0.000000000000000123",
+            reduce_only=True, confirm_live=True
+        )
+        self.assertEqual(
+            self.session.post.call_args.kwargs["data"]["quantity"],
+            "0.000000000000000123"
+        )
+
+        self.session.post.reset_mock()
+        client.set_position_sl_tp(
+            "BTC_USDT", 42,
+            sl_price="65000.000000000000123",
+            tp_price="68000.000000000000456",
+            confirm_live=True
+        )
+        params = self.session.post.call_args.kwargs["data"]
+        self.assertEqual(params["slPrice"], "65000.000000000000123")
+        self.assertEqual(params["tpPrice"], "68000.000000000000456")
+
+    def test_decimal_parser_rejects_non_finite_and_boolean_values(self):
+        client = TabdealFuturesTradeClient(
+            "test-key", "test-secret", live_enabled=True,
+            session=self.session
+        )
+        for value in (True, "NaN", "Infinity", "-Infinity", "0", "-1"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    client.set_position_sl_tp(
+                        "BTC_USDT", 42, sl_price=value, tp_price="68000",
+                        confirm_live=True
+                    )
+        self.session.post.assert_not_called()
+
     def test_risk_increasing_market_entry_is_blocked_before_network(self):
         client = TabdealFuturesTradeClient(
             "test-key", "test-secret", live_enabled=True,
