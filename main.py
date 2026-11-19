@@ -46,6 +46,7 @@ from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
+from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
 
 # Resolve the bundled font from both the app directory and Kivy resources.
@@ -658,31 +659,53 @@ class FuturesAnalyzerApp(App):
 
 
     def open_account_connection(self, instance):
-        """Collect credentials in memory only and request account data via GET."""
+        """Read account data; persist credentials only after a successful GET."""
+        store = CredentialStore(os.path.join(self.user_data_dir, "account-credentials.enc"))
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
         body.add_widget(self.make_label(
-            "کلید فقط‌خواندنی فیوچرز را وارد کنید. اطلاعات ذخیره نمی‌شود.",
-            size=13, height=dp(52), color=(1, 0.76, 0.38, 1)))
+            "کلید فقط‌خواندنی فیوچرز؛ ذخیره‌سازی فقط با رمزگذاری Android Keystore انجام می‌شود.",
+            size=13, height=dp(58), color=(1, 0.76, 0.38, 1)))
         key_input = TextInput(
             hint_text="API Key", multiline=False, password=False,
             font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(46))
         secret_input = TextInput(
             hint_text="API Secret", multiline=False, password=True,
             font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(46))
+        try:
+            saved = store.load()
+            if saved:
+                key_input.text, secret_input.text = saved
+        except Exception:
+            # Fail closed: do not display partial or unverified credential data.
+            key_input.text = ""
+            secret_input.text = ""
         body.add_widget(key_input)
         body.add_widget(secret_input)
-        status = self.make_label("مجوز برداشت را برای این کلید فعال نکنید.", size=12,
-                                 height=dp(48), color=(1, 0.68, 0.35, 1))
+        status = self.make_label(
+            "مجوز برداشت و معامله را برای این کلید فعال نکنید.",
+            size=12, height=dp(48), color=(1, 0.68, 0.35, 1))
         body.add_widget(status)
         buttons = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
         connect = Button(text=fa("خواندن موجودی"), font_name=FONT_NAME)
+        delete_saved = Button(text=fa("حذف کلید ذخیره‌شده"), font_name=FONT_NAME)
         cancel = Button(text=fa("انصراف"), font_name=FONT_NAME)
         buttons.add_widget(connect)
+        buttons.add_widget(delete_saved)
         buttons.add_widget(cancel)
         body.add_widget(buttons)
         popup = Popup(title=fa_plain("اتصال فقط‌خواندنی حساب"), title_font=FONT_NAME,
-                      content=body, size_hint=(0.94, 0.58), auto_dismiss=False)
+                      content=body, size_hint=(0.94, 0.68), auto_dismiss=False)
         cancel.bind(on_press=popup.dismiss)
+
+        def remove_saved(instance):
+            try:
+                store.delete()
+                key_input.text = ""
+                secret_input.text = ""
+                status.text = fa("کلید ذخیره‌شده و کلید رمزگذاری حذف شد.")
+            except Exception as exc:
+                status.text = fa("حذف امن انجام نشد: " + type(exc).__name__)
+        delete_saved.bind(on_press=remove_saved)
 
         def start_read(instance):
             key = key_input.text.strip()
@@ -695,16 +718,26 @@ class FuturesAnalyzerApp(App):
             key_input.disabled = True
             secret_input.disabled = True
             connect.disabled = True
+            delete_saved.disabled = True
             status.text = fa("در حال دریافت امن اطلاعات حساب...")
             def worker():
                 try:
                     data = read_futures_account(key, secret, timeout=22)
-                    result = (True, data)
+                    try:
+                        store.save(key, secret)
+                        storage_status = "ذخیره امن روی همین دستگاه انجام شد."
+                    except Exception as storage_exc:
+                        storage_status = (
+                            "حساب خوانده شد، اما ذخیره امن ممکن نشد؛ "
+                            + type(storage_exc).__name__
+                        )
+                    result = (True, data, storage_status)
                 except Exception as exc:
-                    result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]))
+                    result = (False, "{}: {}".format(type(exc).__name__, str(exc)[:220]), "")
                 finally:
-                    # Drop local references as soon as the request finishes.
-                    pass
+                    # Do not retain credentials beyond the account request.
+                    key_ref = None
+                    secret_ref = None
                 Clock.schedule_once(lambda dt, value=result: finish(value), 0)
             def finish(result):
                 popup.dismiss()
@@ -714,6 +747,7 @@ class FuturesAnalyzerApp(App):
                         "موجودی کیف پول: {}".format(data["wallet_balance"]),
                         "موجودی آزاد: {}".format(data["available_balance"]),
                         "سود/زیان شناور: {}".format(data["unrealized_pnl"]),
+                        result[2],
                     ]
                     positions = data.get("positions", [])
                     if positions:
