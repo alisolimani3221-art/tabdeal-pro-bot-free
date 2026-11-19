@@ -31,6 +31,54 @@ def _positive(value, name):
     return number
 
 
+def _resolve_active_position(positions, symbol, side):
+    """Resolve exactly one documented ACTIVE position without trusting caller IDs.
+
+    Tabdeal documents position history fields: id, symbol, side, positionAmt,
+    and status. Symbols are normalized only for the exchange's underscore
+    presentation difference. Ambiguous, malformed, or inactive results fail
+    closed. This helper performs no network or trading operation.
+    """
+    symbol = TabdealFuturesTradeClient._validate_symbol(symbol)
+    side = str(side).upper()
+    if side not in ("BUY", "SELL"):
+        raise ValueError("side must be BUY or SELL")
+    if not isinstance(positions, list):
+        raise ValueError("positions response must be a list")
+
+    target_symbol = symbol.replace("_", "")
+    matches = []
+    for item in positions:
+        if not isinstance(item, dict):
+            continue
+        item_symbol = item.get("symbol")
+        item_side = item.get("side")
+        status = item.get("status")
+        position_id = item.get("id")
+        amount = item.get("positionAmt")
+        if not isinstance(item_symbol, str):
+            continue
+        if item_symbol.replace("_", "").upper() != target_symbol:
+            continue
+        if item_side != side or status != "ACTIVE":
+            continue
+        if isinstance(position_id, bool) or not isinstance(position_id, int) or position_id <= 0:
+            continue
+        try:
+            parsed_amount = Decimal(str(amount))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if not parsed_amount.is_finite() or parsed_amount == 0:
+            continue
+        matches.append(item)
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            "Cannot resolve exactly one ACTIVE position for symbol and side"
+        )
+    return dict(matches[0])
+
+
 class TabdealFuturesTradeClient:
     """Authenticated futures order client; live order methods fail closed."""
 
