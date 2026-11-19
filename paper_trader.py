@@ -63,7 +63,8 @@ class PaperTradingEngine:
     """One-position paper trader with fixed fractional risk and no live orders."""
 
     def __init__(self, capital=8.0, risk_percent=0.5, max_leverage=3,
-                 fee_rate=0.0005, slippage_rate=0.0002):
+                 fee_rate=0.0005, slippage_rate=0.0002,
+                 max_loss_percent=3.0):
         self.initial_capital = _positive(capital, "capital")
         self.cash = self.initial_capital
         self.risk_percent = float(risk_percent)
@@ -79,11 +80,129 @@ class PaperTradingEngine:
         self.slippage_rate = float(slippage_rate)
         if not 0 <= self.slippage_rate <= 0.01:
             raise ValueError("invalid slippage")
+        self.max_loss_percent = float(max_loss_percent)
+        if (not math.isfinite(self.max_loss_percent)
+                or not 0 < self.max_loss_percent <= 25):
+            raise ValueError("max loss must be above 0 and at most 25 percent")
         self.position = None
         self.closed_trades = []
         self.scans = 0
         self._lock = threading.RLock()
         self.halted = False
+        self.halt_reason = None
+
+    def export_state(self):
+        """Return a JSON-safe snapshot suitable for atomic local persistence."""
+        with self._lock:
+            return {
+                "schema_version": 1,
+                "initial_capital": self.initial_capital,
+                "cash": self.cash,
+                "risk_percent": self.risk_percent,
+                "max_leverage": self.max_leverage,
+                "fee_rate": self.fee_rate,
+                "slippage_rate": self.slippage_rate,
+                "max_loss_percent": self.max_loss_percent,
+                "position": dict(self.position) if self.position else None,
+                "closed_trades": [dict(item) for item in self.closed_trades],
+                "scans": self.scans,
+                "halted": self.halted,
+                "halt_reason": self.halt_reason,
+            }
+
+    @classmethod
+    def restore_state(cls, state):
+        """Restore a strictly validated snapshot; malformed state fails closed."""
+        expected = {
+            "schema_version", "initial_capital", "cash", "risk_percent",
+            "max_leverage", "fee_rate", "slippage_rate", "max_loss_percent",
+            "position", "closed_trades", "scans", "halted", "halt_reason",
+        }
+        if (not isinstance(state, dict) or set(state) != expected
+                or type(state.get("schema_version")) is not int
+                or state["schema_version"] != 1):
+            raise ValueError("unsupported or malformed paper-engine state")
+
+        engine = cls(
+            capital=state["initial_capital"],
+            risk_percent=state["risk_percent"],
+            max_leverage=state["max_leverage"],
+            fee_rate=state["fee_rate"],
+            slippage_rate=state["slippage_rate"],
+            max_loss_percent=state["max_loss_percent"],
+        )
+
+        def finite(value, name, allow_zero=False):
+            if isinstance(value, bool):
+                raise ValueError("{} is invalid".format(name))
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("{} is invalid".format(name))
+            if not math.isfinite(number) or (number < 0 if allow_zero else number <= 0):
+                raise ValueError("{} is invalid".format(name))
+            return number
+
+        engine.cash = finite(state["cash"], "cash", allow_zero=True)
+        scans = state["scans"]
+        if type(scans) is not int or scans < 0:
+            raise ValueError("paper-engine scan count is invalid")
+        engine.scans = scans
+        if type(state["halted"]) is not bool:
+            raise ValueError("paper-engine halt flag is invalid")
+        engine.halted = state["halted"]
+        reason = state["halt_reason"]
+        if ((engine.halted and (not isinstance(reason, str) or not reason.strip()))
+                or (not engine.halted and reason is not None)):
+            raise ValueError("paper-engine halt metadata is inconsistent")
+        engine.halt_reason = reason
+
+        position = state["position"]
+        if position is not None:
+            required = {
+                "symbol", "side", "entry", "last_price", "stop", "target",
+                "quantity", "notional", "leverage", "risk_budget",
+                "risk_limit", "fees_entry", "score",
+            }
+            if not isinstance(position, dict) or set(position) != required:
+                raise ValueError("paper-engine position is malformed")
+            if (not isinstance(position["symbol"], str)
+                    or not re.fullmatch(r"[A-Z0-9]+_?USDT", position["symbol"])
+                    or position["side"] not in ("BULLISH", "BEARISH")):
+                raise ValueError("paper-engine position identity is invalid")
+            for name in ("entry", "last_price", "stop", "target", "quantity",
+                         "notional", "risk_budget", "risk_limit", "fees_entry"):
+                finite(position[name], "position " + name,
+                       allow_zero=(name in ("risk_budget", "risk_limit", "fees_entry")))
+            finite(position["score"], "position score", allow_zero=True)
+            leverage = position["leverage"]
+            if type(leverage) is not int or not 1 <= leverage <= engine.max_leverage:
+                raise ValueError("paper-engine position leverage is invalid")
+            if position["side"] == "BULLISH":
+                if not position["stop"] < position["entry"] < position["target"]:
+                    raise ValueError("paper-engine long protection is invalid")
+            elif not position["target"] < position["entry"] < position["stop"]:
+                raise ValueError("paper-engine short protection is invalid")
+            engine.position = dict(position)
+
+        trades = state["closed_trades"]
+        if not isinstance(trades, list) or len(trades) > 10000:
+            raise ValueError("paper-engine trade history is invalid")
+        for trade in trades:
+            if not isinstance(trade, dict):
+                raise ValueError("paper-engine trade record is invalid")
+            for name in ("entry", "exit", "quantity", "net_pnl"):
+                if name not in trade:
+                    raise ValueError("paper-engine trade record is incomplete")
+                finite(trade[name], "trade " + name, allow_zero=(name == "net_pnl"))
+            if (trade.get("side") not in ("BULLISH", "BEARISH")
+                    or not isinstance(trade.get("symbol"), str)
+                    or not isinstance(trade.get("reason"), str)):
+                raise ValueError("paper-engine trade metadata is invalid")
+        engine.closed_trades = [dict(item) for item in trades]
+        if engine.halted and engine.position is not None:
+            raise ValueError("halted paper engine cannot retain an open position")
+        return engine
 
     @property
     def equity(self):
@@ -124,6 +243,7 @@ class PaperTradingEngine:
         """Close any simulated position at its latest mark and permanently stop this engine."""
         with self._lock:
             self.halted = True
+            self.halt_reason = "EMERGENCY_STOP"
             if self.position is None:
                 return {"event": "STOPPED", "trade": None}
             return self._close(self.position["last_price"], "EMERGENCY_STOP")
@@ -133,7 +253,8 @@ class PaperTradingEngine:
         if self.halted:
             return {"events": [], "candidates": [], "equity": self.equity,
                     "cash": self.cash, "open_position": None,
-                    "closed_trades": len(self.closed_trades), "halted": True}
+                    "closed_trades": len(self.closed_trades), "halted": True,
+                    "halt_reason": self.halt_reason}
         self.scans += 1
         events = []
         if not isinstance(candidates, (list, tuple)):
@@ -182,10 +303,21 @@ class PaperTradingEngine:
                 events.append(self._close(p["target"], "TARGET"))
                 closed_this_scan = True
 
+        # Enforce a hard cumulative-loss stop using marked equity, including
+        # estimated exit fees. If breached, flatten the paper position and
+        # permanently halt this engine instead of merely suppressing entries.
+        loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+        if self.equity <= loss_floor:
+            if self.position is not None:
+                events.append(self._close(self.position["last_price"], "MAX_LOSS"))
+            self.halted = True
+            self.halt_reason = "MAX_LOSS"
+            closed_this_scan = True
+
         # Never close and reopen on the same scan: that can create an
         # immediate churn loop on a signal that has not changed.
-        if (not closed_this_scan and self.position is None and valid and self.cash > 0
-                and self.cash > self.initial_capital * 0.97):
+        if (not self.halted and not closed_this_scan and self.position is None
+                and valid and self.cash > 0 and self.cash > loss_floor):
             choice = valid[0]
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
                                        else 1 - self.slippage_rate)
@@ -229,4 +361,5 @@ class PaperTradingEngine:
         return {"events": events, "candidates": valid,
                 "equity": self.equity, "cash": self.cash,
                 "open_position": dict(self.position) if self.position else None,
-                "closed_trades": len(self.closed_trades)}
+                "closed_trades": len(self.closed_trades),
+                "halted": self.halted, "halt_reason": self.halt_reason}
