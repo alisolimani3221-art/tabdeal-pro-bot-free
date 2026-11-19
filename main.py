@@ -40,7 +40,7 @@ from market_symbols import select_market_symbol, list_market_symbols
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
-from paper_trader import PaperTradingEngine
+from paper_trader import PaperTradingEngine, diagnose_signal
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -1601,10 +1601,11 @@ class FuturesAnalyzerApp(App):
                     message_text = (
                         "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
                         "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
+                        "وضعیت ورود: {}\n"
                         "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
                     ).format(symbol, technical["signal"], technical["price"],
                              builder.status()["closed_candles"], result["equity"],
-                             result["closed_trades"], event_text)
+                             result["closed_trades"], diagnose_signal(technical), event_text)
                     Clock.schedule_once(
                         lambda dt, value=message_text: self.update_auto_status(value), 0
                     )
