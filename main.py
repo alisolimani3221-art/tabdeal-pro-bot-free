@@ -1518,6 +1518,9 @@ class FuturesAnalyzerApp(App):
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set() or not parsed.get("ok"):
                     return
+                update = builder.add_trade(parsed)
+                if not update.get("accepted"):
+                    return
                 # Tick-level protection also reconciles an open paper position
                 # immediately after a process restart, before candle warm-up ends.
                 try:
@@ -1557,9 +1560,6 @@ class FuturesAnalyzerApp(App):
                             "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value
                         ), 0
                     )
-                    return
-                update = builder.add_trade(parsed)
-                if not update.get("accepted"):
                     return
                 if update.get("gap_detected"):
                     last_processed_bucket = None
