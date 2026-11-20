@@ -20,6 +20,12 @@ def rank_signal(technical):
     signal = technical.get("signal")
     if signal not in ("BULLISH", "BEARISH"):
         return None
+    # A setup is eligible only when it carries the minimum closed-candle
+    # provenance produced by analyze_klines. Hand-built/stale indicator
+    # dictionaries must not be enough to open even a paper position.
+    closed_candles = technical.get("closed_candles")
+    if type(closed_candles) is not int or closed_candles < 51:
+        return None
     symbol = str(technical.get("symbol", "")).strip()
     normalized_symbol = symbol.upper()
     if not re.fullmatch(r"[A-Z0-9]+_?USDT", normalized_symbol):

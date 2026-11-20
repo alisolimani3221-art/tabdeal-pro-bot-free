@@ -5,12 +5,23 @@ from paper_trader import PaperTradingEngine, rank_signal
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
         return {"symbol": symbol, "price": price, "sma20": 99, "sma50": 98,
-                "rsi14": 56, "atr14": 0.8, "signal": signal}
+                "rsi14": 56, "atr14": 0.8, "signal": signal,
+                "closed_candles": 51}
     return {"symbol": symbol, "price": price, "sma20": 101, "sma50": 102,
-            "rsi14": 44, "atr14": 0.8, "signal": signal}
+            "rsi14": 44, "atr14": 0.8, "signal": signal,
+            "closed_candles": 51}
 
 
 class PaperTraderTests(unittest.TestCase):
+    def test_rejects_signal_without_minimum_closed_candle_provenance(self):
+        for value in (None, 0, 50, 50.9, True, "51"):
+            with self.subTest(closed_candles=value):
+                self.assertIsNone(rank_signal(dict(setup(), closed_candles=value)))
+
+    def test_accepts_signal_with_minimum_closed_candle_provenance(self):
+        self.assertIsNotNone(rank_signal(setup()))
+        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=52)))
+
     def test_rejects_neutral_or_extreme_volatility(self):
         self.assertIsNone(rank_signal(dict(setup(), signal="NEUTRAL")))
         self.assertIsNone(rank_signal(dict(setup(), atr14=3.0)))
