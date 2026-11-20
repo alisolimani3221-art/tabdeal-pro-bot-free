@@ -13,6 +13,24 @@ def _positive(value, name):
     return number
 
 
+def prepare_live_market_snapshot(technical, live_price):
+    """Use the latest validated trade as the live mark/entry, not a stale close.
+
+    Indicators and signal remain derived from closed candles. The old candle's
+    OHLC range is cleared because its extremes may have occurred before entry;
+    tick-level stop/target checks are handled separately by process_tick().
+    """
+    if not isinstance(technical, dict):
+        raise ValueError("technical snapshot must be a dictionary")
+    price = _positive(live_price, "live price")
+    snapshot = dict(technical)
+    snapshot["price"] = price
+    snapshot["candle_open"] = price
+    snapshot["candle_high"] = price
+    snapshot["candle_low"] = price
+    return snapshot
+
+
 def rank_signal(technical):
     """Return a deterministic quality score, or None when there is no setup."""
     if not isinstance(technical, dict):
