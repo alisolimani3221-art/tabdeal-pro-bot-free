@@ -1,5 +1,5 @@
-name: Tabdeal Futures CI and signed APK build (v1.28)
-# Run validation only. APK builds stay paused until all six project gates are verified.
+name: Tabdeal Futures CI and signed APK build (v1.29)
+# CI validates the current branch and builds a signed paper-only APK; live order placement remains disabled.
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - audit/pr12-decimal-safety
+      - audit/v1.28-readonly-account-hardening
   push:
     paths:
       - 'main.py'
