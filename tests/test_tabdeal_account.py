@@ -143,4 +143,6 @@ class TabdealAccountTests(unittest.TestCase):
         self.assertEqual(result["positions"][0]["symbol"], "ETHUSDT")
         self.assertEqual(result["positions"][0]["amount"], "-0.2")
 
+
+if __name__ == "__main__":
     unittest.main()
