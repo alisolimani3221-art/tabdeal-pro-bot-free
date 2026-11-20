@@ -4,7 +4,7 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 
 ## Current development status (1.26)
 - Android app version and Buildozer package version are 1.26 (versionCode 126) on the development branch. This is not yet a released or verified APK.
-- The repository defines an experimental **debug** APK workflow that supports manual runs and automatic builds after relevant app/build changes on `main`. A persistent release-signing keystore and a verified signed release artifact have not been established; do not treat the experimental APK as a production release or assume it can update an APK signed with a different key.
+- The v1.26 development branch defines a persistent release-signing workflow. A signed APK is not considered released until the build, certificate fingerprint, packaged fonts, and uploaded artifact are all verified.
 - The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
 - Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
 - Persian UI font bundling and RTL support are verified during the Android build.
