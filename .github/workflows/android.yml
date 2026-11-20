@@ -390,7 +390,7 @@ jobs:
           APKSIGNER="$(find "$HOME/.buildozer/android/platform/android-sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
           "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
-          ACTUAL="$(awk -F': ' '/certificate SHA-256 digest:/ {print tolower($2); exit}' "$RUNNER_TEMP/apk-signature.txt" | tr -d ':')"
+          ACTUAL="$(awk -F': ' '/certificate SHA-256 digest:/ {print tolower($NF); exit}' "$RUNNER_TEMP/apk-signature.txt" | tr -d ':')"
           EXPECTED="9a41c32295b7723ee8dfadd4c40ee7dbdca9fb8a6c62e43aabc09c9bef741ae5"
           if [[ "$ACTUAL" != "$EXPECTED" ]]; then
             echo "APK signing certificate does not match the established release certificate." >&2
