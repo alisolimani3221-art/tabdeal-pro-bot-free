@@ -22,7 +22,7 @@ def _finite(value, name):
 
 
 def analyze_klines(candles):
-    """Calculate SMA20/SMA50, Wilder RSI14 and Wilder ATR14.
+    """Calculate SMA10/SMA20, Wilder RSI14 and Wilder ATR14.
 
     The final candle is excluded because it may still be forming. Input uses
     Binance-compatible [open_time, open, high, low, close, volume, ...] rows.
