@@ -1,9 +1,12 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from secure_credentials import CredentialStore, _java_bytes, _python_bytes
+from secure_credentials import CredentialStore, _java_bytes, _python_bytes, _java_string_array
 
 
 class TestBackend:
@@ -89,6 +92,16 @@ class SecureCredentialStoreTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             broken.check_status()
 
+
+    def test_java_string_array_uses_explicit_pyjnius_array_type(self):
+        calls = []
+        fake_jnius = SimpleNamespace(
+            jarray=lambda type_name: lambda values: (calls.append((type_name, values)) or (type_name, values))
+        )
+        with patch.dict(sys.modules, {"jnius": fake_jnius}):
+            result = _java_string_array(["GCM", "NoPadding"])
+        self.assertEqual(result, ("java.lang.String", ["GCM", "NoPadding"]))
+        self.assertEqual(calls, [("java.lang.String", ["GCM", "NoPadding"])])
 
     def test_java_byte_conversion_uses_supported_bytearray(self):
         payload = bytes([0, 127, 128, 255])
