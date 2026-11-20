@@ -796,7 +796,8 @@ class FuturesAnalyzerApp(App):
                     data = read_futures_account(api_key, api_secret, timeout=22)
                     try:
                         store.save(api_key, api_secret)
-                        storage_status = "ذخیره امن روی همین دستگاه انجام شد."                    except Exception as storage_exc:
+                        storage_status = "ذخیره امن روی همین دستگاه انجام شد."
+                    except Exception as storage_exc:
                         storage_status = (
                             "حساب خوانده شد، اما ذخیره امن ممکن نشد؛ "
                             + "{}: {}".format(type(storage_exc).__name__, str(storage_exc)[:180])
@@ -1592,7 +1593,8 @@ class FuturesAnalyzerApp(App):
 
     def stop_auto_paper_trader(self):
         """Stop the paper stream before closing its simulated position."""
-        if not self._stop_auto_worker(timeout=3.0):            self.update_auto_status(
+        if not self._stop_auto_worker(timeout=3.0):
+            self.update_auto_status(
                 "توقف درخواست شد، اما پایان کامل رشته شبیه‌ساز هنوز تأیید نشده است؛ "
                 "برای جلوگیری از تغییر هم‌زمان وضعیت، بستن موقعیت مجازی انجام نشد."
             )
