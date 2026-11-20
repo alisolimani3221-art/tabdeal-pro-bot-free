@@ -686,7 +686,7 @@ class FuturesAnalyzerApp(App):
             secret_input.text = ""
             load_status = (
                 "بازیابی کلید ذخیره‌شده ناموفق بود؛ "
-                + type(load_exc).__name__
+                + "{}: {}".format(type(load_exc).__name__, str(load_exc)[:180])
                 + ". کلیدها را دوباره وارد و ذخیره امن را آزمایش کنید."
             )
         body.add_widget(key_input)
