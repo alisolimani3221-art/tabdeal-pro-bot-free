@@ -161,7 +161,7 @@ class TradeCandleBuilder:
     @property
     def is_ready(self):
         # analyze_klines excludes the final row as a still-forming candle.
-        return (len(self.closed) >= 51 and self.current is not None
+        return (len(self.closed) >= 20 and self.current is not None
                 and not self.discard_next_close and not self._reconnect_warmup_pending)
 
     def candles_for_analysis(self):
