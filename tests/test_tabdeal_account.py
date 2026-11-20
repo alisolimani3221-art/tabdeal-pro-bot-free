@@ -3,7 +3,7 @@ import hmac
 import unittest
 from urllib.parse import parse_qs, urlparse
 
-from tabdeal_account import _signed_get, read_futures_account
+from tabdeal_account import _signed_get, _server_time_ms, read_futures_account
 
 
 class FakeResponse:
@@ -32,6 +32,11 @@ class FakeSession:
 
 
 class TabdealAccountTests(unittest.TestCase):
+    def test_server_time_sync_reads_documented_millisecond_timestamp(self):
+        session = FakeSession([FakeResponse({"serverTime": 1770000000123})])
+        self.assertEqual(_server_time_ms(session), 1770000000123)
+        self.assertEqual(session.calls[0][0], "https://api1.tabdeal.org/r/fapi/v1/time")
+
     def test_signed_get_uses_read_gateway_header_and_valid_hmac_signature(self):
         session = FakeSession([FakeResponse({"ok": True})])
         result = _signed_get("/v3/account", "test-key", "test-secret",
