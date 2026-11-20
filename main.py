@@ -1574,11 +1574,12 @@ class FuturesAnalyzerApp(App):
             warmup_text = (
                 "آماده‌سازی: {} از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
             ).format(retained_count)
-        self.update_auto_status(
+        status_text = (
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
             + warmup_text + " هیچ سفارش واقعی ارسال نمی‌شود."
-        )
+        ).format(self.capital_usdt)
+        self.update_auto_status(status_text)
 
     def _stop_auto_worker(self, timeout=3.0):
         """Signal the paper worker and confirm it has exited before touching shared state."""
