@@ -37,6 +37,9 @@ class TabdealApiContractTests(unittest.TestCase):
         # The UI worker must consume that diagnostic rather than resetting twice.
         self.assertIn("update = builder.add_trade(parsed)", source)
         self.assertIn('if update.get("gap_detected"):', source)
+        gap_guard = source.index('if update.get("gap_detected"):')
+        tick_processing = source.index("engine.process_tick(symbol, parsed[\"price\"])")
+        self.assertLess(gap_guard, tick_processing)
         self.assertNotIn("builder.reset_after_gap()", source)
         self.assertIn("risk_percent=0.5", source)
         self.assertIn("max_leverage=3", source)
