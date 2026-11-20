@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.37"
+APP_VERSION = "1.38"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -40,7 +40,7 @@ from market_symbols import select_market_symbol, list_market_symbols
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
-from paper_trader import PaperTradingEngine, diagnose_signal
+from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -1783,8 +1783,11 @@ class FuturesAnalyzerApp(App):
                 try:
                     technical = analyze_klines(builder.candles_for_analysis())
                     technical["symbol"] = symbol
-                    # Signals are computed from closed candles only; key entries
-                    # to the exact closed candle that produced this signal.
+                    # Keep indicators tied to closed candles, but use the latest
+                    # validated trade for realistic paper entry and live marking.
+                    # Do not reuse the previous candle's pre-entry high/low range.
+                    technical = prepare_live_market_snapshot(technical, parsed["price"])
+                    # Key entries to the exact closed candle that produced the signal.
                     if not builder.closed:
                         return
                     technical["candle_open_time"] = int(builder.closed[-1][0])
