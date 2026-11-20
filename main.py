@@ -671,18 +671,26 @@ class FuturesAnalyzerApp(App):
         secret_input = TextInput(
             hint_text="API Secret", multiline=False, password=True,
             font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(46))
+        load_status = None
         try:
             saved = store.load()
             if saved:
                 key_input.text, secret_input.text = saved
-        except Exception:
-            # Fail closed: do not display partial or unverified credential data.
+                load_status = "کلید ذخیره‌شده با موفقیت از حافظه امن بازیابی شد."
+        except Exception as load_exc:
+            # Never expose credentials after a failed authentication/decryption,
+            # but do not hide the reason the saved values were not restored.
             key_input.text = ""
             secret_input.text = ""
+            load_status = (
+                "بازیابی کلید ذخیره‌شده ناموفق بود؛ "
+                + type(load_exc).__name__
+                + ". کلیدها را دوباره وارد و ذخیره امن را آزمایش کنید."
+            )
         body.add_widget(key_input)
         body.add_widget(secret_input)
         status = self.make_label(
-            "مجوز برداشت و معامله را برای این کلید فعال نکنید.",
+            load_status or "مجوز برداشت و معامله را برای این کلید فعال نکنید.",
             size=12, height=dp(48), color=(1, 0.68, 0.35, 1))
         body.add_widget(status)
         buttons = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
