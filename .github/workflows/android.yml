@@ -208,12 +208,25 @@ jobs:
           sizing = calculate_position_risk(1000, 1, bids[0][0], 1, 3, 2)
           if sizing["risk_amount"] > 10.000001:
               raise RuntimeError("Risk sizing validation failed")
-          # The published public Futures REST API documents ping,
-          # time, exchangeInfo and depth, but not historical klines or a
-          # public 24h ticker. Do not probe Binance-compatible paths.
-          print("Tabdeal public REST candle/ticker feed: not documented; technical scanner remains disabled.")
-          print("LIVE API OK: symbol={}, bid={}, ask={}, technical_candles=disabled, risk={}".format(
-              symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
+          # Probe the candidate historical-candle endpoint directly on the
+          # GitHub runner. It is read-only; do not infer support from Binance docs.
+          klines_params = {"symbol": symbol, "interval": "1m", "limit": 60}
+          try:
+              klines = get("/klines", klines_params)
+          except Exception as exc:
+              print("HISTORICAL_KLINES_UNAVAILABLE: {}".format(type(exc).__name__ + ": " + str(exc)[:180]))
+              print("LIVE API OK: symbol={}, bid={}, ask={}, technical_candles=disabled, risk={}".format(
+                  symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
+          else:
+              if not isinstance(klines, list) or len(klines) < 52:
+                  raise RuntimeError("Historical klines response must be a list with at least 52 rows; got {}".format(
+                      type(klines).__name__ + "/" + str(len(klines) if isinstance(klines, list) else "n/a")))
+              if not all(isinstance(row, (list, tuple)) and len(row) >= 6 for row in klines):
+                  raise RuntimeError("Historical klines rows do not match the expected OHLCV array shape")
+              print("HISTORICAL_KLINES_HTTP_OK: rows={}, first_row_fields={}, sample={}".format(
+                  len(klines), len(klines[0]), json.dumps(klines[0][:7], separators=(",", ":"))))
+              print("LIVE API OK: symbol={}, bid={}, ask={}, historical_klines=validated_shape, risk={}".format(
+                  symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
       - name: Live read-only scan of every active futures order book
