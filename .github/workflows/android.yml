@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - fix/v1.33-account-api-connection
+      - fix/v1.37-15s-scan-idempotency
       - audit/pr12-decimal-safety
       - audit/v1.28-readonly-account-hardening
   push:
