@@ -114,6 +114,10 @@ class CredentialStore:
                 os.fsync(stream.fileno())
             os.chmod(temporary, 0o600)
             os.replace(temporary, self.path)
+            # A successful write is not enough: verify that the exact file can
+            # be read back and authenticated before the UI reports persistence.
+            if self.load() != (str(api_key), str(api_secret)):
+                raise RuntimeError("Credential persistence verification failed")
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
