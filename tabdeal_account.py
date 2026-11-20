@@ -104,11 +104,17 @@ def read_futures_account(key, secret, timeout=20, session=None):
         if amount != 0:
             pnl = item.get("unRealizedProfit", item.get("unrealizedProfit", "0"))
             _finite_decimal(pnl, "position unrealized PnL")
+            entry_price = item.get("entryPrice", "--")
+            mark_price = item.get("markPrice", "--")
+            if entry_price != "--":
+                _finite_decimal(entry_price, "position entry price")
+            if mark_price != "--":
+                _finite_decimal(mark_price, "position mark price")
             active.append({
                 "symbol": symbol,
-                "amount": float(amount),
-                "entry_price": item.get("entryPrice", "--"),
-                "mark_price": item.get("markPrice", "--"),
+                "amount": format(amount, "f"),
+                "entry_price": entry_price,
+                "mark_price": mark_price,
                 "unrealized_pnl": pnl,
                 "leverage": item.get("leverage", "--"),
             })
