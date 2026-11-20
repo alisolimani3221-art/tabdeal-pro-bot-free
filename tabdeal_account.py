@@ -68,20 +68,58 @@ def read_futures_account(key, secret, timeout=20, session=None):
     )
     if not isinstance(account, dict):
         raise RuntimeError("Unexpected account response format")
-    # Some API gateways wrap the account object. Unwrap only an explicit,
-    # recognized object container; never infer balances or coerce unknown data.
+    # Some API gateways wrap the account object. Accept only known account
+    # fields, including an assets-only response; do not unwrap arbitrary data.
     for wrapper in ("data", "account", "result"):
         nested = account.get(wrapper)
-        if isinstance(nested, dict) and (
-            "totalWalletBalance" in nested or "availableBalance" in nested
+        if isinstance(nested, dict) and any(
+            field in nested for field in (
+                "totalWalletBalance", "availableBalance", "assets"
+            )
         ):
             account = nested
             break
-    for field in ("totalWalletBalance", "availableBalance"):
-        if field not in account:
-            raise RuntimeError("Account response is missing " + field + "; received fields: " + ",".join(sorted(str(k) for k in account.keys())[:20]))
-        _finite_decimal(account[field], field)
-    unrealized = account.get("totalUnrealizedProfit", "0")
+
+    # Tabdeal may return the Futures account with assets[] but without the
+    # aggregate totalWalletBalance/availableBalance fields. This app is for
+    # USDT-M Futures, so use the USDT asset only; never add BTC/other assets
+    # together or substitute wallet balance for available balance.
+    usdt_asset = None
+    assets = account.get("assets")
+    if isinstance(assets, list):
+        usdt_rows = [
+            row for row in assets
+            if isinstance(row, dict)
+            and str(row.get("asset", "")).strip().upper() == "USDT"
+        ]
+        if len(usdt_rows) > 1:
+            raise RuntimeError("Account response contains duplicate USDT asset rows")
+        if usdt_rows:
+            usdt_asset = usdt_rows[0]
+
+    wallet_balance = account.get("totalWalletBalance")
+    if wallet_balance is None and usdt_asset is not None:
+        wallet_balance = usdt_asset.get("walletBalance")
+    available_balance = account.get("availableBalance")
+    if available_balance is None and usdt_asset is not None:
+        available_balance = usdt_asset.get("availableBalance")
+    unrealized = account.get("totalUnrealizedProfit")
+    if unrealized is None:
+        unrealized = usdt_asset.get("unrealizedProfit", "0") if usdt_asset else "0"
+
+    if wallet_balance is None:
+        raise RuntimeError(
+            "Account response is missing totalWalletBalance or assets[].walletBalance "
+            "for USDT; received fields: "
+            + ",".join(sorted(str(k) for k in account.keys())[:20])
+        )
+    if available_balance is None:
+        raise RuntimeError(
+            "Account response is missing availableBalance for USDT; received fields: "
+            + ",".join(sorted(str(k) for k in account.keys())[:20])
+        )
+    _finite_decimal(wallet_balance, "totalWalletBalance")
+    _finite_decimal(available_balance, "availableBalance")
     _finite_decimal(unrealized, "totalUnrealizedProfit")
 
     if isinstance(positions, dict):
@@ -128,8 +166,8 @@ def read_futures_account(key, secret, timeout=20, session=None):
                 "leverage": item.get("leverage", "--"),
             })
     return {
-        "wallet_balance": account["totalWalletBalance"],
-        "available_balance": account["availableBalance"],
+        "wallet_balance": wallet_balance,
+        "available_balance": available_balance,
         "unrealized_pnl": unrealized,
         "positions": active,
     }
