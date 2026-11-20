@@ -414,6 +414,10 @@ class FuturesAnalyzerApp(App):
         self.auto_engine = None
         self.auto_status_label = None
         self.latest_market_price = None
+        self.auto_watchdog_event = None
+        self.auto_last_trade_monotonic = None
+        self.auto_stream_connected = False
+        self.auto_data_lock = threading.RLock()
 
         content.add_widget(self.section_title("نتیجه بررسی"))
         self.analysis = self.make_label(
@@ -1384,6 +1388,11 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
+        self.auto_last_trade_monotonic = None
+        self.auto_stream_connected = False
+        if self.auto_watchdog_event is not None:
+            self.auto_watchdog_event.cancel()
+        self.auto_watchdog_event = Clock.schedule_interval(self._paper_watchdog, 15.0)
         self.update_auto_status(
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
@@ -1408,6 +1417,9 @@ class FuturesAnalyzerApp(App):
 
     def stop_auto_paper_trader(self):
         """Stop the paper stream before closing its simulated position."""
+        if self.auto_watchdog_event is not None:
+            self.auto_watchdog_event.cancel()
+            self.auto_watchdog_event = None
         if not self._stop_auto_worker(timeout=3.0):
             self.update_auto_status(
                 "توقف درخواست شد، اما پایان کامل رشته شبیه‌ساز هنوز تأیید نشده است؛ "
@@ -1451,9 +1463,12 @@ class FuturesAnalyzerApp(App):
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
                 if connected_once:
-                    builder.reset_after_gap()
+                    with self.auto_data_lock:
+                        builder.reset_after_gap()
                     last_processed_bucket = None
                 connected_once = True
+                self.auto_stream_connected = True
+                self.auto_last_trade_monotonic = None
                 ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
@@ -1466,9 +1481,11 @@ class FuturesAnalyzerApp(App):
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set() or not parsed.get("ok"):
                     return
-                update = builder.add_trade(parsed)
+                with self.auto_data_lock:
+                    update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     return
+                self.auto_last_trade_monotonic = time.monotonic()
                 if update.get("gap_detected"):
                     last_processed_bucket = None
                     Clock.schedule_once(
@@ -1477,11 +1494,14 @@ class FuturesAnalyzerApp(App):
                         ), 0
                     )
                     return
-                current_bucket = (builder.current or {}).get("open_time")
-                if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
+                with self.auto_data_lock:
+                    current_bucket = (builder.current or {}).get("open_time")
+                    is_ready = builder.is_ready
+                    candles_snapshot = builder.candles_for_analysis() if is_ready else None
+                if not is_ready or current_bucket is None or current_bucket == last_processed_bucket:
                     return
                 try:
-                    technical = analyze_klines(builder.candles_for_analysis())
+                    technical = analyze_klines(candles_snapshot)
                     technical["symbol"] = symbol
                     Clock.schedule_once(
                         lambda dt, value=dict(technical): self.update_technical_labels(value), 0
@@ -1523,6 +1543,7 @@ class FuturesAnalyzerApp(App):
                     )
 
             def on_error(ws, error):
+                self.auto_stream_connected = False
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "خطای جریان معاملات؛ تلاش برای اتصال مجدد. هیچ سفارش واقعی ارسال نمی‌شود."
@@ -1540,6 +1561,7 @@ class FuturesAnalyzerApp(App):
                 pass
             finally:
                 self.auto_ws = None
+                self.auto_stream_connected = False
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
@@ -1552,6 +1574,63 @@ class FuturesAnalyzerApp(App):
             lambda dt: self.update_auto_status("شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است."),
             0,
         )
+
+    def _paper_watchdog(self, _dt):
+        """Refresh live diagnostics and closed-candle signal every 15 seconds.
+
+        The paper engine still consumes each closed candle only once in the
+        websocket callback; this watchdog never replays a candle or duplicates
+        a simulated entry. It only refreshes analysis and connection state.
+        """
+        worker = getattr(self, "auto_trader_thread", None)
+        if self.auto_stop_event.is_set() or worker is None or not worker.is_alive():
+            if self.auto_watchdog_event is not None:
+                self.auto_watchdog_event.cancel()
+                self.auto_watchdog_event = None
+            return False
+
+        builder = getattr(self, "auto_candle_builder", None)
+        if builder is None:
+            self.update_auto_status("شبیه‌ساز فعال است؛ سازنده کندل هنوز آماده نیست.")
+            return True
+        with self.auto_data_lock:
+            state = builder.status()
+            candles = builder.candles_for_analysis() if state.get("ready") else None
+
+        last_trade = self.auto_last_trade_monotonic
+        if not self.auto_stream_connected:
+            connection_text = "جریان معاملات قطع است؛ تلاش برای اتصال مجدد ادامه دارد."
+        elif last_trade is None:
+            connection_text = "اتصال برقرار است؛ هنوز معامله معتبر دریافت نشده است."
+        else:
+            age = max(0.0, time.monotonic() - last_trade)
+            connection_text = ("آخرین معامله معتبر {:.0f} ثانیه قبل دریافت شد.".format(age)
+                               if age > 20 else "جریان معاملات زنده و فعال است.")
+
+        if candles is None:
+            self.update_auto_status(
+                "{}\nگرم‌سازی: {} از ۵۱ کندل بسته‌شده؛ شکاف‌ها: {}؛ داده ردشده: {}.\n"
+                "تا تکمیل داده پیوسته، ورود آزمایشی مسدود است.".format(
+                    connection_text, state.get("closed_candles", 0),
+                    state.get("gaps", 0), state.get("rejected_trades", 0))
+            )
+            return True
+
+        try:
+            technical = analyze_klines(candles)
+            technical["symbol"] = state.get("symbol")
+            self.update_technical_labels(technical)
+            self.update_auto_status(
+                "{}\nبررسی سیگنال: هر ۱۵ ثانیه؛ آخرین سیگنال: {}؛ کندل بسته‌شده: {}.\n"
+                "گرم‌سازی کامل؛ معاملات شبیه‌سازی‌شده فقط یک‌بار برای هر کندل پردازش می‌شوند.".format(
+                    connection_text, technical.get("signal"), technical.get("closed_candles"))
+            )
+        except Exception as exc:
+            self.update_auto_status(
+                "{}\nتحلیل موقتاً متوقف است؛ علت: {}.".format(
+                    connection_text, type(exc).__name__)
+            )
+        return True
 
     def update_technical_labels(self, technical):
         """Publish verified closed-candle indicators to the main analysis panel."""
@@ -1598,6 +1677,9 @@ class FuturesAnalyzerApp(App):
                 )
 
     def on_stop(self):
+        if getattr(self, "auto_watchdog_event", None) is not None:
+            self.auto_watchdog_event.cancel()
+            self.auto_watchdog_event = None
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
