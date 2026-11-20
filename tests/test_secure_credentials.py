@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from secure_credentials import CredentialStore
+from secure_credentials import CredentialStore, _java_bytes, _python_bytes
 
 
 class TestBackend:
@@ -89,4 +89,14 @@ class SecureCredentialStoreTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             broken.check_status()
 
+
+    def test_java_byte_conversion_uses_supported_bytearray(self):
+        payload = bytes([0, 127, 128, 255])
+        converted = _java_bytes(payload)
+        self.assertIsInstance(converted, bytearray)
+        self.assertEqual(converted, bytearray([0, 127, 128, 255]))
+        self.assertEqual(_python_bytes([-1, 0, 127]), bytes([255, 0, 127]))
+
+
+if __name__ == "__main__":
     unittest.main()
