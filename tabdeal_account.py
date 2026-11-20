@@ -68,9 +68,18 @@ def read_futures_account(key, secret, timeout=20, session=None):
     )
     if not isinstance(account, dict):
         raise RuntimeError("Unexpected account response format")
+    # Some API gateways wrap the account object. Unwrap only an explicit,
+    # recognized object container; never infer balances or coerce unknown data.
+    for wrapper in ("data", "account", "result"):
+        nested = account.get(wrapper)
+        if isinstance(nested, dict) and (
+            "totalWalletBalance" in nested or "availableBalance" in nested
+        ):
+            account = nested
+            break
     for field in ("totalWalletBalance", "availableBalance"):
         if field not in account:
-            raise RuntimeError("Account response is missing " + field)
+            raise RuntimeError("Account response is missing " + field + "; received fields: " + ",".join(sorted(str(k) for k in account.keys())[:20]))
         _finite_decimal(account[field], field)
     unrealized = account.get("totalUnrealizedProfit", "0")
     _finite_decimal(unrealized, "totalUnrealizedProfit")
