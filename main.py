@@ -1452,7 +1452,7 @@ class FuturesAnalyzerApp(App):
 
         def scan_loop():
             nonlocal last_entry_candle, last_seen_gap_count
-            while not self.auto_stop_event.is_set() and not scanner_stop.wait(15.0):
+            while not scanner_stop.is_set() and not self.auto_stop_event.wait(15.0):
                 try:
                     with market_lock:
                         status = builder.status()
