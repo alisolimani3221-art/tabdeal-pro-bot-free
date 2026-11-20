@@ -38,7 +38,7 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIn("تأیید شده", diagnose_signal(setup()))
 
     def test_rejects_signal_without_minimum_closed_candle_provenance(self):
-        for value in (None, 0, 50, 50.9, True, "51"):
+        for value in (None, 0, 19, 19.9, True, "20"):
             with self.subTest(closed_candles=value):
                 self.assertIsNone(rank_signal(dict(setup(), closed_candles=value)))
 
