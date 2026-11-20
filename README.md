@@ -2,8 +2,8 @@
 
 Android APK build and Tabdeal USDT-margined futures market analyzer.
 
-## Current release status (1.19)
-- Android app version and Buildozer package version are 1.19 (versionCode 119).
+## Current development status (1.26)
+- Android app version and Buildozer package version are 1.26 (versionCode 126) on the development branch. This is not yet a released or verified APK.
 - The repository defines an experimental **debug** APK workflow that supports manual runs and automatic builds after relevant app/build changes on `main`. A persistent release-signing keystore and a verified signed release artifact have not been established; do not treat the experimental APK as a production release or assume it can update an APK signed with a different key.
 - The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
 - Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
@@ -23,17 +23,7 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 - `tabdeal_trade.py` contains a separate futures adapter for authenticated read-only account/position/order queries. All mutating order, SL/TP, and close paths remain blocked until exchange-side behavior and protection can be independently verified; the Android automatic runner is paper-only.
 
 ## Build APK
-The standard `Tabdeal Futures CI (APK build paused)` workflow is validation-only: it runs compilation, regression tests, API checks, and read-only market probes. It does **not** build or upload an APK.
-
-A separate workflow named **Experimental APK build (v1.19)** is available under **Actions**. It can be run manually from the `main` branch, and it also runs automatically when app source files, Buildozer settings, requirements, bundled fonts/assets, or the workflow itself change on `main`.
-
-For a manual build:
-1. Open the **Actions** tab.
-2. Select **Experimental APK build (v1.19)**.
-3. Choose **Run workflow** on the `main` branch.
-4. Wait for the build to finish successfully, then download `Futures-Analyzer-v1.19-experimental-APK` from that run's Artifacts section.
-
-This is an experimental debug APK, not a verified release build. It uses GitHub-hosted Ubuntu runners, Java 17, ARM64, and bundles the Persian/Arabic and Latin Noto fonts. Artifacts are retained for 7 days. A successful validation-only CI run does not mean an APK was produced.
+The `.github/workflows/android.yml` workflow runs compilation, regression tests, Tabdeal read-only API checks, a scan of active futures order books, a read-only trade-stream probe, Android packaging, persistent-keystore signing, certificate verification, APK content checks, and artifact upload. A successful run is required before treating an APK as installable. The workflow expects the repository secret `ANDROID_SIGNING_BUNDLE_BASE64` to contain the established release keystore bundle. Artifacts are retained for 14 days.
 
 ## Safety
 The current Android app and paper-trading engine do not submit live orders. The trade adapter exposes authenticated read-only queries; every mutating order, SL/TP, and close path remains blocked and is not wired into the app. Do not enable automatic live trading until exchange-side order behavior, symbol precision/minimums, position reconciliation, protective stop/target placement, restart recovery, and emergency-close behavior are tested against the actual account. Never put exchange API secrets in source files or commit them to this public repository. Paper results do not guarantee future performance.
