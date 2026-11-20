@@ -6,6 +6,7 @@ on:
   pull_request:
     branches:
       - main
+      - fix/v1.33-account-api-connection
       - audit/pr12-decimal-safety
       - audit/v1.28-readonly-account-hardening
   push:
