@@ -229,6 +229,74 @@ jobs:
                   symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
+      - name: Capture historical futures candle endpoint diagnostic
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          python - <<'PY'
+          import json, math, time, urllib.parse, urllib.request, urllib.error
+          from pathlib import Path
+
+          symbol = "BTC_USDT"
+          url = "https://api1.tabdeal.org/r/fapi/v1/klines?" + urllib.parse.urlencode({
+              "symbol": symbol, "interval": "1m", "limit": 60
+          })
+          report = {"endpoint": "/r/fapi/v1/klines", "symbol": symbol,
+                    "interval": "1m", "supported": False}
+          try:
+              req = urllib.request.Request(url, headers={
+                  "User-Agent": "FuturesAnalyzer-HistoricalKlines-Probe/1.0",
+                  "Accept": "application/json"})
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  raw = response.read().decode("utf-8")
+                  report["http_status"] = response.status
+                  report["content_type"] = response.headers.get("Content-Type", "")
+              data = json.loads(raw)
+              report["json_type"] = type(data).__name__
+              report["row_count"] = len(data) if isinstance(data, list) else None
+              if not isinstance(data, list) or len(data) < 52:
+                  raise ValueError("Expected JSON list with at least 52 rows")
+              if not all(isinstance(row, (list, tuple)) and len(row) >= 6 for row in data):
+                  raise ValueError("Rows are not arrays with at least six OHLCV fields")
+              timestamps = []
+              for index, row in enumerate(data):
+                  ts = int(row[0])
+                  values = [float(row[i]) for i in range(1, 6)]
+                  if ts <= 0 or any(not math.isfinite(x) for x in values):
+                      raise ValueError("Invalid timestamp or non-finite OHLCV at row {}".format(index))
+                  op, high, low, close, volume = values
+                  if min(op, high, low, close) <= 0 or volume < 0:
+                      raise ValueError("Nonpositive OHLC or negative volume at row {}".format(index))
+                  if high < max(op, close, low) or low > min(op, close):
+                      raise ValueError("Inconsistent OHLC at row {}".format(index))
+                  timestamps.append(ts)
+              if any(b <= a for a, b in zip(timestamps, timestamps[1:])):
+                  raise ValueError("Timestamps are not strictly increasing")
+              deltas = [b-a for a,b in zip(timestamps,timestamps[1:])]
+              report["timestamp_deltas_ms"] = sorted(set(deltas))
+              report["latest_open_time_ms"] = timestamps[-1]
+              report["sample_rows"] = [list(data[0][:7]), list(data[-1][:7])]
+              if any(delta != 60000 for delta in deltas):
+                  raise ValueError("Historical candles contain a gap or non-1m interval")
+              report["supported"] = True
+              report["validation"] = "OHLCV shape, finite values, monotonic timestamps and 1m continuity passed"
+          except Exception as exc:
+              report["error"] = "{}: {}".format(type(exc).__name__, str(exc)[:240])
+          Path("historical-klines-probe-report.json").write_text(
+              json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2),
+              encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload historical candle diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-klines-probe-report
+          path: historical-klines-probe-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Live read-only scan of every active futures order book
         timeout-minutes: 5
         run: |
