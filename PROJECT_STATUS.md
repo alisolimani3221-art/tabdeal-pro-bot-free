@@ -72,3 +72,12 @@ Last updated: 2026-11-18
 ## Continuity rule
 
 Use this ledger and prior verified results as the baseline. Do not repeat passed device/CI checks without a relevant code change or a specific regression report. Update this file with new evidence after each completed test. Never describe queued builds, untested features, or CI-only results as device-verified.
+
+
+## Latest verification — 2026-11-20, v1.27
+
+- User-provided Android v1.27 diagnostic at 2026-11-20 07:23:48 local: Persian and Latin fonts loaded; RTL libraries/shaping OK; BTC_USDT order book parsed; 5 bids and 5 asks; website, market ping, market info, and depth all HTTP 200; paper trader reported RUNNING.
+- GitHub Actions run #551 (run ID 44669166862), commit 449801435c10cb7653a985a56d0231b20005671c, completed successfully on 2026-11-20. Regression suite, Python compilation, version consistency, public API smoke test, live read-only order-book scan for every active futures market, read-only trade-stream probe, Persian font/RTL packaging, signed release APK build, signature verification, and APK artifact upload all passed.
+- Release APK artifact: Futures-Analyzer-APK, artifact ID 14599591664, extracted file `futuresanalyzer-1.27-arm64-v8a-release.apk`, size 21,209,580 bytes; SHA-256 `fd26e76bfd0511b8cacb0b2d3c9631ca2a61a4eebbca0dbb282f5a93a6814e5f`.
+- CI success and the user's device diagnostic are separate evidence. Still not device-verified: secure API credential persistence, private account read-only authentication/balance/positions, long-duration background/reconnect behavior, and full paper-trading lifecycle on the phone. Keep live order placement disabled until safety validation and explicit authorization.
+- Continuity: use the active repository `alisolimani3221-art/tabdeal-pro-bot-free`; the older `tabdeal-pro-bot` repository contains a retired Android workflow. Do not repeat the old failed builds or already-passed v1.27 checks without a relevant code change/regression.
