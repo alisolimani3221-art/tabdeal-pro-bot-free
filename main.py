@@ -1394,7 +1394,8 @@ class FuturesAnalyzerApp(App):
     def start_multi_market_scan(self):
         """Run a bounded, read-only order-book scan off the UI thread."""
         if self.multi_scan_thread is not None and self.multi_scan_thread.is_alive():
-            self._set_multi_scan_status("اسکن قبلی هنوز در حال اجراست؛ لطفاً صبر کنید.")            return
+            self._set_multi_scan_status("اسکن قبلی هنوز در حال اجراست؛ لطفاً صبر کنید.")
+            return
         self._set_multi_scan_status(
             "در حال دریافت فهرست نمادهای فعال و دفتر سفارش آن‌ها... "
             "حداکثر ۴ درخواست هم‌زمان؛ هیچ سفارش واقعی ارسال نمی‌شود."
