@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from secure_credentials import CredentialStore
+from secure_credentials import CredentialStore, _java_bytes, _python_bytes
 
 
 class TestBackend:
@@ -73,6 +73,29 @@ class SecureCredentialStoreTests(unittest.TestCase):
     def test_empty_credentials_rejected(self):
         with self.assertRaises(ValueError):
             self.store.save("", "secret")
+
+    def test_status_reports_missing_or_saved_without_exposing_values(self):
+        self.assertEqual(self.store.check_status(), "MISSING")
+        self.store.save("private-key", "private-secret")
+        self.assertEqual(self.store.check_status(), "SAVED")
+
+    def test_status_fails_closed_when_keystore_cannot_decrypt(self):
+        class BrokenBackend(TestBackend):
+            def decrypt(self, iv, ciphertext):
+                raise ValueError("keystore unavailable")
+
+        self.store.save("key", "secret")
+        broken = CredentialStore(self.path, BrokenBackend())
+        with self.assertRaises(RuntimeError):
+            broken.check_status()
+
+
+    def test_java_byte_conversion_uses_supported_bytearray(self):
+        payload = bytes([0, 127, 128, 255])
+        converted = _java_bytes(payload)
+        self.assertIsInstance(converted, bytearray)
+        self.assertEqual(converted, bytearray([0, 127, 128, 255]))
+        self.assertEqual(_python_bytes([-1, 0, 127]), bytes([255, 0, 127]))
 
 
 if __name__ == "__main__":

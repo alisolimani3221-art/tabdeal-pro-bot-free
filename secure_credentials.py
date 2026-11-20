@@ -3,7 +3,6 @@
 There is deliberately no plaintext or non-Android fallback. The only caller
 should save credentials after a successful read-only account request.
 """
-import array
 import base64
 import json
 import os
@@ -14,7 +13,8 @@ _VERSION = 1
 
 
 def _java_bytes(value):
-    return array.array("b", [b if b < 128 else b - 256 for b in value])
+    """Return a PyJNIus-supported bytearray for Java byte[] parameters."""
+    return bytearray(value)
 
 
 def _python_bytes(value):
@@ -139,6 +139,10 @@ class CredentialStore:
             return None
         except Exception as exc:
             raise RuntimeError("Saved credentials could not be safely decrypted") from exc
+
+    def check_status(self):
+        """Check encrypted credential availability without returning secret values."""
+        return "SAVED" if self.load() is not None else "MISSING"
 
     def delete(self):
         try:

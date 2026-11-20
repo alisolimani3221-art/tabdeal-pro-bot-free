@@ -93,6 +93,56 @@ class TabdealAccountTests(unittest.TestCase):
             _signed_get("/v3/account", "key", "secret", session=session)
         self.assertTrue(response.closed)
 
+    def test_account_reader_rejects_missing_wallet_fields(self):
+        session = FakeSession([
+            FakeResponse({"availableBalance": "10"}),
+            FakeResponse([]),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "totalWalletBalance"):
+            read_futures_account("key", "secret", session=session)
+
+    def test_account_reader_rejects_unknown_positions_wrapper(self):
+        session = FakeSession([
+            FakeResponse({
+                "totalWalletBalance": "10",
+                "availableBalance": "9",
+            }),
+            FakeResponse({"unexpected": []}),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "positions response wrapper"):
+            read_futures_account("key", "secret", session=session)
+
+    def test_account_reader_rejects_malformed_position_rows(self):
+        account = FakeResponse({
+            "totalWalletBalance": "10",
+            "availableBalance": "9",
+        })
+        for row in ({"positionAmt": "1"}, {"symbol": "BTCUSDT", "positionAmt": "NaN"}):
+            with self.subTest(row=row):
+                session = FakeSession([account, FakeResponse([row])])
+                with self.assertRaises(RuntimeError):
+                    read_futures_account("key", "secret", session=session)
+
+    def test_account_reader_accepts_documented_positions_list_and_zero_rows(self):
+        session = FakeSession([
+            FakeResponse({
+                "totalWalletBalance": "10.25",
+                "availableBalance": "8.5",
+                "totalUnrealizedProfit": "-0.25",
+            }),
+            FakeResponse([
+                {"symbol": "BTCUSDT", "positionAmt": "0"},
+                {"symbol": "ETHUSDT", "positionAmt": "-0.2",
+                 "entryPrice": "3000", "markPrice": "2990",
+                 "unrealizedProfit": "-2", "leverage": "2"},
+            ]),
+        ])
+        result = read_futures_account("key", "secret", session=session)
+        self.assertEqual(result["unrealized_pnl"], "-0.25")
+        self.assertEqual(len(result["positions"]), 1)
+        self.assertEqual(result["positions"][0]["symbol"], "ETHUSDT")
+        self.assertEqual(result["positions"][0]["amount"], "-0.2")
+
 
 if __name__ == "__main__":
     unittest.main()

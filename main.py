@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.27"
+APP_VERSION = "1.28"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1182,6 +1182,17 @@ class FuturesAnalyzerApp(App):
         font_status = "OK: " + str(FONT_PATH) if FONT_PATH else "MISSING: Persian font"
         latin_status = "OK: " + str(LATIN_FONT_PATH) if LATIN_FONT_PATH else "MISSING: Latin font"
         depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
+        try:
+            credential_status = CredentialStore(
+                os.path.join(self.user_data_dir, "account-credentials.enc")
+            ).check_status()
+            credential_status = (
+                "OK: encrypted credentials decrypt successfully"
+                if credential_status == "SAVED"
+                else "NOT CONFIGURED: no saved credentials"
+            )
+        except Exception as credential_exc:
+            credential_status = "ERROR: " + type(credential_exc).__name__
         lines = [
             "مرکز عیب‌یابی برنامه",
             "نسخه برنامه: " + APP_VERSION,
@@ -1196,6 +1207,7 @@ class FuturesAnalyzerApp(App):
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
             "معامله‌گر آزمایشی: " + ("RUNNING" if auto_running else "STOPPED"),
             "آخرین بررسی: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
+            "وضعیت کلید امن API: " + credential_status,
         ]
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
