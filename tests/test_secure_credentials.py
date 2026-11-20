@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from secure_credentials import CredentialStore, _java_bytes, _python_bytes, _java_string_array
+from secure_credentials import CredentialStore, _java_bytes, _python_bytes, _configure_aes_builder
 
 
 class TestBackend:
@@ -90,16 +90,24 @@ class SecureCredentialStoreTests(unittest.TestCase):
             broken.check_status()
 
 
-    def test_java_string_array_returns_native_pyjnius_sequence(self):
-        result = _java_string_array(["GCM", "NoPadding"])
-        self.assertEqual(result, ["GCM", "NoPadding"])
-        self.assertIsInstance(result, list)
+    def test_keystore_builder_uses_scalar_pyjnius_varargs(self):
+        class FakeBuilder:
+            def __init__(self):
+                self.calls = []
+            def setBlockModes(self, *values):
+                self.calls.append(("block_modes", values))
+                return self
+            def setEncryptionPaddings(self, *values):
+                self.calls.append(("padding", values))
+                return self
 
-    def test_java_string_array_rejects_empty_or_invalid_input(self):
-        with self.assertRaises(ValueError):
-            _java_string_array([])
-        with self.assertRaises(TypeError):
-            _java_string_array("GCM")
+        builder = FakeBuilder()
+        result = _configure_aes_builder(builder)
+        self.assertIs(result, builder)
+        self.assertEqual(builder.calls, [
+            ("block_modes", ("GCM",)),
+            ("padding", ("NoPadding",)),
+        ])
 
     def test_java_byte_conversion_uses_supported_bytearray(self):
         payload = bytes([0, 127, 128, 255])
