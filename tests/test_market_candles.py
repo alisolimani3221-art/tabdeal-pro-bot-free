@@ -53,7 +53,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(status["gaps"], 0)
         self.assertEqual(status["synthetic_candles"], 1)
         self.assertEqual(len(builder.candles_for_analysis()), 2)
-        self.assertEqual(builder.candles_for_analysis()[1],
+        self.assertEqual(builder.candles_for_analysis()[0],
                          [6_060_000, 101.0, 101.0, 101.0, 101.0, 0.0])
 
     def test_two_quiet_minutes_do_not_reset_warmup(self):
