@@ -39,6 +39,13 @@ class AccountCredentialDialogTests(unittest.TestCase):
         self.assertIn("Do not discard the user's credentials", finish_block)
         self.assertIn("status.text = fa(\"اتصال موفق نشد:", finish_block)
 
+    def test_account_dialog_uses_compact_readable_credentials_controls(self):
+        self.assertIn('size=11, height=dp(44)', self.dialog)
+        self.assertIn('font_size=sp(13)', self.dialog)
+        self.assertIn('height=dp(38)', self.dialog)
+        self.assertIn('height=dp(40)', self.dialog)
+        self.assertIn('size_hint=(0.94, 0.60)', self.dialog)
+
 
 if __name__ == "__main__":
     unittest.main()
