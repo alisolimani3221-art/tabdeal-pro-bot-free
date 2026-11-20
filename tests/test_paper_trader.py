@@ -5,12 +5,12 @@ from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal,
 
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
-        return {"symbol": symbol, "price": price, "sma20": 99, "sma50": 98,
+        return {"symbol": symbol, "price": price, "sma10": 99, "sma20": 98,
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
-                "closed_candles": 51, "candle_open_time": 60_000}
-    return {"symbol": symbol, "price": price, "sma20": 101, "sma50": 102,
+                "closed_candles": 20, "candle_open_time": 60_000}
+    return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
-            "closed_candles": 51, "candle_open_time": 60_000}
+            "closed_candles": 20, "candle_open_time": 60_000}
 
 
 class PaperTraderTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class PaperTraderTests(unittest.TestCase):
 
     def test_accepts_signal_with_minimum_closed_candle_provenance(self):
         self.assertIsNotNone(rank_signal(setup()))
-        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=52)))
+        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=21)))
 
     def test_rejects_signal_without_valid_closed_candle_timestamp(self):
         for value in (None, 0, -1, True, "60000"):
@@ -206,14 +206,14 @@ class PaperTraderTests(unittest.TestCase):
                     PaperTradingEngine(**kwargs)
 
     def test_rejects_boolean_and_nonfinite_candidate_values(self):
-        for field, value in (("price", True), ("sma20", float("inf")),
-                             ("sma50", float("nan")), ("atr14", False),
+        for field, value in (("price", True), ("sma10", float("inf")),
+                             ("sma20", float("nan")), ("atr14", False),
                              ("rsi14", True), ("rsi14", float("inf"))):
             with self.subTest(field=field, value=value):
                 self.assertIsNone(rank_signal(dict(setup(), **{field: value})))
 
     def test_rejects_missing_technical_fields(self):
-        for field in ("price", "sma20", "sma50", "rsi14", "atr14"):
+        for field in ("price", "sma10", "sma20", "rsi14", "atr14"):
             candidate = setup()
             candidate.pop(field)
             with self.subTest(field=field):
