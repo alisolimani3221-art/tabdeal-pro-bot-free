@@ -1,4 +1,4 @@
-name: Tabdeal Futures CI and signed APK build (v1.29)
+name: Tabdeal Futures CI and signed APK build (v1.30)
 # CI validates the current branch and builds a signed paper-only APK; live order placement remains disabled.
 
 on:
@@ -29,6 +29,7 @@ on:
       - 'trade_state_store.py'
       - 'trade_state_lock.py'
       - 'app_runtime_guard.py'
+      - 'secure_credentials.py'
       - 'trade_coordinator.py'
       - 'trade_preflight.py'
       - 'server_paper_trader.py'

@@ -21,6 +21,27 @@ def _python_bytes(value):
     return bytes((int(item) & 0xFF) for item in value)
 
 
+def _java_string_array(values):
+    """Build a real Java String[] through Java reflection.
+
+    Some python-for-android/PyJNIus distributions do not expose the optional
+    jarray helper. Android Keystore Builder methods require a Java String[]
+    for their varargs; reflection creates that exact runtime array type.
+    """
+    try:
+        autoclass = __import__("jnius", fromlist=["autoclass"]).autoclass
+        JavaArray = autoclass("java.lang.reflect.Array")
+        StringClass = autoclass("java.lang.String").class_
+        result = JavaArray.newInstance(StringClass, len(values))
+        for index, value in enumerate(values):
+            JavaArray.set(result, index, str(value))
+        return result
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not construct a Java String[] for Android Keystore"
+        ) from exc
+
+
 class AndroidKeystoreBackend:
     """Small Android Keystore AES-256-GCM adapter; imports Android APIs lazily."""
 
@@ -44,8 +65,11 @@ class AndroidKeystoreBackend:
             purposes = (KeyProperties.PURPOSE_ENCRYPT |
                         KeyProperties.PURPOSE_DECRYPT)
             builder = Builder(_ALIAS, purposes)
-            builder.setBlockModes(["GCM"])
-            builder.setEncryptionPaddings(["NoPadding"])
+            # PyJNIus does not reliably coerce Python lists to Java varargs
+            # (String[]) on Android. Pass explicitly typed Java arrays to avoid
+            # a JavaException during KeyGenParameterSpec construction.
+            builder.setBlockModes(_java_string_array(["GCM"]))
+            builder.setEncryptionPaddings(_java_string_array(["NoPadding"]))
             builder.setKeySize(256)
             builder.setRandomizedEncryptionRequired(True)
             generator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
@@ -138,7 +162,13 @@ class CredentialStore:
         except FileNotFoundError:
             return None
         except Exception as exc:
-            raise RuntimeError("Saved credentials could not be safely decrypted") from exc
+            # Keep a bounded, non-secret root-cause hint. Previously the UI only
+            # surfaced the generic RuntimeError type, hiding the actual JNI /
+            # Keystore failure and making device diagnosis impossible.
+            detail = "{}: {}".format(type(exc).__name__, str(exc)[:160])
+            raise RuntimeError(
+                "Saved credentials could not be safely decrypted ({})".format(detail)
+            ) from exc
 
     def check_status(self):
         """Check encrypted credential availability without returning secret values."""
