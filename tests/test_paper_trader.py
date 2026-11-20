@@ -6,10 +6,10 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
         return {"symbol": symbol, "price": price, "sma20": 99, "sma50": 98,
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
-                "closed_candles": 51}
+                "closed_candles": 51, "candle_open_time": 60_000}
     return {"symbol": symbol, "price": price, "sma20": 101, "sma50": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
-            "closed_candles": 51}
+            "closed_candles": 51, "candle_open_time": 60_000}
 
 
 class PaperTraderTests(unittest.TestCase):
@@ -100,13 +100,32 @@ class PaperTraderTests(unittest.TestCase):
                                            signal="NEUTRAL")])
         self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
 
-    def test_does_not_reopen_on_same_scan_after_stop(self):
+    def test_does_not_reopen_on_same_candle_after_stop_across_scans(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
         result = engine.process_scan([setup(price=98.0)])
         self.assertTrue(any(e["event"] == "CLOSED" for e in result["events"]))
         self.assertFalse(any(e["event"] == "OPENED" for e in result["events"]))
         self.assertIsNone(result["open_position"])
+        repeated = engine.process_scan([setup(price=100.0)])
+        self.assertFalse(any(e["event"] == "OPENED" for e in repeated["events"]))
+        self.assertIsNone(repeated["open_position"])
+
+    def test_allows_entry_on_a_new_candle_after_previous_candle_entry(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        engine.process_scan([setup(price=98.0)])
+        result = engine.process_scan([dict(setup(), candle_open_time=120_000)])
+        self.assertTrue(any(e["event"] == "OPENED" for e in result["events"]))
+
+    def test_last_entry_candle_survives_engine_restore(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        restored = PaperTradingEngine.restore_state(engine.export_state())
+        self.assertEqual(restored.last_entry_candle,
+                         {"symbol": "AAA_USDT", "open_time": 60_000})
+        repeated = restored.process_scan([setup()])
+        self.assertFalse(any(e["event"] == "OPENED" for e in repeated["events"]))
 
     def test_entry_fee_does_not_consume_required_margin(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.01, slippage_rate=0)
