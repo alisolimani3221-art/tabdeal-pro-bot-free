@@ -397,7 +397,8 @@ class FuturesAnalyzerApp(App):
             markup=True, text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.42, 0.30, 0.12, 1),
-            color=(1, 1, 1, 1))        self.auto_trader_button.bind(on_press=self.open_auto_trader)
+            color=(1, 1, 1, 1))
+        self.auto_trader_button.bind(on_press=self.open_auto_trader)
         content.add_widget(self.auto_trader_button)
 
         self.multi_scan_button = Button(
