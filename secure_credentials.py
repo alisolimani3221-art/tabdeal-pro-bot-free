@@ -22,25 +22,21 @@ def _python_bytes(value):
 
 
 def _java_string_array(values):
-    """Build a real Java String[] using Java reflection, not PyJNIus jarray.
+    """Return strings in the native sequence form accepted by PyJNIus.
 
-    Some python-for-android/PyJNIus builds do not export the optional
-    jarray helper. Android Keystore's Builder methods accept Java String
-    varargs, so construct the exact String[] type through
-    java.lang.reflect.Array instead of relying on Python-list coercion.
+    PyJNIus converts Python sequences to Java arrays at the JNI boundary.
+    Passing a Python list of strings is the supported way to satisfy Java
+    String[] varargs; manually reflecting java.lang.Class objects creates an
+    unnecessary second JNI conversion layer and fails on some Android builds.
+    Keep this helper intentionally free of Java reflection so the actual
+    KeyGenParameterSpec overload resolver receives the native sequence.
     """
-    try:
-        from jnius import autoclass
-        JavaArray = autoclass("java.lang.reflect.Array")
-        StringClass = autoclass("java.lang.String").class_
-        result = JavaArray.newInstance(StringClass, len(values))
-        for index, value in enumerate(values):
-            JavaArray.set(result, index, str(value))
-        return result
-    except Exception as exc:
-        raise RuntimeError(
-            "Could not construct a Java String[] for Android Keystore"
-        ) from exc
+    if not isinstance(values, (list, tuple)):
+        raise TypeError("Java string-array values must be a list or tuple")
+    result = [str(value) for value in values]
+    if not result:
+        raise ValueError("Java string arrays must not be empty")
+    return result
 
 
 class AndroidKeystoreBackend:
@@ -66,9 +62,8 @@ class AndroidKeystoreBackend:
             purposes = (KeyProperties.PURPOSE_ENCRYPT |
                         KeyProperties.PURPOSE_DECRYPT)
             builder = Builder(_ALIAS, purposes)
-            # PyJNIus does not reliably coerce Python lists to Java varargs
-            # (String[]) on Android. Pass explicitly typed Java arrays to avoid
-            # a JavaException during KeyGenParameterSpec construction.
+            # PyJNIus converts a Python sequence to the Java String[] required
+            # by these varargs overloads. Avoid reflection-generated arrays.
             builder.setBlockModes(_java_string_array(["GCM"]))
             builder.setEncryptionPaddings(_java_string_array(["NoPadding"]))
             builder.setKeySize(256)
