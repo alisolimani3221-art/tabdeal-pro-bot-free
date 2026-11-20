@@ -14,13 +14,13 @@ import requests
 READ_BASE_URL = "https://api1.tabdeal.org/r/fapi"
 
 
-def _signed_get(path, key, secret, params=None, timeout=20, session=None):
+def _signed_get(path, key, secret, params=None, timeout=20, session=None, timestamp_ms=None):
     if not key or not secret:
         raise ValueError("API key and secret are required")
     if not isinstance(path, str) or not path.startswith("/v") or ".." in path:
         raise ValueError("path must be a versioned futures read endpoint")
     values = dict(params or {})
-    values["timestamp"] = int(time.time() * 1000)
+    values["timestamp"] = int(timestamp_ms if timestamp_ms is not None else time.time() * 1000)
     query = urlencode(values)
     signature = hmac.new(
         secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256
@@ -58,14 +58,57 @@ def _finite_decimal(value, field):
     return number
 
 
+def _server_time_ms(session, timeout=12):
+    """Read Tabdeal's public server clock to avoid Android device clock drift."""
+    response = session.get(
+        READ_BASE_URL + "/v1/time",
+        headers={"Accept": "application/json"},
+        timeout=timeout,
+    )
+    try:
+        if not response.ok:
+            raise RuntimeError("Tabdeal time endpoint HTTP {}".format(response.status_code))
+        payload = response.json()
+        if isinstance(payload, dict):
+            value = payload.get("serverTime", payload.get("server_time", payload.get("time")))
+        else:
+            value = payload
+        server_ms = int(value)
+        if server_ms <= 0:
+            raise ValueError("invalid server time")
+        return server_ms
+    except Exception as exc:
+        raise RuntimeError("Tabdeal server-time sync failed: {}: {}".format(
+            type(exc).__name__, str(exc)[:160]
+        )) from exc
+    finally:
+        response.close()
+
+
 def read_futures_account(key, secret, timeout=20, session=None):
     """Return validated wallet summary and non-zero futures positions using GET only."""
-    account = _signed_get(
-        "/v3/account", key, secret, timeout=timeout, session=session
-    )
-    positions = _signed_get(
-        "/v3/positionRisk", key, secret, timeout=timeout, session=session
-    )
+    own_session = session is None
+    client = session or requests.Session()
+    try:
+        if own_session:
+            import certifi
+            from android_tls import mount_tabdeal_tls_compat
+            mount_tabdeal_tls_compat(client, certifi.where())
+        server_ms = _server_time_ms(client, timeout=min(timeout, 12))
+        offset = server_ms - int(time.time() * 1000)
+        signed_timestamp = int(time.time() * 1000) + offset
+        signed_params = {"recvWindow": 10000}
+        account = _signed_get(
+            "/v3/account", key, secret, params=signed_params,
+            timeout=timeout, session=client, timestamp_ms=signed_timestamp
+        )
+        positions = _signed_get(
+            "/v3/positionRisk", key, secret, params=signed_params,
+            timeout=timeout, session=client, timestamp_ms=signed_timestamp + 1
+        )
+    finally:
+        if own_session:
+            client.close()
     if not isinstance(account, dict):
         raise RuntimeError("Unexpected account response format")
     # Some API gateways wrap the account object. Accept only known account
