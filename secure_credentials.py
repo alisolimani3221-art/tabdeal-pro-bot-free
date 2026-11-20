@@ -21,22 +21,16 @@ def _python_bytes(value):
     return bytes((int(item) & 0xFF) for item in value)
 
 
-def _java_string_array(values):
-    """Return strings in the native sequence form accepted by PyJNIus.
+def _configure_aes_builder(builder):
+    """Configure AES-GCM using PyJNIus varargs, not a nested Python list.
 
-    PyJNIus converts Python sequences to Java arrays at the JNI boundary.
-    Passing a Python list of strings is the supported way to satisfy Java
-    String[] varargs; manually reflecting java.lang.Class objects creates an
-    unnecessary second JNI conversion layer and fails on some Android builds.
-    Keep this helper intentionally free of Java reflection so the actual
-    KeyGenParameterSpec overload resolver receives the native sequence.
+    PyJNIus itself packs positional arguments into the Java String... array.
+    Passing a list as one argument creates a nested sequence at the JNI
+    boundary and can fail with 'Could not construct a Java String[]'.
     """
-    if not isinstance(values, (list, tuple)):
-        raise TypeError("Java string-array values must be a list or tuple")
-    result = [str(value) for value in values]
-    if not result:
-        raise ValueError("Java string arrays must not be empty")
-    return result
+    builder.setBlockModes("GCM")
+    builder.setEncryptionPaddings("NoPadding")
+    return builder
 
 
 class AndroidKeystoreBackend:
@@ -62,10 +56,9 @@ class AndroidKeystoreBackend:
             purposes = (KeyProperties.PURPOSE_ENCRYPT |
                         KeyProperties.PURPOSE_DECRYPT)
             builder = Builder(_ALIAS, purposes)
-            # PyJNIus converts a Python sequence to the Java String[] required
-            # by these varargs overloads. Avoid reflection-generated arrays.
-            builder.setBlockModes(_java_string_array(["GCM"]))
-            builder.setEncryptionPaddings(_java_string_array(["NoPadding"]))
+            # Pass each vararg as a scalar string. PyJNIus creates String[]
+            # from positional varargs; do not pass a nested Python list.
+            _configure_aes_builder(builder)
             builder.setKeySize(256)
             builder.setRandomizedEncryptionRequired(True)
             generator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
