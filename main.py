@@ -197,7 +197,8 @@ def fa(text):
     """Shape Persian text and mark Latin runs to use the Latin-capable font."""
     value = str(text)
     if not contains_arabic(value):
-        return value    try:
+        return value
+    try:
         if arabic_reshaper is not None and get_display is not None:
             value = get_display(arabic_reshaper.reshape(value), base_dir="R")
             # Kivy Label markup lets a mixed RTL/LTR sentence use the correct
