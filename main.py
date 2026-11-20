@@ -1621,11 +1621,11 @@ class FuturesAnalyzerApp(App):
                         stream_status = builder.status()
                         status_text = (
                             "جریان معاملات فعال است. کندل بسته: {}/51 | "
-                            "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
-                            "پس از تکمیل داده کافی، تحلیل شروع می‌شود."
+                            "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {} | "
+                            "کندل سکون: {}. پس از تکمیل داده کافی، تحلیل شروع می‌شود."
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
-                                 stream_status["gaps"])
+                                 stream_status["gaps"], stream_status["synthetic_candles"])
                         Clock.schedule_once(
                             lambda dt, value=status_text: self.update_auto_status(value), 0
                         )
