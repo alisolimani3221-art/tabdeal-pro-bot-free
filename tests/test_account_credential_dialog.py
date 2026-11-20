@@ -44,7 +44,11 @@ class AccountCredentialDialogTests(unittest.TestCase):
         self.assertIn('font_size=sp(13)', self.dialog)
         self.assertIn('height=dp(38)', self.dialog)
         self.assertIn('height=dp(40)', self.dialog)
-        self.assertIn('size_hint=(0.94, 0.60)', self.dialog)
+        self.assertIn('size_hint=(0.94, 0.68)', self.dialog)
+        self.assertIn('text=fa("ذخیره امن کلید")', self.dialog)
+        self.assertIn('save_button.bind(on_press=save_credentials)', self.dialog)
+        self.assertIn('restored = store.load()', self.dialog)
+        self.assertIn('تأیید بازیابی پس از ذخیره ناموفق بود', self.dialog)
 
 
 if __name__ == "__main__":
