@@ -215,7 +215,6 @@ jobs:
           PY
 
       - name: Live read-only scan of every active futures order book
-        continue-on-error: true
         timeout-minutes: 5
         run: |
           python - <<'PY'
