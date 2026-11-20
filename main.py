@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.35"
+APP_VERSION = "1.36"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -597,8 +597,7 @@ class FuturesAnalyzerApp(App):
             except Exception as info_exc:
                 results["market_info_error"] = "{}: {}".format(
                     type(info_exc).__name__, str(info_exc)[:260]
-                )
-                # Fail closed: a syntactically plausible ticker is not proof
+                )                # Fail closed: a syntactically plausible ticker is not proof
                 # that the contract exists or is active. Never query depth for
                 # an unverified/stale symbol when exchangeInfo is unavailable.
                 market_symbol = None
@@ -997,8 +996,7 @@ class FuturesAnalyzerApp(App):
             label_widget.halign = "right"
             label_widget.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
             value_widget = Label(
-                text="—", font_name=NUMERIC_FONT_NAME, font_size=sp(13),
-                color=(0.95, 0.97, 1, 1), size_hint_x=0.40,
+                text="—", font_name=NUMERIC_FONT_NAME, font_size=sp(13),                color=(0.95, 0.97, 1, 1), size_hint_x=0.40,
                 size_hint_y=None, height=dp(36), halign="left",
                 valign="middle",
             )
@@ -1197,8 +1195,7 @@ class FuturesAnalyzerApp(App):
         message = message.replace("نماد BTCUSDT", "نماد معاملاتی بیت‌کوین")
         message_label = Label(
             text=fa(message), font_name=FONT_NAME, markup=True, font_size=sp(15),
-            halign="center", valign="middle", size_hint=(1, None),
-            text_size=(Window.width * 0.80, None)
+            halign="center", valign="middle", size_hint=(1, None),            text_size=(Window.width * 0.80, None)
         )
         message_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(20)))
         report_content.add_widget(message_label)
@@ -1531,7 +1528,13 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("نماد انتخاب‌شده معتبر نیست؛ شروع انجام نشد.")
             return
         try:
-            builder = TradeCandleBuilder(symbol)
+            previous_builder = getattr(self, "auto_candle_builder", None)
+            if previous_builder is not None and previous_builder.symbol == symbol:
+                # Reuse in-memory candles only if the next trade confirms the same minute.
+                builder = previous_builder
+                builder.reset_after_reconnect()
+            else:
+                builder = TradeCandleBuilder(symbol)
             state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
@@ -1561,12 +1564,19 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
-        self.update_auto_status(
+        retained_count = min(builder.status()["closed_candles"], 51)
+        if retained_count >= 51:
+            warmup_text = "تاریخچه معتبر: ۵۱ از ۵۱؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
+        else:
+            warmup_text = (
+                "آماده‌سازی: {} از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
+            ).format(retained_count)
+        status_text = (
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
-            "آماده‌سازی: ۰ از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود. "
-            "هیچ سفارش واقعی ارسال نمی‌شود."
-        )
+            + warmup_text + " هیچ سفارش واقعی ارسال نمی‌شود."
+        ).format(self.capital_usdt)
+        self.update_auto_status(status_text)
 
     def _stop_auto_worker(self, timeout=3.0):
         """Signal the paper worker and confirm it has exited before touching shared state."""
@@ -1628,23 +1638,34 @@ class FuturesAnalyzerApp(App):
         received_messages = 0
         valid_messages = 0
         connected_once = False
+        retry_attempt = 0
         while not self.auto_stop_event.is_set():
+            retry_attempt += 1
+            attempt_delay = min(15, 2 + retry_attempt * 2)
+            Clock.schedule_once(
+                lambda dt, number=retry_attempt: self.update_auto_status(
+                    "در حال تلاش برای اتصال به جریان معاملات؛ تلاش شماره {}. "
+                    "مهلت هر تلاش ۱۲ ثانیه است؛ در صورت شکست، اتصال دوباره انجام می‌شود."
+                    .format(number)
+                ), 0
+            )
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
                 if connected_once:
-                    builder.reset_after_gap()
+                    builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
                 ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال جمع‌آوری معاملات برای ساخت کندل‌های یک‌دقیقه‌ای."
+                        "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
+                        "در صورت نبود شکاف، کندل‌های معتبر قبلی حفظ می‌شوند."
                     ), 0
                 )
 
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
-                nonlocal last_status_update, received_messages, valid_messages
+                nonlocal last_status_update, received_messages, valid_messages, retry_attempt
                 received_messages += 1
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set():
@@ -1664,6 +1685,8 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 valid_messages += 1
+                # Reset backoff only after real, validated exchange data arrives.
+                retry_attempt = 0
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     now = time.monotonic()
@@ -1686,7 +1709,7 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         stream_status = builder.status()
                         status_text = (
-                            "جریان معاملات فعال است. کندل بسته: {}/51 | "
+                            "جریان معاملات فعال است. کندل بسته معتبر: {}/51 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
                             "پس از تکمیل داده کافی، تحلیل شروع می‌شود."
                         ).format(stream_status["closed_candles"], received_messages,
@@ -1700,13 +1723,26 @@ class FuturesAnalyzerApp(App):
                             closed_count == 0 or closed_count % 5 == 0):
                         last_progress_count = closed_count
                         progress = (
-                            "در حال آماده‌سازی موتور | {} | کندل معتبر: {}/۵۱ | "
+                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۵۱ | "
                             "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
                         ).format(symbol, min(closed_count, 51))
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
-                # Reconcile any restored open paper position on every validated trade tick.
+                # Never process a tick that exposed a time gap. The candle builder
+                # has invalidated its history; ignore this price for position exits too.
+                if update.get("gap_detected"):
+                    last_processed_bucket = None
+                    status = builder.status()
+                    gap_message = (
+                        "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
+                        "کندل معتبر: {}/۵۱ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                    ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
+                    Clock.schedule_once(
+                        lambda dt, value=gap_message: self.update_auto_status(value), 0
+                    )
+                    return
+                # Reconcile restored paper positions only against continuous validated ticks.
                 try:
                     tick_event = engine.process_tick(symbol, parsed["price"])
                     if tick_event:
@@ -1734,17 +1770,6 @@ class FuturesAnalyzerApp(App):
                         pass
                     Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
-                    return
-                if update.get("gap_detected"):
-                    last_processed_bucket = None
-                    status = builder.status()
-                    gap_message = (
-                        "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
-                        "کندل معتبر: {}/۵۱ | تعداد شکاف‌ها: {} | داده ردشده: {}"
-                    ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
-                    Clock.schedule_once(
-                        lambda dt, value=gap_message: self.update_auto_status(value), 0
-                    )
                     return
                 current_bucket = (builder.current or {}).get("open_time")
                 if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
@@ -1781,8 +1806,7 @@ class FuturesAnalyzerApp(App):
                         event = events[-1]
                         if event.get("event") == "OPENED":
                             pos = event["position"]
-                            event_text = (
-                                "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
+                            event_text = (                                "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
                             ).format(pos["symbol"], "خرید" if pos["side"] == "BULLISH" else "فروش",
                                      pos["stop"], pos["target"], pos["leverage"])
                         elif event.get("event") == "CLOSED":
@@ -1837,7 +1861,14 @@ class FuturesAnalyzerApp(App):
             )
             self.auto_ws = app
             try:
-                app.run_forever(ping_interval=20, ping_timeout=10)
+                # Bound the WebSocket handshake; otherwise the worker can block
+                # before on_open and leave the UI on the retry message indefinitely.
+                app.run_forever(
+                    ping_interval=20,
+                    ping_timeout=10,
+                    timeout=12,
+                    reconnect=0,
+                )
             except Exception as stream_exc:
                 detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:140])
                 Clock.schedule_once(
@@ -1850,10 +1881,12 @@ class FuturesAnalyzerApp(App):
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. پس از شکاف داده، گرم‌سازی کندل دوباره لازم است."
+                        "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. پس از اتصال، " 
+                        "پیوستگی کندل‌ها بررسی می‌شود؛ فقط در صورت وجود شکاف واقعی " 
+                        "گرم‌سازی کامل از نو انجام خواهد شد."
                     ), 0
                 )
-                self.auto_stop_event.wait(3)
+                self.auto_stop_event.wait(attempt_delay)
 
         final_status = (
             "شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است. "

@@ -62,7 +62,49 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), 0)
 
-    def test_reconnect_reset_discards_all_warmup_data(self):
+    def test_short_reconnect_preserves_closed_history_but_discards_partial_candle(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 153):
+            builder.add_trade(self.trade(minute))
+        self.assertTrue(builder.is_ready)
+        retained = len(builder.closed)
+        forming_minute = builder.current["open_time"] // 60_000
+
+        builder.reset_after_reconnect()
+        self.assertEqual(len(builder.closed), retained)
+        self.assertIsNone(builder.current)
+        self.assertFalse(builder.is_ready)
+
+        resumed = builder.add_trade(self.trade(forming_minute, second=20))
+        self.assertTrue(resumed["accepted"])
+        self.assertFalse(resumed["gap_detected"])
+        self.assertEqual(len(builder.closed), retained)
+        self.assertFalse(builder.is_ready)
+
+        partial_close = builder.add_trade(self.trade(forming_minute + 1))
+        self.assertFalse(partial_close["ready"])
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(len(builder.closed), retained)
+
+        full_close = builder.add_trade(self.trade(forming_minute + 2))
+        self.assertTrue(full_close["ready"])
+        self.assertTrue(builder.is_ready)
+        self.assertEqual(len(builder.closed), retained + 1)
+
+    def test_reconnect_after_minute_boundary_invalidates_retained_history(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 153):
+            builder.add_trade(self.trade(minute))
+        self.assertTrue(builder.is_ready)
+        builder.reset_after_reconnect()
+
+        result = builder.add_trade(self.trade(153))
+        self.assertTrue(result["accepted"])
+        self.assertTrue(result["gap_detected"])
+        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(builder.is_ready)
+
+    def test_hard_gap_reset_discards_all_warmup_data(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100))
         builder.add_trade(self.trade(101))
