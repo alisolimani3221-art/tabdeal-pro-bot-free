@@ -661,16 +661,18 @@ class FuturesAnalyzerApp(App):
     def open_account_connection(self, instance):
         """Read account data; persist credentials only after a successful GET."""
         store = CredentialStore(os.path.join(self.user_data_dir, "account-credentials.enc"))
-        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        body = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(6))
         body.add_widget(self.make_label(
             "کلید فقط‌خواندنی فیوچرز؛ ذخیره‌سازی فقط با رمزگذاری Android Keystore انجام می‌شود.",
-            size=13, height=dp(58), color=(1, 0.76, 0.38, 1)))
+            size=11, height=dp(44), color=(1, 0.76, 0.38, 1)))
         key_input = TextInput(
             hint_text="API Key", multiline=False, password=False,
-            font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(46))
+            font_name=NUMERIC_FONT_NAME, font_size=sp(13),
+            size_hint_y=None, height=dp(38))
         secret_input = TextInput(
             hint_text="API Secret", multiline=False, password=True,
-            font_name=NUMERIC_FONT_NAME, size_hint_y=None, height=dp(46))
+            font_name=NUMERIC_FONT_NAME, font_size=sp(13),
+            size_hint_y=None, height=dp(38))
         load_status = None
         try:
             saved = store.load()
@@ -691,18 +693,18 @@ class FuturesAnalyzerApp(App):
         body.add_widget(secret_input)
         status = self.make_label(
             load_status or "مجوز برداشت و معامله را برای این کلید فعال نکنید.",
-            size=12, height=dp(48), color=(1, 0.68, 0.35, 1))
+            size=11, height=dp(40), color=(1, 0.68, 0.35, 1))
         body.add_widget(status)
-        buttons = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
-        connect = Button(markup=True, text=fa("خواندن موجودی"), font_name=FONT_NAME)
-        delete_saved = Button(markup=True, text=fa("حذف کلید ذخیره‌شده"), font_name=FONT_NAME)
-        cancel = Button(markup=True, text=fa("انصراف"), font_name=FONT_NAME)
+        buttons = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
+        connect = Button(markup=True, text=fa("خواندن موجودی"), font_name=FONT_NAME, font_size=sp(11))
+        delete_saved = Button(markup=True, text=fa("حذف کلید ذخیره‌شده"), font_name=FONT_NAME, font_size=sp(10))
+        cancel = Button(markup=True, text=fa("انصراف"), font_name=FONT_NAME, font_size=sp(11))
         buttons.add_widget(connect)
         buttons.add_widget(delete_saved)
         buttons.add_widget(cancel)
         body.add_widget(buttons)
         popup = Popup(title=fa_plain("اتصال فقط‌خواندنی حساب"), title_font=FONT_NAME,
-                      content=body, size_hint=(0.94, 0.68), auto_dismiss=False)
+                      content=body, size_hint=(0.94, 0.60), auto_dismiss=False)
         cancel.bind(on_press=popup.dismiss)
 
         def remove_saved(instance):
