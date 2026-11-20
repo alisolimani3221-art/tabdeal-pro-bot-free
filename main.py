@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.35"
+APP_VERSION = "1.36"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1632,13 +1632,14 @@ class FuturesAnalyzerApp(App):
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
                 if connected_once:
-                    builder.reset_after_gap()
+                    builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
                 ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال جمع‌آوری معاملات برای ساخت کندل‌های یک‌دقیقه‌ای."
+                        "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
+                        "در صورت نبود شکاف، کندل‌های معتبر قبلی حفظ می‌شوند."
                     ), 0
                 )
 
@@ -1686,7 +1687,7 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         stream_status = builder.status()
                         status_text = (
-                            "جریان معاملات فعال است. کندل بسته: {}/51 | "
+                            "جریان معاملات فعال است. کندل بسته معتبر: {}/51 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
                             "پس از تکمیل داده کافی، تحلیل شروع می‌شود."
                         ).format(stream_status["closed_candles"], received_messages,
@@ -1700,7 +1701,7 @@ class FuturesAnalyzerApp(App):
                             closed_count == 0 or closed_count % 5 == 0):
                         last_progress_count = closed_count
                         progress = (
-                            "در حال آماده‌سازی موتور | {} | کندل معتبر: {}/۵۱ | "
+                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۵۱ | "
                             "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
                         ).format(symbol, min(closed_count, 51))
                         Clock.schedule_once(
@@ -1850,7 +1851,9 @@ class FuturesAnalyzerApp(App):
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. پس از شکاف داده، گرم‌سازی کندل دوباره لازم است."
+                        "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. پس از اتصال، " 
+                        "پیوستگی کندل‌ها بررسی می‌شود؛ فقط در صورت وجود شکاف واقعی " 
+                        "گرم‌سازی کامل از نو انجام خواهد شد."
                     ), 0
                 )
                 self.auto_stop_event.wait(3)
