@@ -1635,6 +1635,9 @@ class FuturesAnalyzerApp(App):
         last_processed_bucket = None
         last_progress_count = -1
         last_status_update = 0.0
+        # Refresh the displayed closed-candle signal every 15 seconds.
+        # Trade execution remains gated to one pass per newly closed candle.
+        last_signal_refresh = 0.0
         received_messages = 0
         valid_messages = 0
         connected_once = False
@@ -1665,7 +1668,8 @@ class FuturesAnalyzerApp(App):
 
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
-                nonlocal last_status_update, received_messages, valid_messages, retry_attempt
+                nonlocal last_status_update, last_signal_refresh
+                nonlocal received_messages, valid_messages, retry_attempt
                 received_messages += 1
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set():
@@ -1771,6 +1775,25 @@ class FuturesAnalyzerApp(App):
                     Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
                     return
+                # Recalculate the displayed signal on a 15-second cadence using
+                # verified closed candles only. This does not execute trades.
+                now = time.monotonic()
+                if builder.is_ready and now - last_signal_refresh >= 15.0:
+                    last_signal_refresh = now
+                    try:
+                        refreshed = analyze_klines(builder.candles_for_analysis())
+                        refreshed["symbol"] = symbol
+                        Clock.schedule_once(
+                            lambda dt, value=dict(refreshed): self.update_technical_labels(value), 0
+                        )
+                    except Exception as signal_exc:
+                        detail = type(signal_exc).__name__
+                        Clock.schedule_once(
+                            lambda dt, value=detail: self.update_auto_status(
+                                "به‌روزرسانی سیگنال انجام نشد؛ ورود جدید تا داده معتبر بعدی متوقف است: " + value
+                            ), 0
+                        )
+
                 current_bucket = (builder.current or {}).get("open_time")
                 if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
                     return
