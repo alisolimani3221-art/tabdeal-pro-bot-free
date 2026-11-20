@@ -140,6 +140,10 @@ class CredentialStore:
         except Exception as exc:
             raise RuntimeError("Saved credentials could not be safely decrypted") from exc
 
+    def check_status(self):
+        """Check encrypted credential availability without returning secret values."""
+        return "SAVED" if self.load() is not None else "MISSING"
+
     def delete(self):
         try:
             os.remove(self.path)
