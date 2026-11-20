@@ -80,6 +80,28 @@ class TabdealAccountTests(unittest.TestCase):
         self.assertEqual(urlparse(session.calls[0][0]).path, "/r/fapi/v3/account")
         self.assertEqual(urlparse(session.calls[1][0]).path, "/r/fapi/v3/positionRisk")
 
+    def test_account_reader_unwraps_data_envelope_and_wallet_alias(self):
+        session = FakeSession([
+            FakeResponse({"data": {
+                "wallet_balance": "75.25",
+                "available_balance": "60.0",
+                "unrealized_pnl": "1.5",
+            }}),
+            FakeResponse({"data": [
+                {"symbol": "BTC_USDT", "positionAmt": "0.01"}
+            ]}),
+        ])
+        result = read_futures_account("test-key", "test-secret", session=session)
+        self.assertEqual(result["wallet_balance"], "75.25")
+        self.assertEqual(result["available_balance"], "60.0")
+        self.assertEqual(len(result["positions"]), 1)
+
+    def test_account_reader_reports_missing_wallet_field_clearly(self):
+        session = FakeSession([FakeResponse({"data": {"assets": []}})])
+        with self.assertRaisesRegex(RuntimeError, "no recognized wallet balance field"):
+            read_futures_account("test-key", "test-secret", session=session)
+        self.assertEqual(len(session.calls), 1)
+
     def test_signed_get_rejects_missing_credentials_before_network(self):
         session = FakeSession([])
         with self.assertRaises(ValueError):
