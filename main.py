@@ -1633,6 +1633,7 @@ class FuturesAnalyzerApp(App):
             return
 
         last_processed_bucket = None
+        last_scan_monotonic = 0.0
         last_progress_count = -1
         last_status_update = 0.0
         received_messages = 0
@@ -1664,7 +1665,7 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_message(ws, message):
-                nonlocal last_processed_bucket, last_progress_count
+                nonlocal last_processed_bucket, last_scan_monotonic, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
                 received_messages += 1
                 parsed = parse_trade_message(message, expected_symbol=symbol)
@@ -1772,11 +1773,17 @@ class FuturesAnalyzerApp(App):
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
                     return
                 current_bucket = (builder.current or {}).get("open_time")
-                if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
+                scan_now = time.monotonic()
+                # Re-evaluate a fresh snapshot every 15 seconds, even while the
+                # current one-minute candle is forming. Entry idempotency is
+                # persisted separately by the paper engine.
+                if (not builder.is_ready or current_bucket is None
+                        or scan_now - last_scan_monotonic < 15.0):
                     return
                 try:
                     technical = analyze_klines(builder.candles_for_analysis())
                     technical["symbol"] = symbol
+                    technical["candle_open_time"] = int(current_bucket)
                     Clock.schedule_once(
                         lambda dt, value=dict(technical): self.update_technical_labels(value), 0
                     )
@@ -1800,6 +1807,7 @@ class FuturesAnalyzerApp(App):
                             "ذخیره وضعیت موتور ناموفق بود؛ توقف اضطراری فعال شد: " + value), 0)
                         return
                     last_processed_bucket = current_bucket
+                    last_scan_monotonic = time.monotonic()
                     events = result.get("events", [])
                     event_text = ""
                     if events:
