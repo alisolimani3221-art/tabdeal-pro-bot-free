@@ -22,12 +22,25 @@ def _python_bytes(value):
 
 
 def _java_string_array(values):
-    """Build a real Java String[] for Java varargs methods via PyJNIus."""
+    """Build a real Java String[] using Java reflection, not PyJNIus jarray.
+
+    Some python-for-android/PyJNIus builds do not export the optional
+    jarray helper. Android Keystore's Builder methods accept Java String
+    varargs, so construct the exact String[] type through
+    java.lang.reflect.Array instead of relying on Python-list coercion.
+    """
     try:
-        from jnius import jarray
+        from jnius import autoclass
+        JavaArray = autoclass("java.lang.reflect.Array")
+        StringClass = autoclass("java.lang.String").class_
+        result = JavaArray.newInstance(StringClass, len(values))
+        for index, value in enumerate(values):
+            JavaArray.set(result, index, str(value))
+        return result
     except Exception as exc:
-        raise RuntimeError("PyJNIus Java array support is unavailable") from exc
-    return jarray("java.lang.String")(list(values))
+        raise RuntimeError(
+            "Could not construct a Java String[] for Android Keystore"
+        ) from exc
 
 
 class AndroidKeystoreBackend:
