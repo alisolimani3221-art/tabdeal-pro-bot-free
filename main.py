@@ -1531,7 +1531,13 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("نماد انتخاب‌شده معتبر نیست؛ شروع انجام نشد.")
             return
         try:
-            builder = TradeCandleBuilder(symbol)
+            previous_builder = getattr(self, "auto_candle_builder", None)
+            if previous_builder is not None and previous_builder.symbol == symbol:
+                # Reuse in-memory candles only if the next trade confirms the same minute.
+                builder = previous_builder
+                builder.reset_after_reconnect()
+            else:
+                builder = TradeCandleBuilder(symbol)
             state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
@@ -1561,11 +1567,17 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
+        retained_count = min(builder.status()["closed_candles"], 51)
+        if retained_count >= 51:
+            warmup_text = "تاریخچه معتبر: ۵۱ از ۵۱؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
+        else:
+            warmup_text = (
+                "آماده‌سازی: {} از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
+            ).format(retained_count)
         self.update_auto_status(
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
-            "آماده‌سازی: ۰ از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود. "
-            "هیچ سفارش واقعی ارسال نمی‌شود."
+            + warmup_text + " هیچ سفارش واقعی ارسال نمی‌شود."
         )
 
     def _stop_auto_worker(self, timeout=3.0):
