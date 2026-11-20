@@ -93,15 +93,33 @@ class SecureCredentialStoreTests(unittest.TestCase):
             broken.check_status()
 
 
-    def test_java_string_array_uses_explicit_pyjnius_array_type(self):
+    def test_java_string_array_uses_reflection_without_jarray(self):
         calls = []
-        fake_jnius = SimpleNamespace(
-            jarray=lambda type_name: lambda values: (calls.append((type_name, values)) or (type_name, values))
-        )
+        class FakeString:
+            class_ = "java.lang.String.class"
+        class FakeReflectArray:
+            @staticmethod
+            def newInstance(component_type, length):
+                calls.append(("newInstance", component_type, length))
+                return [None] * length
+            @staticmethod
+            def set(array, index, value):
+                calls.append(("set", index, value))
+                array[index] = value
+        def fake_autoclass(name):
+            return {
+                "java.lang.reflect.Array": FakeReflectArray,
+                "java.lang.String": FakeString,
+            }[name]
+        fake_jnius = SimpleNamespace(autoclass=fake_autoclass)
         with patch.dict(sys.modules, {"jnius": fake_jnius}):
             result = _java_string_array(["GCM", "NoPadding"])
-        self.assertEqual(result, ("java.lang.String", ["GCM", "NoPadding"]))
-        self.assertEqual(calls, [("java.lang.String", ["GCM", "NoPadding"])])
+        self.assertEqual(result, ["GCM", "NoPadding"])
+        self.assertEqual(calls, [
+            ("newInstance", "java.lang.String.class", 2),
+            ("set", 0, "GCM"),
+            ("set", 1, "NoPadding"),
+        ])
 
     def test_java_byte_conversion_uses_supported_bytearray(self):
         payload = bytes([0, 127, 128, 255])
