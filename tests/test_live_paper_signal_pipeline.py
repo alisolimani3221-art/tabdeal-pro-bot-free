@@ -94,7 +94,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         self.assertTrue(builder.is_ready)
         gap = builder.add_trade({
             "symbol": "BTC_USDT", "price": 101.0, "quantity": 1.0,
-            "timestamp_ms": (base + 55) * 60_000 + 1000,
+            "timestamp_ms": (base + 56) * 60_000 + 1000,
         })
         self.assertTrue(gap["gap_detected"])
         self.assertFalse(builder.is_ready)
