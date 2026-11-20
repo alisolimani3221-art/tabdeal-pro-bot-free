@@ -4,6 +4,7 @@ This module reports liquidity snapshots only. It never derives candles/signals
 from order-book prices and never submits exchange orders.
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
@@ -63,7 +64,23 @@ def scan_market_universe(fetch_json=None, max_workers=6):
         raise RuntimeError("No active USDT futures symbols were returned")
 
     def read_one(symbol):
-        book = fetch("/depth", {"symbol": symbol, "limit": 5})
+        # Retry transient network/HTTP failures, but never retry malformed
+        # market data: a bad book must remain visible as a failed symbol.
+        for attempt in range(3):
+            try:
+                book = fetch("/depth", {"symbol": symbol, "limit": 5})
+                break
+            except Exception as exc:
+                response = getattr(exc, "response", None)
+                status = getattr(response, "status_code", None)
+                if status is None:
+                    status = getattr(exc, "status_code", None)
+                retryable = status is None or status == 429 or (
+                    isinstance(status, int) and status >= 500
+                )
+                if not retryable or attempt == 2:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
         bids, asks = parse_order_book(book)
         bid, ask = float(bids[0][0]), float(asks[0][0])
         midpoint = bid / 2.0 + ask / 2.0
