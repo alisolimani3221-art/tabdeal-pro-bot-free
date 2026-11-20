@@ -29,6 +29,7 @@ class TradeCandleBuilder:
         self.discard_next_close = True
         # Reuse closed candles only when the stream resumes in the same minute.
         self._resume_bucket = None
+        self._reconnect_warmup_pending = False
 
     @staticmethod
     def _positive(value, name):
@@ -81,6 +82,7 @@ class TradeCandleBuilder:
                 self.closed.clear()
                 self.gaps += 1
                 gap_detected = True
+                self._reconnect_warmup_pending = False
             self._resume_bucket = None
         if self.current is None:
             self.current = self._new_candle(bucket, price, quantity, timestamp)
@@ -96,6 +98,9 @@ class TradeCandleBuilder:
             previous_bucket = self.current["open_time"]
             if not self.discard_next_close:
                 self.closed.append(self._as_row(self.current))
+                # A reconnect is not warm again until one complete post-reconnect
+                # candle has actually been closed and retained.
+                self._reconnect_warmup_pending = False
             else:
                 self.discard_next_close = False
             if bucket != previous_bucket + self.interval_ms:
@@ -115,6 +120,7 @@ class TradeCandleBuilder:
     def reset_after_reconnect(self):
         """Retain closed candles only when the stream resumes in the same minute."""
         self._resume_bucket = self.current["open_time"] if self.current is not None else None
+        self._reconnect_warmup_pending = self._resume_bucket is not None
         if self._resume_bucket is None:
             self.closed.clear()
         self.current = None
@@ -129,6 +135,7 @@ class TradeCandleBuilder:
         self.last_timestamp_ms = None
         self.last_sequence = None
         self._resume_bucket = None
+        self._reconnect_warmup_pending = False
         self.gaps += 1
         self.discard_next_close = True
 
@@ -154,7 +161,8 @@ class TradeCandleBuilder:
     @property
     def is_ready(self):
         # analyze_klines excludes the final row as a still-forming candle.
-        return len(self.closed) >= 51 and self.current is not None and not self.discard_next_close
+        return (len(self.closed) >= 51 and self.current is not None
+                and not self.discard_next_close and not self._reconnect_warmup_pending)
 
     def candles_for_analysis(self):
         """Return chronological closed candles plus current forming candle."""
@@ -168,4 +176,5 @@ class TradeCandleBuilder:
                 "has_forming_candle": self.current is not None,
                 "ready": self.is_ready, "gaps": self.gaps,
                 "reconnect_check_pending": self._resume_bucket is not None,
+                "reconnect_warmup_pending": self._reconnect_warmup_pending,
                 "rejected_trades": self.rejected}
