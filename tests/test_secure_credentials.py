@@ -89,7 +89,7 @@ class SecureCredentialStoreTests(unittest.TestCase):
 
         self.store.save("key", "secret")
         broken = CredentialStore(self.path, BrokenBackend())
-        with self.assertRaises(RuntimeError):
+        with self.assertRaisesRegex(RuntimeError, "ValueError: keystore unavailable"):
             broken.check_status()
 
 
