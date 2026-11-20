@@ -56,5 +56,20 @@ class MultiMarketScanTests(unittest.TestCase):
             scan_market_universe(fetch_json=lambda *_: [])
 
 
+    def test_retries_transient_depth_failure_then_validates_book(self):
+        attempts = {"AAA_USDT": 0}
+        def fake_fetch(path, params):
+            if path == "/exchangeInfo":
+                return ["AAA_USDT"]
+            attempts[params["symbol"]] += 1
+            if attempts[params["symbol"]] == 1:
+                raise TimeoutError("temporary timeout")
+            return {"bids": [["99", "2"]], "asks": [["101", "3"]]}
+        result = scan_market_universe(fetch_json=fake_fetch, max_workers=1)
+        self.assertEqual(attempts["AAA_USDT"], 2)
+        self.assertEqual(result["success_count"], 1)
+        self.assertEqual(result["error_count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

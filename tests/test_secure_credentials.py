@@ -98,5 +98,27 @@ class SecureCredentialStoreTests(unittest.TestCase):
         self.assertEqual(_python_bytes([-1, 0, 127]), bytes([255, 0, 127]))
 
 
+    def test_android_keystore_load_uses_both_required_java_arguments(self):
+        from secure_credentials import AndroidKeystoreBackend
+
+        calls = []
+        class FakeStore:
+            def load(self, stream, password):
+                calls.append((stream, password))
+            def getKey(self, alias, password):
+                return object()
+
+        class FakeKeyStore:
+            @staticmethod
+            def getInstance(name):
+                self.assertEqual(name, "AndroidKeyStore")
+                return FakeStore()
+
+        backend = AndroidKeystoreBackend()
+        backend._classes = lambda: (lambda name: FakeKeyStore if name == "java.security.KeyStore" else None)
+        backend._key(create=False)
+        self.assertEqual(calls, [(None, None)])
+
+
 if __name__ == "__main__":
     unittest.main()

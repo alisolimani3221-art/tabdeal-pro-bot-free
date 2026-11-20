@@ -1,5 +1,5 @@
-name: Tabdeal Futures CI and signed APK build (v1.28)
-# Run validation only. APK builds stay paused until all six project gates are verified.
+name: Tabdeal Futures CI and signed APK build (v1.29)
+# CI validates the current branch and builds a signed paper-only APK; live order placement remains disabled.
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - audit/pr12-decimal-safety
+      - audit/v1.28-readonly-account-hardening
   push:
     paths:
       - 'main.py'
@@ -214,7 +215,6 @@ jobs:
           PY
 
       - name: Live read-only scan of every active futures order book
-        continue-on-error: true
         timeout-minutes: 5
         run: |
           python - <<'PY'
@@ -236,8 +236,9 @@ jobs:
               "live_orders": report["live_orders"],
               "sample_errors": report["errors"][:5],
           }, sort_keys=True))
-          if report["active_count"] < 1 or report["success_count"] < 1:
-              raise SystemExit("No active futures order books could be verified")
+          if report["active_count"] < 1 or report["success_count"] != report["active_count"] or report["error_count"] != 0:
+              raise SystemExit("Order-book scan incomplete: {}/{} succeeded; {} errors".format(
+                  report["success_count"], report["active_count"], report["error_count"]))
           PY
 
       - name: Upload live market scan report
