@@ -81,9 +81,15 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(len(builder.closed), retained)
         self.assertFalse(builder.is_ready)
 
-        builder.add_trade(self.trade(forming_minute + 1))
-        self.assertTrue(builder.is_ready)
+        partial_close = builder.add_trade(self.trade(forming_minute + 1))
+        self.assertFalse(partial_close["ready"])
+        self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), retained)
+
+        full_close = builder.add_trade(self.trade(forming_minute + 2))
+        self.assertTrue(full_close["ready"])
+        self.assertTrue(builder.is_ready)
+        self.assertEqual(len(builder.closed), retained + 1)
 
     def test_reconnect_after_minute_boundary_invalidates_retained_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
