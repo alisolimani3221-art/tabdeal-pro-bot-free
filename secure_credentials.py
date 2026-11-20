@@ -35,7 +35,7 @@ class AndroidKeystoreBackend:
         autoclass = self._classes()
         KeyStore = autoclass("java.security.KeyStore")
         store = KeyStore.getInstance("AndroidKeyStore")
-        store.load(None)
+        store.load(None, None)
         key = store.getKey(_ALIAS, None)
         if key is None and create:
             KeyGenerator = autoclass("javax.crypto.KeyGenerator")
@@ -78,7 +78,7 @@ class AndroidKeystoreBackend:
         autoclass = self._classes()
         KeyStore = autoclass("java.security.KeyStore")
         store = KeyStore.getInstance("AndroidKeyStore")
-        store.load(None)
+        store.load(None, None)
         if store.containsAlias(_ALIAS):
             store.deleteEntry(_ALIAS)
 
