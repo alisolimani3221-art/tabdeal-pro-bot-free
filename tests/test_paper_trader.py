@@ -1,5 +1,6 @@
 import unittest
-from paper_trader import PaperTradingEngine, rank_signal, diagnose_signal
+from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal,
+                          prepare_live_market_snapshot)
 
 
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
@@ -13,6 +14,23 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
 
 
 class PaperTraderTests(unittest.TestCase):
+    def test_live_snapshot_uses_current_trade_and_discards_pre_entry_candle_range(self):
+        original = dict(setup(), candle_open=99.0, candle_high=110.0, candle_low=90.0)
+        snapshot = prepare_live_market_snapshot(original, 102.5)
+        self.assertEqual(snapshot["price"], 102.5)
+        self.assertEqual(snapshot["candle_open"], 102.5)
+        self.assertEqual(snapshot["candle_high"], 102.5)
+        self.assertEqual(snapshot["candle_low"], 102.5)
+        self.assertEqual(snapshot["sma20"], original["sma20"])
+        self.assertEqual(snapshot["candle_open_time"], original["candle_open_time"])
+        self.assertEqual(original["candle_high"], 110.0)
+
+    def test_live_snapshot_rejects_invalid_current_trade_price(self):
+        for value in (None, True, 0, -1, float("nan"), float("inf"), "bad"):
+            with self.subTest(live_price=value):
+                with self.assertRaises(ValueError):
+                    prepare_live_market_snapshot(setup(), value)
+
     def test_entry_diagnostics_explain_neutral_and_invalid_setups(self):
         self.assertIn("خنثی", diagnose_signal(dict(setup(), signal="NEUTRAL")))
         self.assertIn("RSI", diagnose_signal(dict(setup(), rsi14=75)))
