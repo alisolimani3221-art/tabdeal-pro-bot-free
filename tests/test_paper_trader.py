@@ -28,6 +28,11 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIsNotNone(rank_signal(setup()))
         self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=52)))
 
+    def test_rejects_signal_without_valid_closed_candle_timestamp(self):
+        for value in (None, 0, -1, True, "60000"):
+            with self.subTest(candle_open_time=value):
+                self.assertIsNone(rank_signal(dict(setup(), candle_open_time=value)))
+
     def test_rejects_neutral_or_extreme_volatility(self):
         self.assertIsNone(rank_signal(dict(setup(), signal="NEUTRAL")))
         self.assertIsNone(rank_signal(dict(setup(), atr14=3.0)))
