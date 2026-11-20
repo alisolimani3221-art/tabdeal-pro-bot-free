@@ -743,7 +743,7 @@ class FuturesAnalyzerApp(App):
                     except Exception as storage_exc:
                         storage_status = (
                             "حساب خوانده شد، اما ذخیره امن ممکن نشد؛ "
-                            + type(storage_exc).__name__
+                            + "{}: {}".format(type(storage_exc).__name__, str(storage_exc)[:180])
                         )
                     result = (True, data, storage_status)
                 except Exception as exc:
