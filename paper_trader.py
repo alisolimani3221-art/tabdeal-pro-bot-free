@@ -109,10 +109,12 @@ class PaperTradingEngine:
         self.position = None
         return {"event": "CLOSED", "trade": trade}
 
-    def process_scan(self, candidates):
-        """Thread-safe scan; serializes against the emergency stop."""
+    def process_scan(self, candidates, allow_entry=True):
+        """Thread-safe scan; optionally manage positions without permitting a new entry."""
+        if not isinstance(allow_entry, bool):
+            raise ValueError("allow_entry must be boolean")
         with self._lock:
-            return self._process_scan(candidates)
+            return self._process_scan(candidates, allow_entry=allow_entry)
 
     def emergency_close(self):
         """Close any simulated position at its latest mark and permanently stop this engine."""
@@ -122,7 +124,7 @@ class PaperTradingEngine:
                 return {"event": "STOPPED", "trade": None}
             return self._close(self.position["last_price"], "EMERGENCY_STOP")
 
-    def _process_scan(self, candidates):
+    def _process_scan(self, candidates, allow_entry=True):
         """Update the open position and optionally enter the best valid setup."""
         if self.halted:
             return {"events": [], "candidates": [], "equity": self.equity,
@@ -178,7 +180,7 @@ class PaperTradingEngine:
 
         # Never close and reopen on the same scan: that can create an
         # immediate churn loop on a signal that has not changed.
-        if (not closed_this_scan and self.position is None and valid and self.cash > 0
+        if (allow_entry and not closed_this_scan and self.position is None and valid and self.cash > 0
                 and self.cash > self.initial_capital * 0.97):
             choice = valid[0]
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
