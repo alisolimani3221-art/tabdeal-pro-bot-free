@@ -75,9 +75,43 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn('test -s NotoSans-Regular.ttf', workflow)
         self.assertIn('test -s NotoSansArabic-Regular.ttf', workflow)
 
+    def test_account_worker_captures_credentials_before_clearing_them(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        app = next(node for node in tree.body
+                   if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp")
+        account_method = next(node for node in app.body
+                              if isinstance(node, ast.FunctionDef)
+                              and node.name == "open_account_connection")
+        worker = next(node for node in ast.walk(account_method)
+                      if isinstance(node, ast.FunctionDef) and node.name == "worker")
+        self.assertEqual([arg.arg for arg in worker.args.args], ["api_key", "api_secret"])
+        self.assertEqual(worker.args.defaults, [])
+        calls = [node for node in ast.walk(worker)
+                 if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name)
+                 and node.func.id == "read_futures_account"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([arg.id for arg in calls[0].args
+                          if isinstance(arg, ast.Name)],
+                         ["api_key", "api_secret"])
+        thread_calls = [node for node in ast.walk(account_method)
+                        if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "Thread"]
+        self.assertTrue(any(
+            any(keyword.arg == "args"
+                and isinstance(keyword.value, ast.Tuple)
+                and [item.id for item in keyword.value.elts
+                     if isinstance(item, ast.Name)] == ["key", "secret"]
+                for keyword in call.keywords)
+            for call in thread_calls
+        ))
+
     def test_workflow_concurrency_is_scoped_per_branch(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
-        self.assertIn("tabdeal-free-apk-build-${{ github.ref }}", workflow)
+        self.assertIn("tabdeal-free-apk-build-${{ github.head_ref || github.ref }}", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
 
     def test_font_license_is_bundled_in_validation_workspace(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
@@ -86,11 +120,15 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("assets/*.txt", spec)
         self.assertIn('cp "$FONT_LICENSE" assets/FONT-LICENSE.txt', workflow)
 
-    def test_workflow_builds_debug_paper_only_apk_and_verifies_fonts(self):
+    def test_workflow_builds_persistently_signed_paper_only_apk_and_verifies_fonts(self):
         workflow = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
         self.assertIn("Run full regression suite", workflow)
         self.assertIn("Install Buildozer and Android Python packaging tools", workflow)
-        self.assertIn("Build Android APK (debug, paper-only)", workflow)
+        self.assertIn("Configure persistent Android signing (required)", workflow)
+        self.assertIn("ANDROID_SIGNING_BUNDLE_BASE64", workflow)
+        self.assertIn("Build signed release APK (paper-only)", workflow)
+        self.assertIn("Verify persistent APK signing certificate", workflow)
+        self.assertIn("9a41c32295b7723ee8dfadd4c40ee7dbdca9fb8a6c62e43aabc09c9bef741ae5", workflow)
         self.assertIn("Verify APK output and packaged Persian fonts", workflow)
         self.assertIn("Upload installable APK", workflow)
         self.assertIn("assets/private.tar", workflow)
