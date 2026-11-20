@@ -695,7 +695,20 @@ class FuturesAnalyzerApp(App):
             load_status or "مجوز برداشت و معامله را برای این کلید فعال نکنید.",
             size=11, height=dp(40), color=(1, 0.68, 0.35, 1))
         body.add_widget(status)
-        buttons = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
+
+        # Explicit credential persistence is independent from account-reading.
+        # The user can save and verify the encrypted Keystore round-trip without
+        # making any network request or enabling trading permissions.
+        save_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+        save_button = Button(
+            markup=True, text=fa("ذخیره امن کلید"), font_name=FONT_NAME,
+            font_size=sp(13), background_normal="",
+            background_color=(0.10, 0.38, 0.34, 1),
+        )
+        save_row.add_widget(save_button)
+        body.add_widget(save_row)
+
+        buttons = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
         connect = Button(markup=True, text=fa("خواندن موجودی"), font_name=FONT_NAME, font_size=sp(11))
         delete_saved = Button(markup=True, text=fa("حذف کلید ذخیره‌شده"), font_name=FONT_NAME, font_size=sp(10))
         cancel = Button(markup=True, text=fa("انصراف"), font_name=FONT_NAME, font_size=sp(11))
@@ -704,8 +717,52 @@ class FuturesAnalyzerApp(App):
         buttons.add_widget(cancel)
         body.add_widget(buttons)
         popup = Popup(title=fa_plain("اتصال فقط‌خواندنی حساب"), title_font=FONT_NAME,
-                      content=body, size_hint=(0.94, 0.60), auto_dismiss=False)
+                      content=body, size_hint=(0.94, 0.68), auto_dismiss=False)
         cancel.bind(on_press=popup.dismiss)
+
+        def save_credentials(instance):
+            api_key = key_input.text.strip()
+            api_secret = secret_input.text.strip()
+            if not api_key or not api_secret:
+                status.text = fa("هر دو فیلد الزامی هستند.")
+                return
+            key_input.disabled = True
+            secret_input.disabled = True
+            save_button.disabled = True
+            connect.disabled = True
+            delete_saved.disabled = True
+            status.text = fa("در حال رمزگذاری و ذخیره امن کلید...")
+            def worker_save(key_value, secret_value):
+                try:
+                    store.save(key_value, secret_value)
+                    restored = store.load()
+                    if not restored or restored[0] != key_value or restored[1] != secret_value:
+                        raise RuntimeError("تأیید بازیابی پس از ذخیره ناموفق بود")
+                    result = (True, "کلید با Android Keystore رمزگذاری و ذخیره شد؛ بازیابی آزمایشی نیز موفق بود.")
+                except Exception as exc:
+                    result = (False, "ذخیره امن ناموفق: {}: {}".format(type(exc).__name__, str(exc)[:180]))
+                finally:
+                    key_value = ""
+                    secret_value = ""
+                Clock.schedule_once(lambda dt, value=result: finish_save(value), 0)
+            def finish_save(result):
+                key_input.disabled = False
+                secret_input.disabled = False
+                save_button.disabled = False
+                connect.disabled = False
+                delete_saved.disabled = False
+                status.text = fa(result[1])
+                if result[0]:
+                    # Keep the dialog open so the user can separately test
+                    # account reading; do not erase fields before success.
+                    status.color = (0.35, 0.9, 0.62, 1)
+                else:
+                    status.color = (1, 0.45, 0.38, 1)
+            threading.Thread(
+                target=worker_save, args=(api_key, api_secret), daemon=True
+            ).start()
+
+        save_button.bind(on_press=save_credentials)
 
         def remove_saved(instance):
             try:
