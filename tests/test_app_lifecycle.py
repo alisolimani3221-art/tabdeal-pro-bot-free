@@ -170,7 +170,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         engine.process_scan([{
             "symbol": "AAA_USDT", "price": 100, "sma20": 99, "sma50": 98,
             "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
-            "closed_candles": 51,
+            "closed_candles": 51, "candle_open_time": 60_000,
         }])
         self.assertIsNotNone(engine.position)
         app.auto_engine = engine
