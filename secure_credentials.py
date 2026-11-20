@@ -162,7 +162,13 @@ class CredentialStore:
         except FileNotFoundError:
             return None
         except Exception as exc:
-            raise RuntimeError("Saved credentials could not be safely decrypted") from exc
+            # Keep a bounded, non-secret root-cause hint. Previously the UI only
+            # surfaced the generic RuntimeError type, hiding the actual JNI /
+            # Keystore failure and making device diagnosis impossible.
+            detail = "{}: {}".format(type(exc).__name__, str(exc)[:160])
+            raise RuntimeError(
+                "Saved credentials could not be safely decrypted ({})".format(detail)
+            ) from exc
 
     def check_status(self):
         """Check encrypted credential availability without returning secret values."""
