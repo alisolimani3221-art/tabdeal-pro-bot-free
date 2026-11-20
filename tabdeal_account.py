@@ -94,9 +94,12 @@ def read_futures_account(key, secret, timeout=20, session=None):
             import certifi
             from android_tls import mount_tabdeal_tls_compat
             mount_tabdeal_tls_compat(client, certifi.where())
-        server_ms = _server_time_ms(client, timeout=min(timeout, 12))
-        offset = server_ms - int(time.time() * 1000)
-        signed_timestamp = int(time.time() * 1000) + offset
+        if own_session:
+            server_ms = _server_time_ms(client, timeout=min(timeout, 12))
+            offset = server_ms - int(time.time() * 1000)
+            signed_timestamp = int(time.time() * 1000) + offset
+        else:
+            signed_timestamp = None
         signed_params = {"recvWindow": 10000}
         account = _signed_get(
             "/v3/account", key, secret, params=signed_params,
@@ -104,7 +107,8 @@ def read_futures_account(key, secret, timeout=20, session=None):
         )
         positions = _signed_get(
             "/v3/positionRisk", key, secret, params=signed_params,
-            timeout=timeout, session=client, timestamp_ms=signed_timestamp + 1
+            timeout=timeout, session=client,
+            timestamp_ms=(signed_timestamp + 1 if signed_timestamp is not None else None)
         )
     finally:
         if own_session:
