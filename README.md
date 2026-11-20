@@ -37,3 +37,8 @@ A separate Docker Compose read-only Tabdeal order-book monitor is provided in `S
 ## Version 1.32 – Android Keystore varargs fix
 
 Pass AES-GCM block mode and padding as scalar PyJNIus varargs (`setBlockModes("GCM")` and `setEncryptionPaddings("NoPadding")`) instead of wrapping them in Python lists. This avoids the nested-sequence conversion path that can raise `Could not construct a Java String[]`. Credentials remain encrypted with Android Keystore AES-256-GCM; there is no plaintext fallback. Device-level validation is still required.
+
+
+## Version 1.33 – read-only account API connection hardening
+
+The account reader now uses a dedicated verified TLS session on Android, synchronizes the signed-request timestamp against Tabdeal's public futures server-time endpoint, and includes a 10-second receive window. Account access remains GET-only; no order placement or withdrawal endpoints are used. The CI tests validate signing and server-time parsing; a real Android device test is still required.
