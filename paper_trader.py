@@ -71,7 +71,7 @@ def rank_signal(technical):
         return None
     if signal == "BEARISH" and not (price < sma10 < sma20 and 32 < rsi <= 50):
         return None
-    trend_strength = abs(sma20 - sma50) / price * 100.0
+    trend_strength = abs(sma10 - sma20) / price * 100.0
     momentum_strength = abs(rsi - 50.0) / 18.0
     score = trend_strength * 10.0 + momentum_strength - volatility_pct * 0.5
     if not math.isfinite(score):
@@ -116,12 +116,12 @@ def diagnose_signal(technical):
         return "نوسان بیش از حد مجاز ۲٪ است"
     if signal == "BULLISH":
         if not price > sma10 > sma20:
-            return "ورود خرید رد شد: قیمت باید بالاتر از SMA20 و SMA10 بالاتر از SMA20 باشد"
+            return "ورود خرید رد شد: قیمت باید بالاتر از SMA10 و SMA10 بالاتر از SMA20 باشد"
         if not 50 <= rsi < 68:
             return "ورود خرید رد شد: RSI باید از ۵۰ تا کمتر از ۶۸ باشد"
     else:
         if not price < sma10 < sma20:
-            return "ورود فروش رد شد: قیمت باید پایین‌تر از SMA20 و SMA20 پایین‌تر از SMA50 باشد"
+            return "ورود فروش رد شد: قیمت باید پایین‌تر از SMA10 و SMA10 پایین‌تر از SMA20 باشد"
         if not 32 < rsi <= 50:
             return "ورود فروش رد شد: RSI باید بیشتر از ۳۲ و حداکثر ۵۰ باشد"
     return "شرایط سیگنال تأیید شده؛ ورود آزمایشی مجاز است"
