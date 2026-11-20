@@ -43,20 +43,78 @@ def _signed_get(path, key, secret, params=None, timeout=20, session=None):
         response.close()
 
 
+def _unwrap_account_payload(payload):
+    """Unwrap common API envelopes without assuming a single response shape."""
+    current = payload
+    for _ in range(4):
+        if not isinstance(current, dict):
+            break
+        nested = None
+        for name in ("data", "result", "account", "accountData", "account_data"):
+            value = current.get(name)
+            if isinstance(value, dict):
+                nested = value
+                break
+        if nested is None:
+            break
+        current = nested
+    if not isinstance(current, dict):
+        raise RuntimeError("Unexpected account response format")
+    return current
+
+
+def _first_present(mapping, names, default=None):
+    for name in names:
+        if name in mapping and mapping[name] is not None and mapping[name] != "":
+            return mapping[name]
+    return default
+
+
 def read_futures_account(key, secret, timeout=20, session=None):
-    """Return wallet summary and non-zero futures positions using GET only."""
-    account = _signed_get(
+    """Return wallet summary and non-zero futures positions using GET only.
+
+    Tabdeal deployments may wrap the account payload in data/result/account.
+    Accept known wallet-field spellings, but fail with a diagnostic if no
+    wallet balance is present rather than showing a misleading zero.
+    """
+    raw_account = _signed_get(
         "/v3/account", key, secret, timeout=timeout, session=session
     )
-    positions = _signed_get(
+    account = _unwrap_account_payload(raw_account)
+    wallet = _first_present(account, (
+        "totalWalletBalance", "total_wallet_balance", "walletBalance",
+        "wallet_balance", "totalBalance", "total_balance",
+    ))
+    if wallet is None:
+        keys = ", ".join(sorted(str(k) for k in account.keys())[:30])
+        raise RuntimeError(
+            "Account response has no recognized wallet balance field; fields: "
+            + (keys or "(empty)")
+        )
+
+    available = _first_present(account, (
+        "availableBalance", "available_balance", "availableWalletBalance",
+        "available_wallet_balance", "maxWithdrawAmount",
+    ), default="--")
+    pnl = _first_present(account, (
+        "totalUnrealizedProfit", "total_unrealized_profit",
+        "unrealizedProfit", "unrealized_pnl",
+    ), default="0")
+
+    raw_positions = _signed_get(
         "/v3/positionRisk", key, secret, timeout=timeout, session=session
     )
-    if not isinstance(account, dict):
-        raise RuntimeError("Unexpected account response format")
+    positions = raw_positions
     if isinstance(positions, dict):
-        positions = positions.get("positions", positions.get("data", []))
+        for name in ("positions", "data", "result"):
+            if isinstance(positions.get(name), list):
+                positions = positions[name]
+                break
+        else:
+            positions = []
     if not isinstance(positions, list):
         raise RuntimeError("Unexpected positions response format")
+
     active = []
     for item in positions:
         if not isinstance(item, dict):
@@ -69,15 +127,17 @@ def read_futures_account(key, secret, timeout=20, session=None):
             active.append({
                 "symbol": str(item.get("symbol", "--")),
                 "amount": amount,
-                "entry_price": item.get("entryPrice", "--"),
-                "mark_price": item.get("markPrice", "--"),
-                "unrealized_pnl": item.get("unRealizedProfit",
-                                           item.get("unrealizedProfit", "0")),
+                "entry_price": item.get("entryPrice", item.get("entry_price", "--")),
+                "mark_price": item.get("markPrice", item.get("mark_price", "--")),
+                "unrealized_pnl": item.get(
+                    "unRealizedProfit",
+                    item.get("unrealizedProfit", item.get("unrealized_pnl", "0"))
+                ),
                 "leverage": item.get("leverage", "--"),
             })
     return {
-        "wallet_balance": account.get("totalWalletBalance", "--"),
-        "available_balance": account.get("availableBalance", "--"),
-        "unrealized_pnl": account.get("totalUnrealizedProfit", "0"),
+        "wallet_balance": wallet,
+        "available_balance": available,
+        "unrealized_pnl": pnl,
         "positions": active,
     }
