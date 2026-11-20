@@ -1565,7 +1565,7 @@ class FuturesAnalyzerApp(App):
         )
         self.auto_trader_thread.start()
         retained_count = min(builder.status()["closed_candles"], 20)
-        if retained_count >= 51:
+        if retained_count >= 20:
             warmup_text = "تاریخچه معتبر: ۲۰ از ۲۰؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
         else:
             warmup_text = (
