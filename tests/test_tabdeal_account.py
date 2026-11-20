@@ -143,6 +143,72 @@ class TabdealAccountTests(unittest.TestCase):
         self.assertEqual(result["positions"][0]["symbol"], "ETHUSDT")
         self.assertEqual(result["positions"][0]["amount"], "-0.2")
 
+    def test_account_reader_uses_usdt_asset_when_aggregate_fields_are_absent(self):
+        session = FakeSession([
+            FakeResponse({
+                "canTrade": True,
+                "assets": [
+                    {"asset": "BTC", "walletBalance": "0.01",
+                     "availableBalance": "0.009"},
+                    {"asset": "USDT", "walletBalance": "75.25",
+                     "availableBalance": "62.5", "unrealizedProfit": "-1.25"},
+                ],
+                "positions": [],
+            }),
+            FakeResponse([]),
+        ])
+        result = read_futures_account("key", "secret", session=session)
+        self.assertEqual(result["wallet_balance"], "75.25")
+        self.assertEqual(result["available_balance"], "62.5")
+        self.assertEqual(result["unrealized_pnl"], "-1.25")
+        self.assertEqual(result["positions"], [])
+
+    def test_account_reader_accepts_wrapped_assets_only_response(self):
+        session = FakeSession([
+            FakeResponse({
+                "data": {
+                    "assets": [
+                        {"asset": "USDT", "walletBalance": "18",
+                         "availableBalance": "15", "unrealizedProfit": "0.5"}
+                    ],
+                    "canTrade": True,
+                }
+            }),
+            FakeResponse([]),
+        ])
+        result = read_futures_account("key", "secret", session=session)
+        self.assertEqual(result["wallet_balance"], "18")
+        self.assertEqual(result["available_balance"], "15")
+        self.assertEqual(result["unrealized_pnl"], "0.5")
+
+    def test_account_reader_does_not_sum_non_usdt_assets(self):
+        session = FakeSession([
+            FakeResponse({
+                "assets": [
+                    {"asset": "BTC", "walletBalance": "2",
+                     "availableBalance": "1"}
+                ]
+            }),
+            FakeResponse([]),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "USDT"):
+            read_futures_account("key", "secret", session=session)
+
+    def test_account_reader_rejects_duplicate_usdt_assets(self):
+        session = FakeSession([
+            FakeResponse({
+                "assets": [
+                    {"asset": "USDT", "walletBalance": "10",
+                     "availableBalance": "9"},
+                    {"asset": "USDT", "walletBalance": "20",
+                     "availableBalance": "18"},
+                ]
+            }),
+            FakeResponse([]),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "duplicate USDT"):
+            read_futures_account("key", "secret", session=session)
+
 
 if __name__ == "__main__":
     unittest.main()
