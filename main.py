@@ -1447,6 +1447,7 @@ class FuturesAnalyzerApp(App):
 
         last_processed_bucket = None
         connected_once = False
+        last_warmup_status = 0.0
         while not self.auto_stop_event.is_set():
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
@@ -1462,7 +1463,7 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_message(ws, message):
-                nonlocal last_processed_bucket
+                nonlocal last_processed_bucket, last_warmup_status
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set() or not parsed.get("ok"):
                     return
@@ -1473,10 +1474,21 @@ class FuturesAnalyzerApp(App):
                     last_processed_bucket = None
                     Clock.schedule_once(
                         lambda dt: self.update_auto_status(
-                            "شکاف یا قطع داده شناسایی شد؛ برای جلوگیری از تحلیل ناقص، جمع‌آوری کندل از نو آغاز شد."
+                            "شکاف طولانی داده شناسایی شد؛ برای جلوگیری از تحلیل ناقص، جمع‌آوری کندل از نو آغاز شد."
                         ), 0
                     )
                     return
+                if not update.get("ready") and time.monotonic() - last_warmup_status >= 8:
+                    last_warmup_status = time.monotonic()
+                    state = builder.status()
+                    warmup_message = (
+                        "در حال گرم‌سازی پیوسته | کندل بسته: {}/۵۱ | "
+                        "دقیقه کم‌معامله: {} | شکاف واقعی: {}. "
+                        "یک یا دو دقیقه بدون معامله باعث شروع مجدد نمی‌شود."
+                    ).format(state["closed_candles"], state["synthetic_candles"], state["gaps"])
+                    Clock.schedule_once(
+                        lambda dt, value=warmup_message: self.update_auto_status(value), 0
+                    )
                 current_bucket = (builder.current or {}).get("open_time")
                 if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
                     return
