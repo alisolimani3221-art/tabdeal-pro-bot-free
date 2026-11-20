@@ -40,6 +40,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
             if builder.is_ready:
                 technical = analyze_klines(builder.candles_for_analysis())
                 technical["symbol"] = symbol
+                technical["candle_open_time"] = int(builder.closed[-1][0])
                 last_result = engine.process_scan([technical])
 
         self.assertEqual(accepted, 53)
