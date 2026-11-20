@@ -55,7 +55,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         self.assertIsNotNone(opened_result, "a valid setup should open a simulated position once")
         self.assertEqual(opened_result["events"][0]["event"], "OPENED")
         self.assertEqual(last_result["open_position"]["symbol"], symbol)
-        self.assertAlmostEqual(last_result["open_position"]["entry"], opened_price)
+        self.assertAlmostEqual(last_result["open_position"]["entry"], opened_price * (1 + engine.slippage_rate))
         self.assertLessEqual(last_result["open_position"]["leverage"], 3)
         self.assertLessEqual(last_result["open_position"]["risk_limit"], 0.04)
         self.assertFalse(hasattr(engine, "create_order"))
