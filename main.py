@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.38"
+APP_VERSION = "1.39"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -361,7 +361,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.section_title("تحلیل تکنیکال"))
         self.analysis_signal = self.make_label("برای تحلیل تکنیکال، معامله‌گر آزمایشی را اجرا کنید؛ ابتدا داده کافی جمع‌آوری می‌شود.", size=15, height=dp(42))
         content.add_widget(self.analysis_signal)
-        self.analysis_metrics = self.make_label("SMA20: --   SMA50: --   RSI14: --   ATR14: --", size=12, height=dp(38))
+        self.analysis_metrics = self.make_label("SMA10: --   SMA20: --   RSI14: --   ATR14: --", size=12, height=dp(38))
         self.analysis_metrics.font_name = NUMERIC_FONT_NAME
 
         self.smart_analysis_button = Button(
@@ -929,11 +929,11 @@ class FuturesAnalyzerApp(App):
                 size=12, height=dp(48), font=FONT_NAME)
             add_line("ریسک پیشنهادی هر معامله: حداکثر 0.5% سرمایه", size=13)
             add_line("قیمت مبنا: {}".format(format_market_value(price)), font=FONT_NAME)
-            add_line("RSI 14: {:.1f}    SMA20: {}".format(
-                float(technical["rsi14"]), format_market_value(technical["sma20"])),
+            add_line("RSI 14: {:.1f}    SMA10: {}".format(
+                float(technical["rsi14"]), format_market_value(technical["sma10"])),
                 size=13, font=NUMERIC_FONT_NAME)
-            add_line("SMA50: {}    ATR14: {}".format(
-                format_market_value(technical["sma50"]), format_market_value(atr)), size=13, font=NUMERIC_FONT_NAME)
+            add_line("SMA20: {}    ATR14: {}".format(
+                format_market_value(technical["sma20"]), format_market_value(atr)), size=13, font=NUMERIC_FONT_NAME)
             if stop is not None and target is not None and stop > 0 and target > 0:
                 add_line("حد ضرر تخمینی: {}".format(format_market_value(stop)), font=FONT_NAME)
                 add_line("هدف سود تخمینی: {}".format(format_market_value(target)), font=FONT_NAME)
@@ -1446,7 +1446,7 @@ class FuturesAnalyzerApp(App):
         initial_status = (
             "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\n"
             "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\n"
-            "برای تحلیل معتبر، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده لازم است؛ آماده‌سازی اولیه ممکن است حدود ۵۱ دقیقه طول بکشد.\n"
+            "برای تحلیل معتبر، حداقل ۲۰ کندل یک‌دقیقه‌ای بسته‌شده لازم است؛ آماده‌سازی اولیه معمولاً حدود ۲۰ دقیقه طول می‌کشد.\n"
             "بعد از آماده‌سازی هم فقط با سیگنال معتبر معامله مجازی باز می‌شود؛ سیگنال یا سود تضمین‌شده نیست.\n"
             "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\n"
             "هیچ سفارش واقعی ارسال نمی‌شود."
@@ -1564,12 +1564,12 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
-        retained_count = min(builder.status()["closed_candles"], 51)
+        retained_count = min(builder.status()["closed_candles"], 20)
         if retained_count >= 51:
-            warmup_text = "تاریخچه معتبر: ۵۱ از ۵۱؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
+            warmup_text = "تاریخچه معتبر: ۲۰ از ۲۰؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
         else:
             warmup_text = (
-                "آماده‌سازی: {} از ۵۱ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
+                "آماده‌سازی: {} از ۲۰ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
             ).format(retained_count)
         status_text = (
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
@@ -1695,7 +1695,7 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         status = (
                             "پیام معتبر دریافت شد، اما برای کندل‌سازی رد شد. "
-                            "معتبر: {} | کندل بسته: {}/51 | علت: {}"
+                            "معتبر: {} | کندل بسته: {}/20 | علت: {}"
                         ).format(valid_messages, builder.status()["closed_candles"],
                                  str(update.get("reason", "unknown"))[:48])
                         Clock.schedule_once(
@@ -1710,7 +1710,7 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         stream_status = builder.status()
                         status_text = (
-                            "جریان معاملات فعال است. کندل بسته معتبر: {}/51 | "
+                            "جریان معاملات فعال است. کندل بسته معتبر: {}/20 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
                             "پس از تکمیل داده کافی، تحلیل شروع می‌شود."
                         ).format(stream_status["closed_candles"], received_messages,
@@ -1724,9 +1724,9 @@ class FuturesAnalyzerApp(App):
                             closed_count == 0 or closed_count % 5 == 0):
                         last_progress_count = closed_count
                         progress = (
-                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۵۱ | "
+                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۲۰ | "
                             "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
-                        ).format(symbol, min(closed_count, 51))
+                        ).format(symbol, min(closed_count, 20))
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
@@ -1737,7 +1737,7 @@ class FuturesAnalyzerApp(App):
                     status = builder.status()
                     gap_message = (
                         "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
-                        "کندل معتبر: {}/۵۱ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                        "کندل معتبر: {}/۲۰ | تعداد شکاف‌ها: {} | داده ردشده: {}"
                     ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
                     Clock.schedule_once(
                         lambda dt, value=gap_message: self.update_auto_status(value), 0
@@ -1920,8 +1920,8 @@ class FuturesAnalyzerApp(App):
             self.analysis_signal.text = fa("سیگنال کندل بسته‌شده: " + labels.get(signal, "خنثی"))
         if getattr(self, "analysis_metrics", None) is not None:
             self.analysis_metrics.text = (
-                "SMA20: {:.6g} | SMA50: {:.6g} | RSI14: {:.2f} | ATR14: {:.6g}"
-            ).format(technical["sma20"], technical["sma50"],
+                "SMA10: {:.6g} | SMA20: {:.6g} | RSI14: {:.2f} | ATR14: {:.6g}"
+            ).format(technical["sma10"], technical["sma20"],
                      technical["rsi14"], technical["atr14"])
 
     def update_auto_status(self, message):
