@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.34"
+APP_VERSION = "1.35"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1464,13 +1464,18 @@ class FuturesAnalyzerApp(App):
             base_direction="ltr",
             text_language="ar",
             size_hint=(1, None),
-            height=dp(270),
+            height=dp(160),
             halign="center",
             valign="middle",
             text_size=(Window.width - dp(56), None),
             color=(1, 0.82, 0.48, 1),
         )
-        body.add_widget(self.auto_status_label)
+        self.auto_status_label.bind(
+            texture_size=lambda widget, size: setattr(widget, "height", max(dp(160), size[1] + dp(20)))
+        )
+        status_scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
+        status_scroll.add_widget(self.auto_status_label)
+        body.add_widget(status_scroll)
         controls = BoxLayout(orientation="horizontal", spacing=dp(7),
                              size_hint_y=None, height=dp(48))
         start_button = Button(markup=True, text=fa("شروع آزمایش"), font_name=FONT_NAME)
