@@ -91,6 +91,22 @@ class PaperTraderTests(unittest.TestCase):
         self.assertFalse(any(e["event"] == "OPENED" for e in result["events"]))
         self.assertIsNone(result["open_position"])
 
+    def test_scan_can_be_blocked_from_opening_a_new_position(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        blocked = engine.process_scan([setup()], allow_entry=False)
+        self.assertIsNone(blocked["open_position"])
+        self.assertFalse(any(event["event"] == "OPENED" for event in blocked["events"]))
+
+        engine.process_scan([setup()])
+        managed = engine.process_scan([setup("BBB_USDT")], allow_entry=False)
+        self.assertEqual(managed["open_position"]["symbol"], "AAA_USDT")
+        self.assertFalse(any(event["event"] == "OPENED" for event in managed["events"]))
+
+    def test_allow_entry_requires_boolean(self):
+        engine = PaperTradingEngine(capital=8)
+        with self.assertRaises(ValueError):
+            engine.process_scan([setup()], allow_entry=1)
+
     def test_entry_fee_does_not_consume_required_margin(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.01, slippage_rate=0)
         result = engine.process_scan([setup()])

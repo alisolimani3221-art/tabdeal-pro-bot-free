@@ -7,7 +7,7 @@ import time
 import requests
 import certifi
 
-APP_VERSION = "1.21"
+APP_VERSION = "1.22"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1435,7 +1435,7 @@ class FuturesAnalyzerApp(App):
         self.update_auto_status(message)
 
     def _paper_stream_worker(self, symbol, builder, engine):
-        """Reconnect public trade stream and simulate only after gap-free warm-up."""
+        """Reconnect the public stream; scan every 15 seconds on fresh, gap-free data."""
         try:
             import websocket
         except Exception:
@@ -1445,51 +1445,48 @@ class FuturesAnalyzerApp(App):
             )
             return
 
-        last_processed_bucket = None
-        connected_once = False
-        while not self.auto_stop_event.is_set():
-            def on_open(ws):
-                nonlocal connected_once, last_processed_bucket
-                if connected_once:
-                    builder.reset_after_gap()
-                    last_processed_bucket = None
-                connected_once = True
-                ws.send(symbol)
-                Clock.schedule_once(
-                    lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال جمع‌آوری معاملات برای ساخت کندل‌های یک‌دقیقه‌ای."
-                    ), 0
-                )
+        market_lock = threading.RLock()
+        scanner_stop = threading.Event()
+        last_entry_candle = None
+        last_seen_gap_count = builder.gaps
 
-            def on_message(ws, message):
-                nonlocal last_processed_bucket
-                parsed = parse_trade_message(message, expected_symbol=symbol)
-                if self.auto_stop_event.is_set() or not parsed.get("ok"):
-                    return
-                update = builder.add_trade(parsed)
-                if not update.get("accepted"):
-                    return
-                if update.get("gap_detected"):
-                    last_processed_bucket = None
-                    Clock.schedule_once(
-                        lambda dt: self.update_auto_status(
-                            "شکاف یا قطع داده شناسایی شد؛ برای جلوگیری از تحلیل ناقص، جمع‌آوری کندل از نو آغاز شد."
-                        ), 0
-                    )
-                    return
-                current_bucket = (builder.current or {}).get("open_time")
-                if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
-                    return
+        def scan_loop():
+            nonlocal last_entry_candle, last_seen_gap_count
+            while not scanner_stop.is_set() and not self.auto_stop_event.wait(15.0):
                 try:
-                    technical = analyze_klines(builder.candles_for_analysis())
-                    technical["symbol"] = symbol
+                    with market_lock:
+                        status = builder.status()
+                        gap_count = status["gaps"]
+                        if gap_count != last_seen_gap_count:
+                            last_seen_gap_count = gap_count
+                            last_entry_candle = None
+                        if not builder.is_ready or builder.current is None:
+                            continue
+                        last_timestamp = builder.last_timestamp_ms
+                        age_ms = int(time.time() * 1000) - int(last_timestamp or 0)
+                        if age_ms < 0 or age_ms > 45_000:
+                            stale_text = (
+                                "داده بازار تازه نیست؛ بررسی سیگنال و ورود تا دریافت داده معتبر متوقف شد. "
+                                "هیچ سفارش واقعی ارسال نمی‌شود."
+                            )
+                            Clock.schedule_once(
+                                lambda dt, value=stale_text: self.update_auto_status(value), 0
+                            )
+                            continue
+                        rows = builder.candles_for_analysis()
+                        closed_candle_id = builder.closed[-1][0] if builder.closed else None
+                        if closed_candle_id is None:
+                            continue
+                        technical = analyze_klines(rows)
+                        technical["symbol"] = symbol
+                        allow_entry = closed_candle_id != last_entry_candle
+                        result = engine.process_scan([technical], allow_entry=allow_entry)
+                        if allow_entry:
+                            last_entry_candle = closed_candle_id
+
                     Clock.schedule_once(
                         lambda dt, value=dict(technical): self.update_technical_labels(value), 0
                     )
-                    if self.auto_stop_event.is_set():
-                        return
-                    result = engine.process_scan([technical])
-                    last_processed_bucket = current_bucket
                     events = result.get("events", [])
                     event_text = ""
                     if events:
@@ -1505,48 +1502,92 @@ class FuturesAnalyzerApp(App):
                             event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
                                 trade["reason"], trade["net_pnl"]
                             )
-                    message_text = (
-                        "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
+                    scan_text = (
+                        "شبیه‌ساز فعال | بررسی سیگنال هر ۱۵ ثانیه | {}\n"
+                        "سیگنال آخر: {} | قیمت آخرین کندل بسته‌شده: {:.8g}\n"
                         "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
                         "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
                     ).format(symbol, technical["signal"], technical["price"],
-                             builder.status()["closed_candles"], result["equity"],
+                             status["closed_candles"], result["equity"],
                              result["closed_trades"], event_text)
                     Clock.schedule_once(
-                        lambda dt, value=message_text: self.update_auto_status(value), 0
+                        lambda dt, value=scan_text: self.update_auto_status(value), 0
                     )
                 except Exception as exc:
+                    error_text = (
+                        "تحلیل دوره‌ای انجام نشد؛ تا دریافت داده معتبر معامله‌ای باز نمی‌شود. علت: "
+                        + type(exc).__name__
+                    )
                     Clock.schedule_once(
-                        lambda dt, value=type(exc).__name__: self.update_auto_status(
-                            "تحلیل کندل انجام نشد؛ شبیه‌ساز تا داده معتبر بعدی معامله‌ای باز نمی‌کند. علت: " + value
+                        lambda dt, value=error_text: self.update_auto_status(value), 0
+                    )
+
+        scanner = threading.Thread(target=scan_loop, name="paper-signal-scan", daemon=True)
+        scanner.start()
+        connected_once = False
+        try:
+            while not self.auto_stop_event.is_set():
+                def on_open(ws):
+                    nonlocal connected_once, last_entry_candle, last_seen_gap_count
+                    with market_lock:
+                        if connected_once:
+                            builder.reset_after_gap()
+                            last_entry_candle = None
+                            last_seen_gap_count = builder.gaps
+                        connected_once = True
+                    ws.send(symbol)
+                    Clock.schedule_once(
+                        lambda dt: self.update_auto_status(
+                            "اتصال برقرار شد: " + symbol
+                            + ". جمع‌آوری معاملات و کنترل پیوستگی کندل‌ها فعال است."
                         ), 0
                     )
 
-            def on_error(ws, error):
-                Clock.schedule_once(
-                    lambda dt: self.update_auto_status(
-                        "خطای جریان معاملات؛ تلاش برای اتصال مجدد. هیچ سفارش واقعی ارسال نمی‌شود."
-                    ), 0
-                )
+                def on_message(ws, message):
+                    nonlocal last_entry_candle, last_seen_gap_count
+                    parsed = parse_trade_message(message, expected_symbol=symbol)
+                    if self.auto_stop_event.is_set() or not parsed.get("ok"):
+                        return
+                    with market_lock:
+                        update = builder.add_trade(parsed)
+                        if update.get("gap_detected"):
+                            last_entry_candle = None
+                            last_seen_gap_count = builder.gaps
+                    if update.get("gap_detected"):
+                        Clock.schedule_once(
+                            lambda dt: self.update_auto_status(
+                                "شکاف داده شناسایی شد؛ ورود مسدود است تا پیوستگی داده دوباره تأیید شود."
+                            ), 0
+                        )
 
-            app = websocket.WebSocketApp(
-                BROADCAST_URL, on_open=on_open, on_message=on_message,
-                on_error=on_error,
-            )
-            self.auto_ws = app
-            try:
-                app.run_forever(ping_interval=20, ping_timeout=10)
-            except Exception:
-                pass
-            finally:
-                self.auto_ws = None
-            if not self.auto_stop_event.is_set():
-                Clock.schedule_once(
-                    lambda dt: self.update_auto_status(
-                        "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. پس از شکاف داده، گرم‌سازی کندل دوباره لازم است."
-                    ), 0
+                def on_error(ws, error):
+                    Clock.schedule_once(
+                        lambda dt: self.update_auto_status(
+                            "خطای جریان معاملات؛ تلاش برای اتصال مجدد. ورود تا تأیید داده متوقف است."
+                        ), 0
+                    )
+
+                app = websocket.WebSocketApp(
+                    BROADCAST_URL, on_open=on_open, on_message=on_message,
+                    on_error=on_error,
                 )
-                self.auto_stop_event.wait(3)
+                self.auto_ws = app
+                try:
+                    app.run_forever(ping_interval=20, ping_timeout=10)
+                except Exception:
+                    pass
+                finally:
+                    self.auto_ws = None
+                if not self.auto_stop_event.is_set():
+                    Clock.schedule_once(
+                        lambda dt: self.update_auto_status(
+                            "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. ورود تا تکمیل داده معتبر مسدود است."
+                        ), 0
+                    )
+                    self.auto_stop_event.wait(3)
+        finally:
+            scanner_stop.set()
+            scanner.join(timeout=2.0)
 
         Clock.schedule_once(
             lambda dt: self.update_auto_status("شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است."),
