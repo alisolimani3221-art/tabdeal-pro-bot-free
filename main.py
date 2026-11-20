@@ -197,8 +197,7 @@ def fa(text):
     """Shape Persian text and mark Latin runs to use the Latin-capable font."""
     value = str(text)
     if not contains_arabic(value):
-        return value
-    try:
+        return value    try:
         if arabic_reshaper is not None and get_display is not None:
             value = get_display(arabic_reshaper.reshape(value), base_dir="R")
             # Kivy Label markup lets a mixed RTL/LTR sentence use the correct
@@ -397,8 +396,7 @@ class FuturesAnalyzerApp(App):
             markup=True, text=fa("معامله‌گر خودکار آزمایشی"), font_name=FONT_NAME,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.42, 0.30, 0.12, 1),
-            color=(1, 1, 1, 1))
-        self.auto_trader_button.bind(on_press=self.open_auto_trader)
+            color=(1, 1, 1, 1))        self.auto_trader_button.bind(on_press=self.open_auto_trader)
         content.add_widget(self.auto_trader_button)
 
         self.multi_scan_button = Button(
@@ -597,8 +595,7 @@ class FuturesAnalyzerApp(App):
             except Exception as info_exc:
                 results["market_info_error"] = "{}: {}".format(
                     type(info_exc).__name__, str(info_exc)[:260]
-                )
-                # Fail closed: a syntactically plausible ticker is not proof
+                )                # Fail closed: a syntactically plausible ticker is not proof
                 # that the contract exists or is active. Never query depth for
                 # an unverified/stale symbol when exchangeInfo is unavailable.
                 market_symbol = None
@@ -797,8 +794,7 @@ class FuturesAnalyzerApp(App):
                     data = read_futures_account(api_key, api_secret, timeout=22)
                     try:
                         store.save(api_key, api_secret)
-                        storage_status = "ذخیره امن روی همین دستگاه انجام شد."
-                    except Exception as storage_exc:
+                        storage_status = "ذخیره امن روی همین دستگاه انجام شد."                    except Exception as storage_exc:
                         storage_status = (
                             "حساب خوانده شد، اما ذخیره امن ممکن نشد؛ "
                             + "{}: {}".format(type(storage_exc).__name__, str(storage_exc)[:180])
@@ -997,8 +993,7 @@ class FuturesAnalyzerApp(App):
             label_widget.halign = "right"
             label_widget.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
             value_widget = Label(
-                text="—", font_name=NUMERIC_FONT_NAME, font_size=sp(13),
-                color=(0.95, 0.97, 1, 1), size_hint_x=0.40,
+                text="—", font_name=NUMERIC_FONT_NAME, font_size=sp(13),                color=(0.95, 0.97, 1, 1), size_hint_x=0.40,
                 size_hint_y=None, height=dp(36), halign="left",
                 valign="middle",
             )
@@ -1197,8 +1192,7 @@ class FuturesAnalyzerApp(App):
         message = message.replace("نماد BTCUSDT", "نماد معاملاتی بیت‌کوین")
         message_label = Label(
             text=fa(message), font_name=FONT_NAME, markup=True, font_size=sp(15),
-            halign="center", valign="middle", size_hint=(1, None),
-            text_size=(Window.width * 0.80, None)
+            halign="center", valign="middle", size_hint=(1, None),            text_size=(Window.width * 0.80, None)
         )
         message_label.bind(texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(20)))
         report_content.add_widget(message_label)
@@ -1397,8 +1391,7 @@ class FuturesAnalyzerApp(App):
     def start_multi_market_scan(self):
         """Run a bounded, read-only order-book scan off the UI thread."""
         if self.multi_scan_thread is not None and self.multi_scan_thread.is_alive():
-            self._set_multi_scan_status("اسکن قبلی هنوز در حال اجراست؛ لطفاً صبر کنید.")
-            return
+            self._set_multi_scan_status("اسکن قبلی هنوز در حال اجراست؛ لطفاً صبر کنید.")            return
         self._set_multi_scan_status(
             "در حال دریافت فهرست نمادهای فعال و دفتر سفارش آن‌ها... "
             "حداکثر ۴ درخواست هم‌زمان؛ هیچ سفارش واقعی ارسال نمی‌شود."
@@ -1597,8 +1590,7 @@ class FuturesAnalyzerApp(App):
 
     def stop_auto_paper_trader(self):
         """Stop the paper stream before closing its simulated position."""
-        if not self._stop_auto_worker(timeout=3.0):
-            self.update_auto_status(
+        if not self._stop_auto_worker(timeout=3.0):            self.update_auto_status(
                 "توقف درخواست شد، اما پایان کامل رشته شبیه‌ساز هنوز تأیید نشده است؛ "
                 "برای جلوگیری از تغییر هم‌زمان وضعیت، بستن موقعیت مجازی انجام نشد."
             )
@@ -1641,7 +1633,17 @@ class FuturesAnalyzerApp(App):
         received_messages = 0
         valid_messages = 0
         connected_once = False
+        retry_attempt = 0
         while not self.auto_stop_event.is_set():
+            retry_attempt += 1
+            attempt_delay = min(15, 2 + retry_attempt * 2)
+            Clock.schedule_once(
+                lambda dt, number=retry_attempt: self.update_auto_status(
+                    "در حال تلاش برای اتصال به جریان معاملات؛ تلاش شماره {}. "
+                    "مهلت هر تلاش ۱۲ ثانیه است؛ در صورت شکست، اتصال دوباره انجام می‌شود."
+                    .format(number)
+                ), 0
+            )
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
                 if connected_once:
@@ -1658,7 +1660,7 @@ class FuturesAnalyzerApp(App):
 
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
-                nonlocal last_status_update, received_messages, valid_messages
+                nonlocal last_status_update, received_messages, valid_messages, retry_attempt
                 received_messages += 1
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set():
@@ -1678,6 +1680,8 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 valid_messages += 1
+                # Reset backoff only after real, validated exchange data arrives.
+                retry_attempt = 0
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     now = time.monotonic()
@@ -1797,8 +1801,7 @@ class FuturesAnalyzerApp(App):
                         event = events[-1]
                         if event.get("event") == "OPENED":
                             pos = event["position"]
-                            event_text = (
-                                "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
+                            event_text = (                                "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
                             ).format(pos["symbol"], "خرید" if pos["side"] == "BULLISH" else "فروش",
                                      pos["stop"], pos["target"], pos["leverage"])
                         elif event.get("event") == "CLOSED":
@@ -1853,7 +1856,14 @@ class FuturesAnalyzerApp(App):
             )
             self.auto_ws = app
             try:
-                app.run_forever(ping_interval=20, ping_timeout=10)
+                # Bound the WebSocket handshake; otherwise the worker can block
+                # before on_open and leave the UI on the retry message indefinitely.
+                app.run_forever(
+                    ping_interval=20,
+                    ping_timeout=10,
+                    timeout=12,
+                    reconnect=0,
+                )
             except Exception as stream_exc:
                 detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:140])
                 Clock.schedule_once(
@@ -1871,7 +1881,7 @@ class FuturesAnalyzerApp(App):
                         "گرم‌سازی کامل از نو انجام خواهد شد."
                     ), 0
                 )
-                self.auto_stop_event.wait(3)
+                self.auto_stop_event.wait(attempt_delay)
 
         final_status = (
             "شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است. "
