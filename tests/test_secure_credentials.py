@@ -41,6 +41,16 @@ class SecureCredentialStoreTests(unittest.TestCase):
         self.assertEqual(envelope["algorithm"], "AES-256-GCM")
         self.assertEqual(self.store.load(), (key, secret))
 
+
+    def test_save_fails_if_saved_credentials_cannot_be_read_back(self):
+        class BrokenReadbackBackend(TestBackend):
+            def decrypt(self, iv, ciphertext):
+                raise ValueError("simulated readback failure")
+
+        broken_store = CredentialStore(self.path, BrokenReadbackBackend())
+        with self.assertRaises(RuntimeError):
+            broken_store.save("key", "secret")
+
     def test_missing_file_returns_none(self):
         self.assertIsNone(self.store.load())
 
