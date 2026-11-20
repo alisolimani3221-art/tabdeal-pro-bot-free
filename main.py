@@ -718,6 +718,7 @@ class FuturesAnalyzerApp(App):
         cancel.bind(on_press=popup.dismiss)
 
         def remove_saved(instance):
+            nonlocal saved_credentials_available
             try:
                 store.delete()
                 saved_credentials_available = False
@@ -784,6 +785,7 @@ class FuturesAnalyzerApp(App):
             # finishes made a Keystore/storage failure look like a lost credential.
             key_input.disabled = True
             secret_input.disabled = True
+            save_button.disabled = True
             connect.disabled = True
             delete_saved.disabled = True
             status.text = fa("در حال دریافت امن اطلاعات حساب...")
@@ -812,6 +814,7 @@ class FuturesAnalyzerApp(App):
             def finish(result):
                 key_input.disabled = False
                 secret_input.disabled = False
+                save_button.disabled = False
                 connect.disabled = False
                 delete_saved.disabled = False
                 if result[0]:
