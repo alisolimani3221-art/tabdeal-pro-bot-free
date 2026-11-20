@@ -1,4 +1,4 @@
-name: Tabdeal Futures CI and signed APK build (v1.27)
+name: Tabdeal Futures CI and signed APK build (v1.28)
 # Run validation only. APK builds stay paused until all six project gates are verified.
 
 on:
