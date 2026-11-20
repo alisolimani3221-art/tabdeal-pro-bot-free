@@ -11,8 +11,8 @@ class TradeToSignalPipelineTests(unittest.TestCase):
     def test_valid_broadcast_trades_warm_up_candles_before_analysis(self):
         builder = TradeCandleBuilder("BTC_USDT")
         base_minute = int(time.time() // 60) - 60
-        # 53 consecutive one-minute buckets: first partial bucket is discarded,
-        # then 51 closed candles plus one forming candle become available.
+        # 22 consecutive one-minute buckets: first partial bucket is discarded,
+        # then 20 closed candles plus one forming candle become available.
         for minute in range(53):
             price = 100.0 + minute * 0.05
             message = json.dumps({
@@ -29,7 +29,7 @@ class TradeToSignalPipelineTests(unittest.TestCase):
             result = builder.add_trade(parsed)
             self.assertTrue(result["accepted"], result)
 
-            if minute < 52:
+            if minute < 21:
                 self.assertFalse(builder.is_ready)
 
         self.assertTrue(builder.is_ready)
