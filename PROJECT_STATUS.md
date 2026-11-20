@@ -72,3 +72,17 @@ Last updated: 2026-11-18
 ## Continuity rule
 
 Use this ledger and prior verified results as the baseline. Do not repeat passed device/CI checks without a relevant code change or a specific regression report. Update this file with new evidence after each completed test. Never describe queued builds, untested features, or CI-only results as device-verified.
+
+## v1.28 read-only account and credential hardening (2026-11-20)
+
+- Active build branch: `audit/v1.28-readonly-account-hardening`.
+- Source commit used for APK: `bee368632c06ca147925fddc55d5c0f4ddf0bb9c`.
+- GitHub Actions run #561 (`44672111461`) completed successfully. All 29 job steps succeeded, including Python compilation, full regression tests, version consistency, live public API smoke test, 96/96 live order-book scan, read-only trade broadcast probe, Android packaging, persistent signing verification, APK/font checks, and artifact upload.
+- Live stream report: connected to BTC_USDT, 4 messages received, all 4 valid; no live orders.
+- Android package version: 1.28; versionCode: 128; arm64-v8a release.
+- APK artifact ID: `14600958693`; extracted file: `futuresanalyzer-1.28-arm64-v8a-release.apk`; size: 21,212,692 bytes; SHA-256: `4139df173d5bf65421c7bb9df3c6ddf6b3d49b0be3a7be3e71b2ba1e1a7711ec`.
+- APK signing certificate SHA-256: `9a:41:c3:22:95:b7:72:3e:e8:df:ad:d4:c4:0e:e7:db:dc:a9:fb:8a:6c:62:e4:3a:ab:c0:9c:9b:ef:74:1a:e5`; matches the established release signer.
+- APK private bundle contains NotoNaskhArabic-Regular, NotoSansArabic-Regular, and NotoSans-Regular fonts.
+- Hardening: use PyJNIus-supported `bytearray` for Java `byte[]` parameters; add a non-secret secure-credential decryptability status to on-device diagnostics; strictly validate account/position response shapes and finite numeric fields; preserve exact decimal position amounts.
+- Still requires physical-device confirmation: save a read-only API key, close/reopen the app, confirm diagnostics reports successful encrypted credential recovery, then read wallet/positions. No API key or secret has been collected in chat.
+- Live order placement remains disabled. Do not enable it based on paper-trading or public-market tests.
