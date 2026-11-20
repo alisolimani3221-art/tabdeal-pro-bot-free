@@ -21,6 +21,15 @@ def _python_bytes(value):
     return bytes((int(item) & 0xFF) for item in value)
 
 
+def _java_string_array(values):
+    """Build a real Java String[] for Java varargs methods via PyJNIus."""
+    try:
+        from jnius import jarray
+    except Exception as exc:
+        raise RuntimeError("PyJNIus Java array support is unavailable") from exc
+    return jarray("java.lang.String")(list(values))
+
+
 class AndroidKeystoreBackend:
     """Small Android Keystore AES-256-GCM adapter; imports Android APIs lazily."""
 
@@ -47,9 +56,8 @@ class AndroidKeystoreBackend:
             # PyJNIus does not reliably coerce Python lists to Java varargs
             # (String[]) on Android. Pass explicitly typed Java arrays to avoid
             # a JavaException during KeyGenParameterSpec construction.
-            from jnius import jarray
-            builder.setBlockModes(jarray("java.lang.String")(["GCM"]))
-            builder.setEncryptionPaddings(jarray("java.lang.String")(["NoPadding"]))
+            builder.setBlockModes(_java_string_array(["GCM"]))
+            builder.setEncryptionPaddings(_java_string_array(["NoPadding"]))
             builder.setKeySize(256)
             builder.setRandomizedEncryptionRequired(True)
             generator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
