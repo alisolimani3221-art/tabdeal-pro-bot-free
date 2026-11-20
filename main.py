@@ -1720,7 +1720,20 @@ class FuturesAnalyzerApp(App):
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
-                # Reconcile any restored open paper position on every validated trade tick.
+                # Never process a tick that exposed a time gap. The candle builder
+                # has invalidated its history; ignore this price for position exits too.
+                if update.get("gap_detected"):
+                    last_processed_bucket = None
+                    status = builder.status()
+                    gap_message = (
+                        "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
+                        "کندل معتبر: {}/۵۱ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                    ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
+                    Clock.schedule_once(
+                        lambda dt, value=gap_message: self.update_auto_status(value), 0
+                    )
+                    return
+                # Reconcile restored paper positions only against continuous validated ticks.
                 try:
                     tick_event = engine.process_tick(symbol, parsed["price"])
                     if tick_event:
@@ -1748,17 +1761,6 @@ class FuturesAnalyzerApp(App):
                         pass
                     Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
-                    return
-                if update.get("gap_detected"):
-                    last_processed_bucket = None
-                    status = builder.status()
-                    gap_message = (
-                        "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
-                        "کندل معتبر: {}/۵۱ | تعداد شکاف‌ها: {} | داده ردشده: {}"
-                    ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
-                    Clock.schedule_once(
-                        lambda dt, value=gap_message: self.update_auto_status(value), 0
-                    )
                     return
                 current_bucket = (builder.current or {}).get("open_time")
                 if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
