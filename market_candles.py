@@ -27,6 +27,8 @@ class TradeCandleBuilder:
         self.gaps = 0
         # The first bucket after subscription/reconnect may be only partially observed.
         self.discard_next_close = True
+        # Reuse closed candles only when the stream resumes in the same minute.
+        self._resume_bucket = None
 
     @staticmethod
     def _positive(value, name):
@@ -74,6 +76,12 @@ class TradeCandleBuilder:
 
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
+        if self._resume_bucket is not None:
+            if bucket != self._resume_bucket:
+                self.closed.clear()
+                self.gaps += 1
+                gap_detected = True
+            self._resume_bucket = None
         if self.current is None:
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
@@ -104,12 +112,23 @@ class TradeCandleBuilder:
         return {"accepted": True, "gap_detected": gap_detected,
                 "closed_candles": len(self.closed), "ready": self.is_ready}
 
+    def reset_after_reconnect(self):
+        """Retain closed candles only when the stream resumes in the same minute."""
+        self._resume_bucket = self.current["open_time"] if self.current is not None else None
+        if self._resume_bucket is None:
+            self.closed.clear()
+        self.current = None
+        self.last_timestamp_ms = None
+        self.last_sequence = None
+        self.discard_next_close = True
+
     def reset_after_gap(self):
-        """Discard all in-flight history after any reconnect that may miss trades."""
+        """Discard all history after a confirmed data gap."""
         self.closed.clear()
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
+        self._resume_bucket = None
         self.gaps += 1
         self.discard_next_close = True
 
@@ -135,7 +154,7 @@ class TradeCandleBuilder:
     @property
     def is_ready(self):
         # analyze_klines excludes the final row as a still-forming candle.
-        return len(self.closed) >= 51 and self.current is not None
+        return len(self.closed) >= 51 and self.current is not None and not self.discard_next_close
 
     def candles_for_analysis(self):
         """Return chronological closed candles plus current forming candle."""
@@ -148,4 +167,5 @@ class TradeCandleBuilder:
         return {"symbol": self.symbol, "closed_candles": len(self.closed),
                 "has_forming_candle": self.current is not None,
                 "ready": self.is_ready, "gaps": self.gaps,
+                "reconnect_check_pending": self._resume_bucket is not None,
                 "rejected_trades": self.rejected}
