@@ -32,3 +32,8 @@ The on-device stream only runs while the app remains active; Android may suspend
 
 ## Always-on read-only market monitor
 A separate Docker Compose read-only Tabdeal order-book monitor is provided in `SERVER_PAPER_TRADING.md`. It checks documented public endpoints and reports bid/ask/midpoint estimates only. It does not create signals or simulated/live orders. A Linux VPS is required for continuous operation.
+
+
+## Version 1.32 – Android Keystore varargs fix
+
+Pass AES-GCM block mode and padding as scalar PyJNIus varargs (`setBlockModes("GCM")` and `setEncryptionPaddings("NoPadding")`) instead of wrapping them in Python lists. This avoids the nested-sequence conversion path that can raise `Could not construct a Java String[]`. Credentials remain encrypted with Android Keystore AES-256-GCM; there is no plaintext fallback. Device-level validation is still required.
