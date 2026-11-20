@@ -33,18 +33,25 @@ class AccountCredentialDialogTests(unittest.TestCase):
         finish = self.dialog.index("            def finish(result):")
         worker = self.dialog.index("            worker_thread = threading.Thread(", finish)
         finish_block = self.dialog[finish:worker]
-        for control in ("key_input", "secret_input", "connect", "delete_saved"):
+        for control in ("key_input", "secret_input", "save_button", "connect", "delete_saved"):
             self.assertIn(control + ".disabled = False", finish_block)
         self.assertIn("کلیدها هنوز ذخیره نشده‌اند", finish_block)
         self.assertIn("Do not discard the user's credentials", finish_block)
         self.assertIn("status.text = fa(\"اتصال موفق نشد:", finish_block)
+
+    def test_explicit_save_button_persists_credentials_without_showing_saved_secrets(self):
+        self.assertIn('fa("ذخیره کلید")', self.dialog)
+        self.assertIn("save_button.bind(on_press=save_credentials)", self.dialog)
+        self.assertIn("store.save(key_value, secret_value)", self.dialog)
+        self.assertIn("saved = store.load()", self.dialog)
+        self.assertNotIn("key_input.text, secret_input.text = saved", self.dialog)
 
     def test_account_dialog_uses_compact_readable_credentials_controls(self):
         self.assertIn('size=11, height=dp(44)', self.dialog)
         self.assertIn('font_size=sp(13)', self.dialog)
         self.assertIn('height=dp(38)', self.dialog)
         self.assertIn('height=dp(40)', self.dialog)
-        self.assertIn('size_hint=(0.94, 0.60)', self.dialog)
+        self.assertIn('size_hint=(0.94, 0.70)', self.dialog)
 
 
 if __name__ == "__main__":
