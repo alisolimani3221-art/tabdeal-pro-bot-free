@@ -8,7 +8,7 @@ import time
 import unittest
 
 from market_candles import TradeCandleBuilder
-from paper_trader import PaperTradingEngine
+from paper_trader import PaperTradingEngine, prepare_live_market_snapshot
 from risk_analysis import analyze_klines
 from trade_stream_probe import parse_trade_message
 
@@ -40,6 +40,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
             if builder.is_ready:
                 technical = analyze_klines(builder.candles_for_analysis())
                 technical["symbol"] = symbol
+                technical = prepare_live_market_snapshot(technical, parsed["price"])
                 technical["candle_open_time"] = int(builder.closed[-1][0])
                 last_result = engine.process_scan([technical])
 
@@ -48,6 +49,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         self.assertEqual(last_result["candidates"][0]["symbol"], symbol)
         self.assertEqual(last_result["events"][0]["event"], "OPENED")
         self.assertEqual(last_result["open_position"]["symbol"], symbol)
+        self.assertAlmostEqual(last_result["open_position"]["entry"], price)
         self.assertLessEqual(last_result["open_position"]["leverage"], 3)
         self.assertLessEqual(last_result["open_position"]["risk_limit"], 0.04)
         self.assertFalse(hasattr(engine, "create_order"))
