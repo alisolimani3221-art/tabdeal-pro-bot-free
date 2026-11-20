@@ -43,8 +43,23 @@ def _signed_get(path, key, secret, params=None, timeout=20, session=None):
         response.close()
 
 
+def _finite_decimal(value, field):
+    """Parse a finite numeric API field; never silently turn malformed data into zero."""
+    from decimal import Decimal, InvalidOperation
+
+    if isinstance(value, bool) or value is None:
+        raise RuntimeError("Tabdeal account response has invalid " + field)
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise RuntimeError("Tabdeal account response has invalid " + field)
+    if not number.is_finite():
+        raise RuntimeError("Tabdeal account response has non-finite " + field)
+    return number
+
+
 def read_futures_account(key, secret, timeout=20, session=None):
-    """Return wallet summary and non-zero futures positions using GET only."""
+    """Return validated wallet summary and non-zero futures positions using GET only."""
     account = _signed_get(
         "/v3/account", key, secret, timeout=timeout, session=session
     )
@@ -53,31 +68,53 @@ def read_futures_account(key, secret, timeout=20, session=None):
     )
     if not isinstance(account, dict):
         raise RuntimeError("Unexpected account response format")
+    for field in ("totalWalletBalance", "availableBalance"):
+        if field not in account:
+            raise RuntimeError("Account response is missing " + field)
+        _finite_decimal(account[field], field)
+    unrealized = account.get("totalUnrealizedProfit", "0")
+    _finite_decimal(unrealized, "totalUnrealizedProfit")
+
     if isinstance(positions, dict):
-        positions = positions.get("positions", positions.get("data", []))
+        if "positions" in positions:
+            positions = positions["positions"]
+        elif "data" in positions:
+            positions = positions["data"]
+            if isinstance(positions, dict) and "positions" in positions:
+                positions = positions["positions"]
+        else:
+            raise RuntimeError("Unexpected positions response wrapper")
     if not isinstance(positions, list):
         raise RuntimeError("Unexpected positions response format")
+
     active = []
-    for item in positions:
+    for index, item in enumerate(positions):
         if not isinstance(item, dict):
-            continue
-        try:
-            amount = float(item.get("positionAmt", item.get("amount", 0)) or 0)
-        except (TypeError, ValueError):
-            continue
-        if amount:
+            raise RuntimeError("Invalid position row {}".format(index))
+        symbol = item.get("symbol")
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise RuntimeError("Position row {} has no valid symbol".format(index))
+        if "positionAmt" in item:
+            raw_amount = item["positionAmt"]
+        elif "amount" in item:
+            raw_amount = item["amount"]
+        else:
+            raise RuntimeError("Position row {} has no amount".format(index))
+        amount = _finite_decimal(raw_amount, "position amount")
+        if amount != 0:
+            pnl = item.get("unRealizedProfit", item.get("unrealizedProfit", "0"))
+            _finite_decimal(pnl, "position unrealized PnL")
             active.append({
-                "symbol": str(item.get("symbol", "--")),
-                "amount": amount,
+                "symbol": symbol,
+                "amount": float(amount),
                 "entry_price": item.get("entryPrice", "--"),
                 "mark_price": item.get("markPrice", "--"),
-                "unrealized_pnl": item.get("unRealizedProfit",
-                                           item.get("unrealizedProfit", "0")),
+                "unrealized_pnl": pnl,
                 "leverage": item.get("leverage", "--"),
             })
     return {
-        "wallet_balance": account.get("totalWalletBalance", "--"),
-        "available_balance": account.get("availableBalance", "--"),
-        "unrealized_pnl": account.get("totalUnrealizedProfit", "0"),
+        "wallet_balance": account["totalWalletBalance"],
+        "available_balance": account["availableBalance"],
+        "unrealized_pnl": unrealized,
         "positions": active,
     }
