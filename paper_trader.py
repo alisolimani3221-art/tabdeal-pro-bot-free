@@ -26,6 +26,10 @@ def rank_signal(technical):
     closed_candles = technical.get("closed_candles")
     if type(closed_candles) is not int or closed_candles < 51:
         return None
+    candle_open_time = technical.get("candle_open_time")
+    if (isinstance(candle_open_time, bool) or
+            not isinstance(candle_open_time, int) or candle_open_time <= 0):
+        return None
     symbol = str(technical.get("symbol", "")).strip()
     normalized_symbol = symbol.upper()
     if not re.fullmatch(r"[A-Z0-9]+_?USDT", normalized_symbol):
@@ -56,6 +60,7 @@ def rank_signal(technical):
         return None
     return {"symbol": normalized_symbol, "side": signal,
             "price": price, "atr": atr, "rsi": rsi,
+            "candle_open_time": candle_open_time,
             "volatility_pct": volatility_pct, "score": score}
 
 
@@ -71,6 +76,10 @@ def diagnose_signal(technical):
     count = technical.get("closed_candles")
     if type(count) is not int or count < 51:
         return "داده کافی نیست: حداقل ۵۱ کندل بسته‌شده لازم است"
+    candle_open_time = technical.get("candle_open_time")
+    if (isinstance(candle_open_time, bool) or
+            not isinstance(candle_open_time, int) or candle_open_time <= 0):
+        return "زمان بازشدن کندل معتبر نیست؛ ورود مسدود شد"
     symbol = str(technical.get("symbol", "")).strip().upper()
     if not re.fullmatch(r"[A-Z0-9]+_?USDT", symbol):
         return "نماد معاملاتی نامعتبر است"
@@ -125,6 +134,9 @@ class PaperTradingEngine:
         if self.max_loss_percent > 25:
             raise ValueError("max loss must be above 0 and at most 25 percent")
         self.position = None
+        # Persist the last candle on which an entry was opened. Repeated
+        # 15-second scans must not reopen after a stop/target within that candle.
+        self.last_entry_candle = None
         self.closed_trades = []
         self.scans = 0
         self._lock = threading.RLock()
@@ -135,7 +147,7 @@ class PaperTradingEngine:
         """Return a JSON-safe snapshot suitable for atomic local persistence."""
         with self._lock:
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "initial_capital": self.initial_capital,
                 "cash": self.cash,
                 "risk_percent": self.risk_percent,
@@ -144,6 +156,8 @@ class PaperTradingEngine:
                 "slippage_rate": self.slippage_rate,
                 "max_loss_percent": self.max_loss_percent,
                 "position": dict(self.position) if self.position else None,
+                "last_entry_candle": (dict(self.last_entry_candle)
+                                      if self.last_entry_candle else None),
                 "closed_trades": [dict(item) for item in self.closed_trades],
                 "scans": self.scans,
                 "halted": self.halted,
@@ -153,14 +167,16 @@ class PaperTradingEngine:
     @classmethod
     def restore_state(cls, state):
         """Restore a strictly validated snapshot; malformed state fails closed."""
-        expected = {
+        common = {
             "schema_version", "initial_capital", "cash", "risk_percent",
             "max_leverage", "fee_rate", "slippage_rate", "max_loss_percent",
             "position", "closed_trades", "scans", "halted", "halt_reason",
         }
-        if (not isinstance(state, dict) or set(state) != expected
-                or type(state.get("schema_version")) is not int
-                or state["schema_version"] != 1):
+        if not isinstance(state, dict) or type(state.get("schema_version")) is not int:
+            raise ValueError("unsupported or malformed paper-engine state")
+        version = state["schema_version"]
+        expected = common if version == 1 else common | {"last_entry_candle"}
+        if version not in (1, 2) or set(state) != expected:
             raise ValueError("unsupported or malformed paper-engine state")
 
         engine = cls(
@@ -198,6 +214,18 @@ class PaperTradingEngine:
                 or (not engine.halted and reason is not None)):
             raise ValueError("paper-engine halt metadata is inconsistent")
         engine.halt_reason = reason
+
+        last_entry = state.get("last_entry_candle")
+        if last_entry is not None:
+            if (not isinstance(last_entry, dict)
+                    or set(last_entry) != {"symbol", "open_time"}
+                    or not isinstance(last_entry["symbol"], str)
+                    or not re.fullmatch(r"[A-Z0-9]+_?USDT", last_entry["symbol"])
+                    or isinstance(last_entry["open_time"], bool)
+                    or not isinstance(last_entry["open_time"], int)
+                    or last_entry["open_time"] <= 0):
+                raise ValueError("paper-engine last-entry candle is invalid")
+            engine.last_entry_candle = dict(last_entry)
 
         position = state["position"]
         if position is not None:
@@ -398,7 +426,16 @@ class PaperTradingEngine:
         # immediate churn loop on a signal that has not changed.
         if (not self.halted and not closed_this_scan and self.position is None
                 and valid and self.cash > 0 and self.cash > loss_floor):
-            choice = valid[0]
+            choice = next((candidate for candidate in valid
+                           if self.last_entry_candle != {
+                               "symbol": candidate["symbol"],
+                               "open_time": candidate["candle_open_time"],
+                           }), None)
+            if choice is None:
+                return {"events": events, "candidates": valid,
+                        "equity": self.equity, "cash": self.cash,
+                        "open_position": None, "closed_trades": len(self.closed_trades),
+                        "halted": self.halted, "halt_reason": self.halt_reason}
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
                                        else 1 - self.slippage_rate)
             stop_distance = 1.5 * choice["atr"]
@@ -436,6 +473,10 @@ class PaperTradingEngine:
                         "risk_budget": quantity * risk_per_unit,
                         "risk_limit": risk_cash, "fees_entry": fee,
                         "score": choice["score"],
+                    }
+                    self.last_entry_candle = {
+                        "symbol": choice["symbol"],
+                        "open_time": choice["candle_open_time"],
                     }
                     events.append({"event": "OPENED", "position": dict(self.position)})
         return {"events": events, "candidates": valid,
