@@ -25,6 +25,7 @@ class TradeCandleBuilder:
         self.last_sequence = None
         self.rejected = 0
         self.gaps = 0
+        self.synthetic_candles = 0
         # The first bucket after subscription/reconnect may be only partially observed.
         self.discard_next_close = True
 
@@ -86,16 +87,32 @@ class TradeCandleBuilder:
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
+            missing_buckets = (bucket - previous_bucket) // self.interval_ms - 1
             if not self.discard_next_close:
                 self.closed.append(self._as_row(self.current))
             else:
                 self.discard_next_close = False
-            if bucket != previous_bucket + self.interval_ms:
+
+            if missing_buckets > 2:
+                # A long silence is ambiguous and may indicate a feed outage.
+                # Never bridge it with invented prices; require a fresh warm-up.
                 self.gaps += 1
                 gap_detected = True
-                # Do not let indicators bridge an unknown interval.
                 self.closed.clear()
                 self.discard_next_close = True
+            elif missing_buckets > 0:
+                # One or two quiet minutes are valid zero-trade intervals.
+                # Carry forward the last close with zero volume and expose the
+                # count separately so diagnostics never call them trade candles.
+                previous_close = float(self.current["close"])
+                for offset in range(1, missing_buckets + 1):
+                    empty_bucket = previous_bucket + offset * self.interval_ms
+                    self.closed.append([
+                        empty_bucket, previous_close, previous_close,
+                        previous_close, previous_close, 0.0
+                    ])
+                self.synthetic_candles += missing_buckets
+
             self.current = self._new_candle(bucket, price, quantity, timestamp)
 
         self.last_timestamp_ms = timestamp
@@ -148,4 +165,5 @@ class TradeCandleBuilder:
         return {"symbol": self.symbol, "closed_candles": len(self.closed),
                 "has_forming_candle": self.current is not None,
                 "ready": self.is_ready, "gaps": self.gaps,
+                "synthetic_candles": self.synthetic_candles,
                 "rejected_trades": self.rejected}
