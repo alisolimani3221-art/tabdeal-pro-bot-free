@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.33"
+APP_VERSION = "1.34"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -674,11 +674,14 @@ class FuturesAnalyzerApp(App):
             font_name=NUMERIC_FONT_NAME, font_size=sp(13),
             size_hint_y=None, height=dp(38))
         load_status = None
+        saved_credentials_available = False
         try:
             saved = store.load()
             if saved:
-                key_input.text, secret_input.text = saved
-                load_status = "کلید ذخیره‌شده با موفقیت از حافظه امن بازیابی شد."
+                # Keep secrets out of visible text fields. The read action can
+                # retrieve them directly from the encrypted Android Keystore file.
+                saved_credentials_available = True
+                load_status = "کلید رمزگذاری‌شده روی دستگاه موجود است؛ برای خواندن موجودی نیازی به نمایش دوباره کلیدها نیست."
         except Exception as load_exc:
             # Never expose credentials after a failed authentication/decryption,
             # but do not hide the reason the saved values were not restored.
@@ -695,21 +698,29 @@ class FuturesAnalyzerApp(App):
             load_status or "مجوز برداشت و معامله را برای این کلید فعال نکنید.",
             size=11, height=dp(40), color=(1, 0.68, 0.35, 1))
         body.add_widget(status)
-        buttons = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
-        connect = Button(markup=True, text=fa("خواندن موجودی"), font_name=FONT_NAME, font_size=sp(11))
-        delete_saved = Button(markup=True, text=fa("حذف کلید ذخیره‌شده"), font_name=FONT_NAME, font_size=sp(10))
+        buttons = BoxLayout(orientation="vertical", size_hint_y=None,
+                            height=dp(88), spacing=dp(6))
+        primary_actions = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
+        secondary_actions = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
+        save_button = Button(markup=True, text=fa("ذخیره کلید"), font_name=FONT_NAME, font_size=sp(12))
+        connect = Button(markup=True, text=fa("خواندن موجودی"), font_name=FONT_NAME, font_size=sp(12))
+        delete_saved = Button(markup=True, text=fa("حذف کلید ذخیره‌شده"), font_name=FONT_NAME, font_size=sp(11))
         cancel = Button(markup=True, text=fa("انصراف"), font_name=FONT_NAME, font_size=sp(11))
-        buttons.add_widget(connect)
-        buttons.add_widget(delete_saved)
-        buttons.add_widget(cancel)
+        primary_actions.add_widget(save_button)
+        primary_actions.add_widget(connect)
+        secondary_actions.add_widget(delete_saved)
+        secondary_actions.add_widget(cancel)
+        buttons.add_widget(primary_actions)
+        buttons.add_widget(secondary_actions)
         body.add_widget(buttons)
         popup = Popup(title=fa_plain("اتصال فقط‌خواندنی حساب"), title_font=FONT_NAME,
-                      content=body, size_hint=(0.94, 0.60), auto_dismiss=False)
+                      content=body, size_hint=(0.94, 0.70), auto_dismiss=False)
         cancel.bind(on_press=popup.dismiss)
 
         def remove_saved(instance):
             try:
                 store.delete()
+                saved_credentials_available = False
                 key_input.text = ""
                 secret_input.text = ""
                 status.text = fa("کلید ذخیره‌شده و کلید رمزگذاری حذف شد.")
@@ -717,12 +728,57 @@ class FuturesAnalyzerApp(App):
                 status.text = fa("حذف امن انجام نشد: " + type(exc).__name__)
         delete_saved.bind(on_press=remove_saved)
 
+        def save_credentials(instance):
+            nonlocal saved_credentials_available
+            api_key = key_input.text.strip()
+            api_secret = secret_input.text.strip()
+            if not api_key or not api_secret:
+                status.text = fa("برای ذخیره امن، هر دو فیلد API Key و API Secret الزامی هستند.")
+                return
+            save_button.disabled = True
+            connect.disabled = True
+            delete_saved.disabled = True
+            status.text = fa("در حال رمزگذاری و ذخیره کلیدها با Android Keystore...")
+            def save_worker(key_value, secret_value):
+                try:
+                    store.save(key_value, secret_value)
+                    outcome = (True, "کلیدها با رمزگذاری Android Keystore ذخیره و بازیابی آن‌ها بررسی شد.")
+                except Exception as exc:
+                    outcome = (False, "{}: {}".format(type(exc).__name__, str(exc)[:160]))
+                finally:
+                    key_value = ""
+                    secret_value = ""
+                def finish_save(_dt):
+                    nonlocal saved_credentials_available
+                    save_button.disabled = False
+                    connect.disabled = False
+                    delete_saved.disabled = False
+                    if outcome[0]:
+                        saved_credentials_available = True
+                        key_input.text = ""
+                        secret_input.text = ""
+                        status.text = fa(outcome[1] + " اکنون می‌توانید موجودی را جداگانه بخوانید.")
+                    else:
+                        status.text = fa("ذخیره امن انجام نشد؛ کلیدها ذخیره‌شده محسوب نمی‌شوند. " + outcome[1])
+                Clock.schedule_once(finish_save, 0)
+            threading.Thread(target=save_worker, args=(api_key, api_secret), daemon=True).start()
+
+        save_button.bind(on_press=save_credentials)
+
         def start_read(instance):
             key = key_input.text.strip()
             secret = secret_input.text.strip()
             if not key or not secret:
-                status.text = fa("هر دو فیلد الزامی هستند.")
-                return
+                try:
+                    saved = store.load()
+                except Exception as load_exc:
+                    status.text = fa("بازیابی امن کلید ناموفق بود: " + type(load_exc).__name__)
+                    return
+                if saved:
+                    key, secret = saved
+                else:
+                    status.text = fa("هر دو فیلد الزامی هستند؛ ابتدا کلیدها را وارد و ذخیره کنید.")
+                    return
             # Keep the user's input visible until both account verification and
             # encrypted persistence have succeeded. Clearing it before the worker
             # finishes made a Keystore/storage failure look like a lost credential.
@@ -775,8 +831,9 @@ class FuturesAnalyzerApp(App):
                                 pos["unrealized_pnl"]))
                     else:
                         lines.append("موقعیت باز فعالی گزارش نشد.")
-                    self.account_summary.text = fa("\\n".join(lines))
+                    self.account_summary.text = fa("\n".join(lines))
                     if result[2].startswith("ذخیره امن روی همین دستگاه انجام شد"):
+                        saved_credentials_available = True
                         # Clear the sensitive fields only after the encrypted file
                         # has been written successfully, then close the dialog.
                         key_input.text = ""
@@ -1387,10 +1444,11 @@ class FuturesAnalyzerApp(App):
         body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10))
         symbol = self.current_symbol
         initial_status = (
-            "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\\n"
-            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\\n"
-            "برای آماده‌شدن تحلیل، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده و یک کندل درحال‌تشکیل لازم است.\\n"
-            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\\n"
+            "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\n"
+            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\n"
+            "برای تحلیل معتبر، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده لازم است؛ آماده‌سازی اولیه ممکن است حدود ۵۱ دقیقه طول بکشد.\n"
+            "بعد از آماده‌سازی هم فقط با سیگنال معتبر معامله مجازی باز می‌شود؛ سیگنال یا سود تضمین‌شده نیست.\n"
+            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\n"
             "هیچ سفارش واقعی ارسال نمی‌شود."
         )
         # Shape Persian text once; keep Kivy's bidi direction LTR to avoid
@@ -1403,7 +1461,7 @@ class FuturesAnalyzerApp(App):
             base_direction="ltr",
             text_language="ar",
             size_hint=(1, None),
-            height=dp(205),
+            height=dp(270),
             halign="center",
             valign="middle",
             text_size=(Window.width - dp(56), None),
