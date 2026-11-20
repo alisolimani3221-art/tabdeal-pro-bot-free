@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.36"
+APP_VERSION = "1.37"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1783,7 +1783,11 @@ class FuturesAnalyzerApp(App):
                 try:
                     technical = analyze_klines(builder.candles_for_analysis())
                     technical["symbol"] = symbol
-                    technical["candle_open_time"] = int(current_bucket)
+                    # Signals are computed from closed candles only; key entries
+                    # to the exact closed candle that produced this signal.
+                    if not builder.closed:
+                        return
+                    technical["candle_open_time"] = int(builder.closed[-1][0])
                     Clock.schedule_once(
                         lambda dt, value=dict(technical): self.update_technical_labels(value), 0
                     )
