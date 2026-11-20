@@ -33,7 +33,11 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn("TradeCandleBuilder", source)
         self.assertIn("PaperTradingEngine", source)
         self.assertIn("parse_trade_message", source)
-        self.assertIn("builder.reset_after_gap()", source)
+        # Gap detection and history invalidation are owned by TradeCandleBuilder.add_trade().
+        # The UI worker must consume that diagnostic rather than resetting twice.
+        self.assertIn("update = builder.add_trade(parsed)", source)
+        self.assertIn('if update.get("gap_detected"):', source)
+        self.assertNotIn("builder.reset_after_gap()", source)
         self.assertIn("risk_percent=0.5", source)
         self.assertIn("max_leverage=3", source)
         self.assertIn("هیچ سفارش واقعی ارسال نمی‌شود", source)
