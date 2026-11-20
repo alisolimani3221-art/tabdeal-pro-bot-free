@@ -141,6 +141,6 @@ class TabdealAccountTests(unittest.TestCase):
         self.assertEqual(result["unrealized_pnl"], "-0.25")
         self.assertEqual(len(result["positions"]), 1)
         self.assertEqual(result["positions"][0]["symbol"], "ETHUSDT")
-        self.assertEqual(result["positions"][0]["amount"], -0.2)
+        self.assertEqual(result["positions"][0]["amount"], "-0.2")
 
     unittest.main()
