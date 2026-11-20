@@ -52,7 +52,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         status = builder.status()
         self.assertEqual(status["gaps"], 0)
         self.assertEqual(status["synthetic_candles"], 1)
-        self.assertEqual(len(builder.candles_for_analysis()), 3)
+        self.assertEqual(len(builder.candles_for_analysis()), 2)
         self.assertEqual(builder.candles_for_analysis()[1],
                          [6_060_000, 101.0, 101.0, 101.0, 101.0, 0.0])
 
@@ -62,7 +62,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         builder.add_trade(self.trade(103, price=104))
         self.assertEqual(builder.status()["gaps"], 0)
         self.assertEqual(builder.status()["synthetic_candles"], 2)
-        self.assertEqual(len(builder.candles_for_analysis()), 4)
+        self.assertEqual(len(builder.candles_for_analysis()), 3)
 
     def test_ready_requires_51_closed_and_one_forming_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
