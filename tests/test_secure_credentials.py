@@ -74,6 +74,19 @@ class SecureCredentialStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.save("", "secret")
 
+    def test_status_reports_missing_or_saved_without_exposing_values(self):
+        self.assertEqual(self.store.check_status(), "MISSING")
+        self.store.save("private-key", "private-secret")
+        self.assertEqual(self.store.check_status(), "SAVED")
 
-if __name__ == "__main__":
+    def test_status_fails_closed_when_keystore_cannot_decrypt(self):
+        class BrokenBackend(TestBackend):
+            def decrypt(self, iv, ciphertext):
+                raise ValueError("keystore unavailable")
+
+        self.store.save("key", "secret")
+        broken = CredentialStore(self.path, BrokenBackend())
+        with self.assertRaises(RuntimeError):
+            broken.check_status()
+
     unittest.main()
