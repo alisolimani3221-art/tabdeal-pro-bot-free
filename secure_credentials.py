@@ -44,8 +44,12 @@ class AndroidKeystoreBackend:
             purposes = (KeyProperties.PURPOSE_ENCRYPT |
                         KeyProperties.PURPOSE_DECRYPT)
             builder = Builder(_ALIAS, purposes)
-            builder.setBlockModes(["GCM"])
-            builder.setEncryptionPaddings(["NoPadding"])
+            # PyJNIus does not reliably coerce Python lists to Java varargs
+            # (String[]) on Android. Pass explicitly typed Java arrays to avoid
+            # a JavaException during KeyGenParameterSpec construction.
+            from jnius import jarray
+            builder.setBlockModes(jarray("java.lang.String")(["GCM"]))
+            builder.setEncryptionPaddings(jarray("java.lang.String")(["NoPadding"]))
             builder.setKeySize(256)
             builder.setRandomizedEncryptionRequired(True)
             generator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
