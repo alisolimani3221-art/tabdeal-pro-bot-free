@@ -1,10 +1,7 @@
 import json
 import os
-import sys
 import tempfile
 import unittest
-from types import SimpleNamespace
-from unittest.mock import patch
 
 from secure_credentials import CredentialStore, _java_bytes, _python_bytes, _java_string_array
 
@@ -93,33 +90,16 @@ class SecureCredentialStoreTests(unittest.TestCase):
             broken.check_status()
 
 
-    def test_java_string_array_uses_reflection_without_jarray(self):
-        calls = []
-        class FakeString:
-            class_ = "java.lang.String.class"
-        class FakeReflectArray:
-            @staticmethod
-            def newInstance(component_type, length):
-                calls.append(("newInstance", component_type, length))
-                return [None] * length
-            @staticmethod
-            def set(array, index, value):
-                calls.append(("set", index, value))
-                array[index] = value
-        def fake_autoclass(name):
-            return {
-                "java.lang.reflect.Array": FakeReflectArray,
-                "java.lang.String": FakeString,
-            }[name]
-        fake_jnius = SimpleNamespace(autoclass=fake_autoclass)
-        with patch.dict(sys.modules, {"jnius": fake_jnius}):
-            result = _java_string_array(["GCM", "NoPadding"])
+    def test_java_string_array_returns_native_pyjnius_sequence(self):
+        result = _java_string_array(["GCM", "NoPadding"])
         self.assertEqual(result, ["GCM", "NoPadding"])
-        self.assertEqual(calls, [
-            ("newInstance", "java.lang.String.class", 2),
-            ("set", 0, "GCM"),
-            ("set", 1, "NoPadding"),
-        ])
+        self.assertIsInstance(result, list)
+
+    def test_java_string_array_rejects_empty_or_invalid_input(self):
+        with self.assertRaises(ValueError):
+            _java_string_array([])
+        with self.assertRaises(TypeError):
+            _java_string_array("GCM")
 
     def test_java_byte_conversion_uses_supported_bytearray(self):
         payload = bytes([0, 127, 128, 255])
