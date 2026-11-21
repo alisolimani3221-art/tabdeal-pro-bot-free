@@ -184,15 +184,9 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
               "last_diagnostic": "no_message", "symbol": symbol}
 
     def on_open(ws):
-        # The observed Tabdeal broadcast requires the plain-text market symbol.
-        # A successful WebSocket handshake alone is not proof of a live feed.
-        try:
-            ws.send(symbol)
-            result["connected"] = True
-            result["last_diagnostic"] = "subscribed"
-        except Exception as exc:
-            result["last_diagnostic"] = "subscription_send_error:" + type(exc).__name__
-            ws.close()
+        # Official FutureBroadcastWebsocketClient uses this endpoint without
+        # a stream name or payload; filter incoming broadcast events by symbol.
+        result["connected"] = True
 
     def on_message(ws, message):
         result["messages"] += 1
