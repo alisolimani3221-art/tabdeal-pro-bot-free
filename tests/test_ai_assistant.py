@@ -38,6 +38,19 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         self.assertNotIn('result.text = fa(', self.method_source)
         self.assertNotIn('setattr(result, "text", fa(value))', self.method_source)
 
+    def test_persian_assistant_result_uses_rtl_alignment_and_scrollable_height(self):
+        self.assertIn('halign="right"', self.method_source)
+        self.assertIn('base_direction="ltr"', self.method_source)
+        self.assertIn("result.bind(texture_size=", self.method_source)
+        self.assertIn("result_scroll = ScrollView(", self.method_source)
+        self.assertIn("result_scroll.add_widget(result)", self.method_source)
+
+    def test_assistant_action_row_is_ordered_for_rtl(self):
+        self.assertLess(
+            self.method_source.index("controls.add_widget(close_button)"),
+            self.method_source.index("controls.add_widget(send_button)")
+        )
+
     def test_api_key_is_cleared_when_popup_closes(self):
         self.assertIn('key_input.text = ""', self.method_source)
         self.assertIn('popup.bind(on_dismiss=', self.method_source)
