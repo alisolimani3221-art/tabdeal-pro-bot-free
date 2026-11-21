@@ -2,7 +2,7 @@
 import requests
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-OPENAI_MODEL = "gpt-5.5"
+OPENAI_MODEL = "gpt-6-luna"
 
 
 def analyze_with_openai(api_key, question, app_context=None, session=None):
