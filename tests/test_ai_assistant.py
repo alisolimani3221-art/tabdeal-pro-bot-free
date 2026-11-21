@@ -56,10 +56,14 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         self.assertIn('popup.bind(on_dismiss=', self.method_source)
         self.assertIn('password=True', self.method_source)
 
-    def test_assistant_remains_read_only(self):
-        self.assertIn('"access_mode": "read_only"', self.method_source)
-        self.assertIn('"no trading"', self.method_source)
-        self.assertIn('"no order placement"', self.method_source)
+    def test_assistant_uses_privacy_safe_read_only_context(self):
+        self.assertIn("build_ai_diagnostic_context(self)", self.method_source)
+        helper = Path("ai_diagnostics.py").read_text(encoding="utf-8")
+        self.assertIn('"access_mode": "read_only"', helper)
+        self.assertIn('"no trading"', helper)
+        self.assertIn('"no order placement"', helper)
+        self.assertNotIn("account_summary", self.method_source)
+        self.assertNotIn("CredentialStore", self.method_source)
 
 
 if __name__ == "__main__":
