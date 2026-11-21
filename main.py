@@ -42,6 +42,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from openai_assistant import analyze_with_openai
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -374,6 +375,14 @@ class FuturesAnalyzerApp(App):
         self.smart_analysis_button.bind(on_press=self.open_smart_analysis)
 
         content.add_widget(self.smart_analysis_button)
+
+        self.openai_assistant_button = Button(
+            markup=True, text=fa("اتصال به هوش مصنوعی OpenAI"), font_name=FONT_NAME,
+            font_size=sp(16), size_hint_y=None, height=dp(50),
+            background_normal="", background_color=(0.18, 0.34, 0.48, 1),
+            color=(1, 1, 1, 1))
+        self.openai_assistant_button.bind(on_press=self.open_openai_assistant)
+        content.add_widget(self.openai_assistant_button)
         self.latest_technical_analysis = None
         content.add_widget(self.analysis_metrics)
 
@@ -879,6 +888,73 @@ class FuturesAnalyzerApp(App):
                       size_hint=(0.88, 0.42))
         close_button.bind(on_press=popup.dismiss)
         body.add_widget(close_button)
+        popup.open()
+
+    def open_openai_assistant(self, instance):
+        """Read-only OpenAI assistant. API key is kept in this popup session only."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        key_label = self.make_label("کلید API اوپن‌ای‌آی (فقط در همین نشست؛ ذخیره نمی‌شود)", size=13, height=dp(36))
+        body.add_widget(key_label)
+        key_input = TextInput(
+            multiline=False, password=True, hint_text="sk-...",
+            font_name=NUMERIC_FONT_NAME, font_size=sp(14),
+            size_hint_y=None, height=dp(46))
+        body.add_widget(key_input)
+        prompt_label = self.make_label("پیام یا درخواست شما", size=13, height=dp(30))
+        body.add_widget(prompt_label)
+        prompt_input = TextInput(
+            text="وضعیت فعلی برنامه و بازار را بررسی کن و فقط ایرادها و پیشنهادهای اصلاحی را گزارش بده.",
+            multiline=True, font_name=FONT_NAME, font_size=sp(14),
+            size_hint_y=None, height=dp(112))
+        body.add_widget(prompt_input)
+        result = self.make_label("اتصال برقرار نشده است.", size=13, height=dp(150))
+        result.halign = "right"
+        result.valign = "top"
+        result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
+        body.add_widget(result)
+        controls = BoxLayout(orientation="horizontal", spacing=dp(8),
+                             size_hint_y=None, height=dp(48))
+        send_button = Button(text=fa("اتصال و ارسال"), font_name=FONT_NAME)
+        close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
+        controls.add_widget(send_button)
+        controls.add_widget(close_button)
+        body.add_widget(controls)
+        popup = Popup(title=fa_plain("مرکز هوش مصنوعی OpenAI"),
+                      title_font=FONT_NAME, content=body, size_hint=(0.95, 0.90))
+
+        def send_request(_button):
+            api_key = key_input.text.strip()
+            prompt = prompt_input.text.strip()
+            if not api_key or not prompt:
+                result.text = fa("کلید API و متن درخواست را وارد کنید.")
+                return
+            context = {
+                "app_version": APP_VERSION,
+                "selected_symbol": getattr(self, "current_symbol", "نامشخص"),
+                "diagnostics": getattr(self, "last_diagnostic_results", {}),
+                "diagnostic_time": getattr(self, "last_diagnostic_time", "نامشخص"),
+                "access_mode": "read_only",
+                "permissions": ["read app diagnostics", "read selected market symbol"],
+                "restrictions": ["no settings changes", "no trading", "no order placement"]
+            }
+            send_button.disabled = True
+            result.text = fa("در حال اتصال به OpenAI...")
+            def worker():
+                try:
+                    answer = analyze_with_openai(api_key, prompt, context)
+                    message = answer
+                except Exception as exc:
+                    message = "خطا در ارتباط با OpenAI: {}: {}".format(
+                        type(exc).__name__, str(exc)[:240])
+                Clock.schedule_once(
+                    lambda _dt, value=message: (
+                        setattr(result, "text", fa(value)),
+                        setattr(send_button, "disabled", False)
+                    ), 0)
+            threading.Thread(target=worker, daemon=True).start()
+
+        send_button.bind(on_press=send_request)
+        close_button.bind(on_press=popup.dismiss)
         popup.open()
 
     def open_smart_analysis(self, instance):
