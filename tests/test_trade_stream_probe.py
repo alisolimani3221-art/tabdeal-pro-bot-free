@@ -190,7 +190,7 @@ class TradeStreamProbeTests(unittest.TestCase):
                              "quantity": "1", "timestamp": 1700000000}}
         self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
 
-    def test_broadcast_probe_does_not_send_subscription_payload(self):
+    def test_broadcast_probe_compares_no_payload_and_plain_text_symbol_modes(self):
         import sys
         import types
         from unittest.mock import patch
@@ -230,8 +230,15 @@ class TradeStreamProbeTests(unittest.TestCase):
 
         self.assertTrue(result["connected"])
         self.assertEqual(result["valid_trades"], 1)
+        self.assertEqual(result["matching_symbol_trades"], 1)
         self.assertEqual(observed["sent"], [])
         self.assertEqual(len(observed["trades"]), 1)
+
+        with patch.dict(sys.modules, {"websocket": fake_module}):
+            sent_result = probe_broadcast(symbol="BTC_USDT", timeout_seconds=1,
+                                          send_symbol=True)
+        self.assertTrue(sent_result["connected"])
+        self.assertEqual(observed["sent"], ["BTC_USDT"])
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
         from trade_stream_probe import probe_broadcast
