@@ -49,7 +49,7 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertEqual(len(context["selected_symbol"]), 40)
         self.assertEqual(len(context["diagnostics"]["market_error"]), 500)
         self.assertEqual(len(context["market_snapshot"]["bids"]), 10)
-        self.assertEqual(len(context["market_snapshot"]["bids"][0]), 120)
+        self.assertEqual(context["market_snapshot"]["bids"][0], [100, 2])
 
 
 if __name__ == "__main__":
