@@ -377,7 +377,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.smart_analysis_button)
 
         self.openai_assistant_button = Button(
-            markup=True, text=fa("اتصال به هوش مصنوعی OpenAI"), font_name=FONT_NAME,
+            markup=True, text=fa("ارسال گزارش عیب‌یابی به ChatGPT"), font_name=FONT_NAME,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.18, 0.34, 0.48, 1),
             color=(1, 1, 1, 1))
@@ -891,101 +891,53 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def open_openai_assistant(self, instance):
-        """Read-only OpenAI assistant. API key is kept in this popup session only."""
-        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        key_label = self.make_label("کلید API اوپن‌ای‌آی (فقط در همین نشست؛ ذخیره نمی‌شود)", size=13, height=dp(36))
-        body.add_widget(key_label)
-        key_input = TextInput(
-            multiline=False, password=True, hint_text="sk-...",
-            font_name=NUMERIC_FONT_NAME, font_size=sp(14),
-            base_direction="ltr", text_language="en", halign="left",
-            size_hint_y=None, height=dp(46))
-        body.add_widget(key_input)
-        prompt_label = self.make_label("پیام یا درخواست شما", size=13, height=dp(30))
-        prompt_label.halign = "right"
-        body.add_widget(prompt_label)
-        prompt_input = TextInput(
-            text="وضعیت فعلی برنامه و بازار را بررسی کن و فقط ایرادها و پیشنهادهای اصلاحی را گزارش بده.",
-            multiline=True, font_name=FONT_NAME, font_size=sp(14),
-            base_direction="rtl", text_language="ar", halign="right",
-            padding=[dp(10), dp(10), dp(10), dp(10)],
-            size_hint_y=None, height=dp(112))
-        body.add_widget(prompt_input)
-        # Render model output as plain text; never interpret model text as Kivy markup.
-        # Shape and resolve bidi exactly once, then keep Kivy's base direction neutral.
-        result = Label(
-            text=assistant_rtl_text("اتصال برقرار نشده است."),
-            font_name=FONT_NAME, font_size=sp(13), markup=False,
-            color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
-            halign="right", valign="top",
-            base_direction="ltr", text_language="ar",
+        """Share a sanitized, read-only diagnostic report with ChatGPT via Android."""
+        from chatgpt_share import share_diagnostics_to_chatgpt
+
+        diagnostics = getattr(self, "last_diagnostic_results", {}) or {}
+        safe_keys = (
+            "website", "market_ping", "market_info", "depth_status",
+            "depth_http", "depth_content_type", "market_symbol",
+            "depth_diagnostic", "market_error", "analysis_error", "summary_error",
         )
-        result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
-        body.add_widget(result)
-        controls = BoxLayout(orientation="horizontal", spacing=dp(8),
-                             size_hint_y=None, height=dp(48))
-        send_button = Button(markup=True, text=fa("اتصال و ارسال"),
-                             font_name=FONT_NAME, font_size=sp(14))
-        close_button = Button(markup=True, text=fa("بستن"),
-                              font_name=FONT_NAME, font_size=sp(14))
-        controls.add_widget(send_button)
-        controls.add_widget(close_button)
-        body.add_widget(controls)
-        popup = Popup(title=fa_plain("مرکز هوش مصنوعی OpenAI"),
-                      title_font=FONT_NAME, content=body, size_hint=(0.95, 0.90))
+        lines = [
+            "Futures Analyzer diagnostic report",
+            "App version: " + str(APP_VERSION),
+            "Selected symbol: " + str(getattr(self, "current_symbol", "unknown"))[:40],
+            "Persian font: " + ("OK" if FONT_PATH else "MISSING"),
+            "RTL runtime: " + str(rtl_runtime_status())[:240],
+            "Worker status: " + str(getattr(self, "auto_worker_status", "not reported"))[:240],
+            "Worker status time: " + str(getattr(self, "auto_worker_status_time", "unknown"))[:80],
+            "Access mode: read-only",
+            "Excluded: API keys, API secrets, credential storage, balances, positions, orders, and account summaries.",
+        ]
+        for key in safe_keys:
+            if key in diagnostics:
+                value = str(diagnostics[key]).replace("\\n", " ")[:240]
+                lines.append("{}: {}".format(key, value))
+        report = "\\n".join(lines)
 
-        def send_request(_button):
-            api_key = key_input.text.strip()
-            prompt = prompt_input.text.strip()
-            if not api_key or not prompt:
-                result.text = assistant_rtl_text("کلید API و متن درخواست را وارد کنید.")
-                return
-            # Send only bounded, non-secret diagnostic data. Never include API keys,
-            # API secrets, credential-store contents, or order-control callbacks.
-            account_label = getattr(self, "account_summary", None)
-            account_text = getattr(account_label, "text", "") if account_label is not None else ""
-            technical = getattr(self, "latest_technical_analysis", None)
-            context = {
-                "app_version": APP_VERSION,
-                "selected_symbol": getattr(self, "current_symbol", "نامشخص"),
-                "diagnostics": getattr(self, "last_diagnostic_results", {}),
-                "diagnostic_time": getattr(self, "last_diagnostic_time", "نامشخص"),
-                "market_snapshot": getattr(self, "last_market_snapshot", None),
-                "account_summary": str(account_text)[:3000],
-                "technical_analysis": technical if isinstance(technical, dict) else None,
-                "worker_status": str(getattr(self, "auto_worker_status", ""))[:1200],
-                "worker_status_time": str(getattr(self, "auto_worker_status_time", ""))[:80],
-                "access_mode": "read_only",
-                "permissions": ["read app diagnostics", "read selected market snapshot",
-                                "read displayed account summary"],
-                "restrictions": ["no settings changes", "no trading", "no order placement",
-                                 "no order cancellation", "no credential access"]
-            }
-            send_button.disabled = True
-            result.text = assistant_rtl_text("در حال اتصال به OpenAI...")
-            def worker():
-                try:
-                    answer = analyze_with_openai(api_key, prompt, context)
-                    message = answer
-                except Exception as exc:
-                    message = "خطا در ارتباط با OpenAI: {}: {}".format(
-                        type(exc).__name__, str(exc)[:240])
-                Clock.schedule_once(
-                    lambda _dt, value=message: (
-                        setattr(result, "text", assistant_rtl_text(value)),
-                        setattr(send_button, "disabled", False)
-                    ), 0)
-            threading.Thread(target=worker, daemon=True).start()
-
-        send_button.bind(on_press=send_request)
-        def close_popup(_button):
-            # Clear the credential from the closed popup widget.
-            key_input.text = ""
-            popup.dismiss()
-
-        close_button.bind(on_press=close_popup)
-        popup.bind(on_dismiss=lambda *_args: setattr(key_input, "text", ""))
-        popup.open()
+        try:
+            share_diagnostics_to_chatgpt(report)
+        except Exception as exc:
+            body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10))
+            message = self.make_label(
+                "باز کردن پنجره اشتراک‌گذاری ممکن نشد: {}: {}".format(
+                    type(exc).__name__, str(exc)[:180]
+                ), size=13, height=dp(90)
+            )
+            body.add_widget(message)
+            close_button = Button(
+                markup=True, text=fa("بستن"), font_name=FONT_NAME,
+                size_hint_y=None, height=dp(44)
+            )
+            body.add_widget(close_button)
+            popup = Popup(
+                title=fa_plain("خطای اشتراک‌گذاری گزارش"),
+                title_font=FONT_NAME, content=body, size_hint=(0.9, 0.42)
+            )
+            close_button.bind(on_press=popup.dismiss)
+            popup.open()
 
     def open_smart_analysis(self, instance):
         technical = self.latest_technical_analysis
