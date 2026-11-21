@@ -14,24 +14,39 @@ TECHNICAL_KEYS = (
     "symbol", "sma10", "sma20", "sma50", "rsi14", "atr14", "signal",
     "trend", "support", "resistance", "data_kind", "candle_count",
 )
+NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
 
-def _bounded_mapping(value, allowed_keys, max_value_chars=500):
+def _safe_value(value, depth=0):
+    """Keep only bounded JSON-like scalar/list data; discard arbitrary nested objects."""
+    if depth > 3:
+        return None
+    if isinstance(value, str):
+        return value[:500]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_safe_value(item, depth + 1) for item in value[:10]
+                if isinstance(item, (str, int, float, bool, type(None), list, tuple))]
+    if isinstance(value, dict):
+        return {
+            str(key)[:40]: _safe_value(item, depth + 1)
+            for key, item in list(value.items())[:10]
+            if key in NESTED_KEYS
+            and isinstance(item, (str, int, float, bool, type(None), list, tuple))
+        }
+    return None
+
+
+def _bounded_mapping(value, allowed_keys):
     if not isinstance(value, dict):
         return {}
     result = {}
     for key in allowed_keys:
-        if key not in value:
-            continue
-        item = value[key]
-        if isinstance(item, (str, int, float, bool)) or item is None:
-            result[key] = str(item)[:max_value_chars] if isinstance(item, str) else item
-        elif isinstance(item, (list, tuple)):
-            result[key] = [
-                (str(entry)[:120] if isinstance(entry, str) else entry)
-                for entry in item[:10]
-                if isinstance(entry, (str, int, float, bool)) or entry is None
-            ]
+        if key in value:
+            safe = _safe_value(value[key])
+            if safe is not None:
+                result[key] = safe
     return result
 
 
