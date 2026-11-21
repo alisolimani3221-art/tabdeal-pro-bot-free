@@ -135,5 +135,16 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("tar -tf /tmp/private.tar", workflow)
 
 
+    def test_chatgpt_popup_uses_native_rtl_without_double_bidi_reordering(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        start = source.index("    def open_openai_assistant(")
+        end = source.index("    def open_smart_analysis(", start)
+        assistant = source[start:end]
+        self.assertIn('text="سلام! من ChatGPT داخل Futures Analyzer هستم. پیام خود را بنویسید."', assistant)
+        self.assertIn('base_direction="rtl", text_language="ar"', assistant)
+        self.assertIn('result.text = "\\n\\n".join(lines)', assistant)
+        self.assertNotIn("assistant_rtl_text(", assistant)
+
+
 if __name__ == "__main__":
     unittest.main()
