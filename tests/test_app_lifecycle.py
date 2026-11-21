@@ -180,7 +180,10 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
             "closed_candles": 21, "candle_open_time": 120_000,
         }])
-        self.assertIsNone(blocked)
+        self.assertTrue(blocked["halted"])
+        self.assertEqual(blocked["halt_reason"], "EMERGENCY_STOP")
+        self.assertEqual(blocked["events"], [])
+        self.assertIsNone(blocked["open_position"])
 
     def test_start_gate_blocks_worker_when_runtime_lock_is_not_held(self):
         app = LifecycleHarness(self.temp.name)
