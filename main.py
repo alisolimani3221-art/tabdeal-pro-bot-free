@@ -1689,9 +1689,27 @@ class FuturesAnalyzerApp(App):
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
-                # Official FutureBroadcastWebsocketClient connects without a
-                # stream name or subscription payload. Filter broadcast events
-                # by symbol in parse_trade_message(); never send raw symbol text.
+                # The live A/B probe proved this endpoint requires the
+                # selected market symbol as a plain-text subscription message:
+                # no-payload connects but receives zero events; symbol mode
+                # receives valid trade events. Keep parsing/filtering by symbol
+                # as a second safety check after subscribing.
+                try:
+                    ws.send(symbol)
+                except Exception as subscribe_exc:
+                    detail = "{}: {}".format(
+                        type(subscribe_exc).__name__, str(subscribe_exc)[:120]
+                    )
+                    Clock.schedule_once(
+                        lambda dt, value=detail: self.update_auto_status(
+                            "ارسال نماد برای دریافت جریان معاملات ناموفق بود: " + value
+                        ), 0
+                    )
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    return
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
