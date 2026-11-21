@@ -45,6 +45,17 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.status()["gaps"], 1)
         self.assertFalse(builder.is_ready)
 
+    def test_15_second_buckets_reach_readiness_without_minute_rounding(self):
+        builder = TradeCandleBuilder("BTC_USDT", interval_ms=15_000)
+        for bucket in range(100, 122):
+            builder.add_trade({
+                "symbol": "BTC_USDT", "price": 100 + bucket / 100,
+                "quantity": 1, "timestamp_ms": bucket * 15_000 + 1000,
+            })
+        self.assertEqual(builder.interval_ms, 15_000)
+        self.assertEqual(builder.status()["closed_candles"], 20)
+        self.assertTrue(builder.is_ready)
+
     def test_ready_requires_20_closed_and_one_forming_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 122):
