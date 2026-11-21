@@ -512,7 +512,7 @@ class FuturesAnalyzerApp(App):
                     )
                     results[path.strip("/").replace("/", "_") + "_status"] = response.status_code
                     if not response.ok:
-                        detail = response.text[:500].replace("\\n", " ")
+                        detail = response.text[:500].replace("\n", " ")
                         if path == "/depth":
                             results["depth_diagnostic"] = "HTTP {} {} body={}".format(
                                 response.status_code, response.url, detail
@@ -620,7 +620,7 @@ class FuturesAnalyzerApp(App):
                     results["depth_diagnostic"] = (
                         "HTTP {}; non-JSON response; content-type={}; body={}".format(
                             depth.status_code, results["depth_content_type"],
-                            raw_text.replace("\\n", " ")
+                            raw_text.replace("\n", " ")
                         )
                     )
                     raise RuntimeError("depth endpoint returned non-JSON data")
@@ -722,7 +722,7 @@ class FuturesAnalyzerApp(App):
                                 pos["unrealized_pnl"]))
                     else:
                         lines.append("موقعیت باز فعالی گزارش نشد.")
-                    self.account_summary.text = fa("\\n".join(lines))
+                    self.account_summary.text = fa("\n".join(lines))
                 else:
                     self.account_summary.text = fa("خطا در خواندن حساب: " + result[1])
             threading.Thread(target=worker, daemon=True).start()
@@ -1009,9 +1009,9 @@ class FuturesAnalyzerApp(App):
             self.connection.text = fa("اتصال API بازار و دریافت دفتر سفارش برقرار است")
             self.connection.color = (0.35, 0.9, 0.55, 1)
             message = (
-                "وضعیت سایت: {}\\nپینگ بازار: {}\\nاطلاعات بازار: {}\\n"
-                "دفتر سفارش: کد {}\\nنماد معاملاتی: {}\\n"
-                "بهترین خرید: {}\\nبهترین فروش: {}\\n"
+                "وضعیت سایت: {}\nپینگ بازار: {}\nاطلاعات بازار: {}\n"
+                "دفتر سفارش: کد {}\nنماد معاملاتی: {}\n"
+                "بهترین خرید: {}\nبهترین فروش: {}\n"
                 "قیمت میانی تقریبی: {}"
             ).format(website_status, results.get("market_ping", "ناموفق؛ غیرمسدودکننده"),
                      results.get("market_info", "ناموفق؛ نماد انتخاب‌شده استفاده شد"),
@@ -1301,10 +1301,10 @@ class FuturesAnalyzerApp(App):
         body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10))
         symbol = self.current_symbol
         initial_status = (
-            "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\\n"
-            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\\n"
-            "برای آماده‌شدن تحلیل، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده و یک کندل درحال‌تشکیل لازم است.\\n"
-            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\\n"
+            "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\n"
+            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\n"
+            "برای آماده‌شدن تحلیل، حداقل ۵۱ کندل یک‌دقیقه‌ای بسته‌شده و یک کندل درحال‌تشکیل لازم است.\n"
+            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\n"
             "هیچ سفارش واقعی ارسال نمی‌شود."
         )
         # Shape Persian text once; keep Kivy's bidi direction LTR to avoid
@@ -1514,10 +1514,10 @@ class FuturesAnalyzerApp(App):
                         trade["reason"], trade["net_pnl"]
                     )
             message_text = (
-                "شبیه‌ساز فعال | بررسی هر ۱۵ ثانیه | {}\\n"
-                "سیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g} | قیمت زنده: {:.8g}\\n"
-                "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\\n"
-                "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\\n{}"
+                "شبیه‌ساز فعال | بررسی هر ۱۵ ثانیه | {}\n"
+                "سیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g} | قیمت زنده: {:.8g}\n"
+                "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
+                "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
             ).format(symbol, technical["signal"], technical["price"],
                      technical["mark_price"], status["closed_candles"],
                      result["equity"], result["closed_trades"], event_text)
