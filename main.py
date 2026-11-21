@@ -1350,6 +1350,11 @@ class FuturesAnalyzerApp(App):
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
+        if getattr(self, "_paper_emergency_latched", False):
+            self.update_auto_status(
+                "توقف اضطراری فعال است؛ شروع مجدد تا بازنشانی ایمن وضعیت مجاز نیست."
+            )
+            return
         guard = getattr(self, "runtime_guard", None)
         coordinator_session = getattr(self, "coordinator_session", None)
         try:
@@ -1414,6 +1419,17 @@ class FuturesAnalyzerApp(App):
                 "برای جلوگیری از تغییر هم‌زمان وضعیت، بستن موقعیت مجازی انجام نشد."
             )
             return
+        # Latch the emergency stop durably so a process restart cannot
+        # silently start a fresh paper engine after the operator's stop command.
+        self._paper_emergency_latched = True
+        halt_error = None
+        coordinator_session = getattr(self, "coordinator_session", None)
+        if coordinator_session is not None:
+            try:
+                coordinator_session.emergency_stop("operator emergency stop")
+            except Exception as exc:
+                halt_error = "{}: {}".format(type(exc).__name__, str(exc)[:120])
+
         engine = getattr(self, "auto_engine", None)
         close_result = None
         if engine is not None:
@@ -1421,6 +1437,12 @@ class FuturesAnalyzerApp(App):
                 close_result = engine.emergency_close()
             except Exception:
                 close_result = None
+        if halt_error:
+            self.update_auto_status(
+                "جریان متوقف و موتور آزمایشی قفل شد، اما ثبت دائمی توقف اضطراری ناموفق بود: "
+                + halt_error + ". برنامه را دوباره اجرا نکنید تا وضعیت ایمنی بررسی شود."
+            )
+            return
         if close_result and close_result.get("event") == "CLOSED":
             trade = close_result["trade"]
             message = (
