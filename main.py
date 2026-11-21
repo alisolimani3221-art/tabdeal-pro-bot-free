@@ -911,11 +911,15 @@ class FuturesAnalyzerApp(App):
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(112))
         body.add_widget(prompt_input)
-        result = self.make_label("اتصال برقرار نشده است.", size=13, height=dp(110))
-        result.halign = "right"
-        result.valign = "top"
-        result.base_direction = "ltr"
-        result.text_language = "ar"
+        # Render model output as plain text; never interpret model text as Kivy markup.
+        # Shape and resolve bidi exactly once, then keep Kivy's base direction neutral.
+        result = Label(
+            text=assistant_rtl_text("اتصال برقرار نشده است."),
+            font_name=FONT_NAME, font_size=sp(13), markup=False,
+            color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
+            halign="right", valign="top",
+            base_direction="ltr", text_language="ar",
+        )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         body.add_widget(result)
         controls = BoxLayout(orientation="horizontal", spacing=dp(8),
@@ -934,7 +938,7 @@ class FuturesAnalyzerApp(App):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = fa("کلید API و متن درخواست را وارد کنید.")
+                result.text = assistant_rtl_text("کلید API و متن درخواست را وارد کنید.")
                 return
             context = {
                 "app_version": APP_VERSION,
@@ -946,7 +950,7 @@ class FuturesAnalyzerApp(App):
                 "restrictions": ["no settings changes", "no trading", "no order placement"]
             }
             send_button.disabled = True
-            result.text = fa("در حال اتصال به OpenAI...")
+            result.text = assistant_rtl_text("در حال اتصال به OpenAI...")
             def worker():
                 try:
                     answer = analyze_with_openai(api_key, prompt, context)
@@ -956,13 +960,19 @@ class FuturesAnalyzerApp(App):
                         type(exc).__name__, str(exc)[:240])
                 Clock.schedule_once(
                     lambda _dt, value=message: (
-                        setattr(result, "text", fa(value)),
+                        setattr(result, "text", assistant_rtl_text(value)),
                         setattr(send_button, "disabled", False)
                     ), 0)
             threading.Thread(target=worker, daemon=True).start()
 
         send_button.bind(on_press=send_request)
-        close_button.bind(on_press=popup.dismiss)
+        def close_popup(_button):
+            # Clear the credential from the closed popup widget.
+            key_input.text = ""
+            popup.dismiss()
+
+        close_button.bind(on_press=close_popup)
+        popup.bind(on_dismiss=lambda *_args: setattr(key_input, "text", ""))
         popup.open()
 
     def open_smart_analysis(self, instance):
