@@ -50,7 +50,8 @@ def rank_signal(technical):
         return None
     return {"symbol": symbol, "side": signal,
             "price": price, "atr": atr, "rsi": rsi,
-            "volatility_pct": volatility_pct, "score": score}
+            "volatility_pct": volatility_pct, "score": score,
+            "signal_key": technical.get("signal_key")}
 
 
 class PaperTradingEngine:
@@ -78,6 +79,9 @@ class PaperTradingEngine:
         self.scans = 0
         self._lock = threading.RLock()
         self.halted = False
+        # A candle-derived setup may be rechecked every 15 seconds, but it
+        # must not create repeated entries after an exit within that same candle.
+        self.last_entry_signal_key = None
 
     @property
     def equity(self):
@@ -144,7 +148,7 @@ class PaperTradingEngine:
                          if isinstance(c, dict) and c.get("symbol") == p["symbol"]), None)
             if mark:
                 try:
-                    latest = _positive(mark.get("price"), "mark price")
+                    latest = _positive(mark.get("mark_price", mark.get("price")), "mark price")
                     p["last_price"] = latest
                 except (TypeError, ValueError, OverflowError):
                     pass
@@ -181,6 +185,12 @@ class PaperTradingEngine:
         if (not closed_this_scan and self.position is None and valid and self.cash > 0
                 and self.cash > self.initial_capital * 0.97):
             choice = valid[0]
+            if (choice.get("signal_key") is not None
+                    and choice.get("signal_key") == self.last_entry_signal_key):
+                choice = None
+        else:
+            choice = None
+        if choice is not None:
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
                                        else 1 - self.slippage_rate)
             stop_distance = 1.5 * choice["atr"]
@@ -219,6 +229,8 @@ class PaperTradingEngine:
                         "risk_limit": risk_cash, "fees_entry": fee,
                         "score": choice["score"],
                     }
+                    if choice.get("signal_key") is not None:
+                        self.last_entry_signal_key = choice["signal_key"]
                     events.append({"event": "OPENED", "position": dict(self.position)})
         return {"events": events, "candidates": valid,
                 "equity": self.equity, "cash": self.cash,
