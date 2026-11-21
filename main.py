@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.43"
+APP_VERSION = "1.44"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -898,24 +898,32 @@ class FuturesAnalyzerApp(App):
         key_input = TextInput(
             multiline=False, password=True, hint_text="sk-...",
             font_name=NUMERIC_FONT_NAME, font_size=sp(14),
+            base_direction="ltr", text_language="en", halign="left",
             size_hint_y=None, height=dp(46))
         body.add_widget(key_input)
         prompt_label = self.make_label("پیام یا درخواست شما", size=13, height=dp(30))
+        prompt_label.halign = "right"
         body.add_widget(prompt_label)
         prompt_input = TextInput(
             text="وضعیت فعلی برنامه و بازار را بررسی کن و فقط ایرادها و پیشنهادهای اصلاحی را گزارش بده.",
             multiline=True, font_name=FONT_NAME, font_size=sp(14),
+            base_direction="rtl", text_language="ar", halign="right",
+            padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(112))
         body.add_widget(prompt_input)
-        result = self.make_label("اتصال برقرار نشده است.", size=13, height=dp(150))
+        result = self.make_label("اتصال برقرار نشده است.", size=13, height=dp(110))
         result.halign = "right"
         result.valign = "top"
+        result.base_direction = "ltr"
+        result.text_language = "ar"
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         body.add_widget(result)
         controls = BoxLayout(orientation="horizontal", spacing=dp(8),
                              size_hint_y=None, height=dp(48))
-        send_button = Button(text=fa("اتصال و ارسال"), font_name=FONT_NAME)
-        close_button = Button(text=fa("بستن"), font_name=FONT_NAME)
+        send_button = Button(markup=True, text=fa("اتصال و ارسال"),
+                             font_name=FONT_NAME, font_size=sp(14))
+        close_button = Button(markup=True, text=fa("بستن"),
+                              font_name=FONT_NAME, font_size=sp(14))
         controls.add_widget(send_button)
         controls.add_widget(close_button)
         body.add_widget(controls)
