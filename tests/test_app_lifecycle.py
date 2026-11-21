@@ -22,7 +22,7 @@ APP_CLASS = next(
     if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
 )
 METHOD_NAMES = {
-    "on_start", "on_stop", "_stop_auto_worker", "start_auto_paper_trader",
+    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader",
     "_persist_paper_engine_state"
 }
 METHOD_NODES = [
@@ -50,6 +50,7 @@ class LifecycleHarness:
     on_start = LIFECYCLE_GLOBALS["on_start"]
     on_stop = LIFECYCLE_GLOBALS["on_stop"]
     _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
+    stop_auto_paper_trader = LIFECYCLE_GLOBALS["stop_auto_paper_trader"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
 
@@ -135,6 +136,51 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         worker.alive = False
         app.on_stop()
         self.assertFalse(app.runtime_guard.held)
+
+    def test_emergency_stop_closes_and_persists_even_when_worker_is_still_alive(self):
+        app = LifecycleHarness(self.temp.name)
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([{
+            "symbol": "AAA_USDT", "price": 100, "sma10": 99, "sma20": 98,
+            "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
+            "closed_candles": 20, "candle_open_time": 60_000,
+        }])
+        self.assertIsNotNone(engine.position)
+
+        class SlowWorker:
+            def __init__(self):
+                self.join_calls = []
+            def is_alive(self):
+                return True
+            def join(self, timeout):
+                self.join_calls.append(timeout)
+
+        worker = SlowWorker()
+        socket = Mock()
+        app.auto_engine = engine
+        app.auto_trader_thread = worker
+        app.auto_ws = socket
+
+        app.stop_auto_paper_trader()
+
+        self.assertTrue(app.auto_stop_event.is_set())
+        socket.close.assert_called_once_with()
+        self.assertEqual(worker.join_calls, [0.0, 3.0])
+        self.assertTrue(engine.halted)
+        self.assertEqual(engine.halt_reason, "EMERGENCY_STOP")
+        self.assertIsNone(engine.position)
+        self.assertIn("موقعیت مجازی", app.update_auto_status.call_args.args[0])
+        state_path = os.path.join(self.temp.name, "paper-engine-state.json")
+        with open(state_path, "r", encoding="utf-8") as state_file:
+            recovered = PaperTradingEngine.restore_state(json.load(state_file))
+        self.assertTrue(recovered.halted)
+        self.assertIsNone(recovered.position)
+        blocked = recovered.process_scan([{
+            "symbol": "AAA_USDT", "price": 101, "sma10": 99, "sma20": 98,
+            "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
+            "closed_candles": 21, "candle_open_time": 120_000,
+        }])
+        self.assertIsNone(blocked)
 
     def test_start_gate_blocks_worker_when_runtime_lock_is_not_held(self):
         app = LifecycleHarness(self.temp.name)
