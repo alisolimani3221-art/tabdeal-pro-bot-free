@@ -913,12 +913,16 @@ class FuturesAnalyzerApp(App):
         body.add_widget(key_input)
 
         chat_history = []
+        # Pre-shape assistant transcript text exactly once, then keep the
+        # Kivy Label neutral/LTR to prevent Android from applying a second
+        # RTL bidi pass (which reverses the greeting and mixed Persian/Latin).
+        greeting = "سلام! من ChatGPT داخل Futures Analyzer هستم. پیام خود را بنویسید."
         result = Label(
-            text="سلام! من ChatGPT داخل Futures Analyzer هستم. پیام خود را بنویسید.",
+            text=assistant_rtl_text(greeting),
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            base_direction="rtl", text_language="ar",
+            base_direction="ltr", text_language="ar",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
@@ -958,7 +962,7 @@ class FuturesAnalyzerApp(App):
             for item in chat_history:
                 label = "شما" if item["role"] == "user" else "ChatGPT"
                 lines.append(label + ":\n" + item["content"])
-            result.text = "\n\n".join(lines)
+            result.text = assistant_rtl_text("\n\n".join(lines))
             Clock.schedule_once(lambda _dt: setattr(
                 result_scroll, "scroll_y", 0), 0)
 
@@ -966,7 +970,7 @@ class FuturesAnalyzerApp(App):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = "کلید API و پیام خود را وارد کنید."
+                result.text = assistant_rtl_text("کلید API و پیام خود را وارد کنید.")
                 return
 
             # This context is allow-listed; account data, balances, positions,
