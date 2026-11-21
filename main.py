@@ -42,7 +42,6 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
-from openai_assistant import analyze_with_openai
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
