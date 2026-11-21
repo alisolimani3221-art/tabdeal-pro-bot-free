@@ -51,7 +51,9 @@ def rank_signal(technical):
     return {"symbol": symbol, "side": signal,
             "price": price, "atr": atr, "rsi": rsi,
             "volatility_pct": volatility_pct, "score": score,
-            "signal_key": technical.get("signal_key"),\n            "entry_price": (_positive(technical.get("mark_price"), "mark_price")\n                            if technical.get("mark_price") is not None else price)}
+            "signal_key": technical.get("signal_key"),
+            "entry_price": (_positive(technical.get("mark_price"), "mark_price")
+                            if technical.get("mark_price") is not None else price)}
 
 
 class PaperTradingEngine:
@@ -191,7 +193,8 @@ class PaperTradingEngine:
         else:
             choice = None
         if choice is not None:
-            entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
+            entry_reference = choice.get("entry_price", choice["price"])
+            entry = entry_reference * (1 + self.slippage_rate if choice["side"] == "BULLISH"
                                        else 1 - self.slippage_rate)
             stop_distance = 1.5 * choice["atr"]
             risk_cash = self.cash * self.risk_percent / 100.0
@@ -222,7 +225,7 @@ class PaperTradingEngine:
                     self.cash -= fee
                     self.position = {
                         "symbol": choice["symbol"], "side": choice["side"],
-                        "entry": entry, "last_price": choice["price"],
+                        "entry": entry, "last_price": entry_reference,
                         "stop": stop, "target": target, "quantity": quantity,
                         "notional": notional, "leverage": leverage,
                         "risk_budget": quantity * risk_per_unit,
