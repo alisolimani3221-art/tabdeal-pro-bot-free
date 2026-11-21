@@ -46,6 +46,7 @@ from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
+from paper_scan_gate import PaperScanGate
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
@@ -413,6 +414,7 @@ class FuturesAnalyzerApp(App):
         self.multi_scan_status_label = None
 
         self.auto_stop_event = threading.Event()
+        self.paper_state_lock = threading.RLock()
         self.auto_trader_thread = None
         self.auto_engine = None
         self.auto_status_label = None
@@ -1504,12 +1506,15 @@ class FuturesAnalyzerApp(App):
         """Atomically persist the paper-only engine snapshot in app-private storage."""
         state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
         temporary_path = state_path + ".tmp"
-        with open(temporary_path, "w", encoding="utf-8") as state_file:
-            json.dump(engine.export_state(), state_file, ensure_ascii=False,
-                      allow_nan=False, separators=(",", ":"))
-            state_file.flush()
-            os.fsync(state_file.fileno())
-        os.replace(temporary_path, state_path)
+        # Serialize snapshots and atomic replacement across the scan and stop
+        # threads so a late pre-stop write cannot overwrite the halted state.
+        with self.paper_state_lock:
+            with open(temporary_path, "w", encoding="utf-8") as state_file:
+                json.dump(engine.export_state(), state_file, ensure_ascii=False,
+                          allow_nan=False, separators=(",", ":"))
+                state_file.flush()
+                os.fsync(state_file.fileno())
+            os.replace(temporary_path, state_path)
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
@@ -1860,28 +1865,25 @@ class FuturesAnalyzerApp(App):
 
             def periodic_paper_scan():
                 """Run scans independently of websocket callbacks, using only fresh snapshots."""
-                last_scan = 0.0
+                scan_gate = PaperScanGate(interval_seconds=15.0, max_snapshot_age_seconds=30.0)
                 last_stale_notice = 0.0
                 while not scan_stop.wait(1.0):
                     if self.auto_stop_event.is_set():
                         return
                     now = time.monotonic()
-                    if now - last_scan < 15.0:
-                        continue
                     with scan_state_lock:
                         technical = dict(scan_state["technical"]) if scan_state["technical"] else None
-                        received_at = float(scan_state["received_at"])
-                    if technical is None:
-                        continue
-                    age = now - received_at
-                    # Never open or manage a new position from an old market snapshot.
-                    if age > 30.0:
-                        if now - last_stale_notice >= 15.0:
+                        received_at = scan_state["received_at"]
+                    allowed, gate_reason, age = scan_gate.evaluate(
+                        now, received_at, snapshot_available=technical is not None
+                    )
+                    if not allowed:
+                        if gate_reason == "stale_snapshot" and now - last_stale_notice >= 15.0:
                             last_stale_notice = now
                             Clock.schedule_once(
                                 lambda dt, seconds=age: self.update_auto_status(
                                     "بررسی سیگنال به‌دلیل کهنگی داده متوقف شد؛ آخرین قیمت {} ثانیه قبل دریافت شده است. "
-                                    "تا داده تازه برسد معامله‌ای باز نمی‌شود.".format(int(seconds))
+                                    "با رسیدن داده تازه، بررسی از سر گرفته می‌شود.".format(int(seconds))
                                 ), 0
                             )
                         continue
@@ -1890,7 +1892,7 @@ class FuturesAnalyzerApp(App):
                             return
                         result = engine.process_scan([technical])
                         self._persist_paper_engine_state(engine)
-                        last_scan = time.monotonic()
+                        scan_gate.mark_scanned(time.monotonic())
                         events = result.get("events", [])
                         event_text = ""
                         if events:
