@@ -25,7 +25,7 @@ def analyze_with_openai(api_key, question, app_context=None, session=None):
     payload = {
         "model": OPENAI_MODEL,
         "instructions": instructions,
-        "input": "APP CONTEXT (read-only):\\n{}\\n\\nUSER REQUEST:\\n{}".format(
+        "input": "APP CONTEXT (read-only):\n{}\n\nUSER REQUEST:\n{}".format(
             context_text, prompt),
         "max_output_tokens": 900
     }
@@ -55,7 +55,7 @@ def analyze_with_openai(api_key, question, app_context=None, session=None):
         for block in item.get("content", []):
             if block.get("type") == "output_text" and block.get("text"):
                 parts.append(block["text"])
-    answer = "\\n".join(parts).strip()
+    answer = "\n".join(parts).strip()
     if not answer:
         raise RuntimeError("OpenAI returned no text output")
     return answer
