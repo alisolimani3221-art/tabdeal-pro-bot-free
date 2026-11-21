@@ -122,9 +122,8 @@ def build_ai_diagnostic_context(app):
             ),
         },
         "interface": {
-            "persian_font_loaded": bool(getattr(app, "font_path", None) or
-                                        globals().get("FONT_PATH", None)),
-            "font_load_error": _safe_status(globals().get("FONT_LOAD_ERROR", "")),
+            "persian_font_loaded": bool(getattr(app, "ai_font_loaded", False)),
+            "font_load_error": _safe_status(getattr(app, "ai_font_error", "")),
         },
         "access_mode": "read_only",
         "data_scope": (
