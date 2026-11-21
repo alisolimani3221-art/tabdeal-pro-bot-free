@@ -135,5 +135,17 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("tar -tf /tmp/private.tar", workflow)
 
 
+    def test_chatgpt_popup_keeps_logical_persian_text_for_native_rtl(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        start = source.index("    def open_openai_assistant(")
+        end = source.index("    def open_smart_analysis(", start)
+        assistant = source[start:end]
+        self.assertIn('greeting = "سلام! من دستیار هوشمند برنامه هستم. پیام خود را بنویسید."', assistant)
+        self.assertIn("text=greeting", assistant)
+        self.assertIn('base_direction="rtl", text_language="fa"', assistant)
+        self.assertIn('result.text = "\\n\\n".join(lines)', assistant)
+        self.assertNotIn("assistant_rtl_text(", assistant)
+
+
 if __name__ == "__main__":
     unittest.main()

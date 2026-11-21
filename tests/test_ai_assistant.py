@@ -32,9 +32,10 @@ class OpenAIAssistantUiTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
         })
 
-    def test_assistant_output_is_plain_text_and_shaped_once(self):
+    def test_assistant_output_is_plain_text_and_uses_native_rtl(self):
         self.assertIn("markup=False", self.method_source)
-        self.assertIn("assistant_rtl_text(message)", self.method_source)
+        self.assertNotIn("assistant_rtl_text(", self.method_source)
+        self.assertIn('result.text = "\\n\\n".join(lines)', self.method_source)
         self.assertIn("chat_history", self.method_source)
         self.assertIn("conversation_history=history_snapshot", self.method_source)
         self.assertIn('title=fa_plain("گفت‌وگو با ChatGPT")', self.method_source)
@@ -43,7 +44,8 @@ class OpenAIAssistantUiTests(unittest.TestCase):
 
     def test_persian_assistant_result_uses_rtl_alignment_and_scrollable_height(self):
         self.assertIn('halign="right"', self.method_source)
-        self.assertIn('base_direction="ltr"', self.method_source)
+        self.assertIn('base_direction="rtl", text_language="fa", halign="right"', self.method_source)
+        self.assertIn('text_language="ar"', self.method_source)
         self.assertIn("result.bind(texture_size=", self.method_source)
         self.assertIn("result_scroll = ScrollView(", self.method_source)
         self.assertIn("result_scroll.add_widget(result)", self.method_source)

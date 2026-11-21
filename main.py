@@ -913,12 +913,16 @@ class FuturesAnalyzerApp(App):
         body.add_widget(key_input)
 
         chat_history = []
+        # Keep editable and displayed Persian as logical Unicode text.
+        # Kivy performs the RTL layout itself; pre-reordering here would
+        # reverse the greeting or user-entered text on Android.
+        greeting = "سلام! من دستیار هوشمند برنامه هستم. پیام خود را بنویسید."
         result = Label(
-            text=assistant_rtl_text("سلام! من ChatGPT داخل Futures Analyzer هستم. پیام خود را بنویسید."),
+            text=greeting,
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            base_direction="ltr", text_language="ar",
+            base_direction="rtl", text_language="fa",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
@@ -935,7 +939,7 @@ class FuturesAnalyzerApp(App):
         body.add_widget(prompt_label)
         prompt_input = TextInput(
             multiline=True, font_name=FONT_NAME, font_size=sp(14),
-            base_direction="rtl", text_language="ar", halign="right",
+            base_direction="rtl", text_language="fa", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)
@@ -958,7 +962,7 @@ class FuturesAnalyzerApp(App):
             for item in chat_history:
                 label = "شما" if item["role"] == "user" else "ChatGPT"
                 lines.append(label + ":\n" + item["content"])
-            result.text = assistant_rtl_text("\n\n".join(lines))
+            result.text = "\n\n".join(lines)
             Clock.schedule_once(lambda _dt: setattr(
                 result_scroll, "scroll_y", 0), 0)
 
@@ -966,7 +970,7 @@ class FuturesAnalyzerApp(App):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = assistant_rtl_text("کلید API و پیام خود را وارد کنید.")
+                result.text = "کلید API و پیام خود را وارد کنید."
                 return
 
             # This context is allow-listed; account data, balances, positions,
@@ -996,7 +1000,7 @@ class FuturesAnalyzerApp(App):
                         prompt_input.text = ""
                         render_chat()
                     else:
-                        result.text = assistant_rtl_text(message)
+                        result.text = message
                     send_button.disabled = False
                     send_button.text = fa("ارسال به ChatGPT")
                     prompt_input.disabled = False
