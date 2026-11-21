@@ -121,11 +121,15 @@ def parse_trade_message(message, expected_symbol=None):
                 "top_level_keys": sorted(str(k) for k in payload.keys())[:20]}
 
     symbol = trade.get("symbol") or trade.get("s") or payload.get("symbol")
-    if symbol is not None:
-        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z0-9]+_USDT", symbol, re.IGNORECASE):
-            return {"ok": False, "reason": "invalid_symbol"}
-        if expected_symbol and symbol.upper() != expected_symbol.upper():
-            return {"ok": False, "reason": "symbol_mismatch"}
+    # The endpoint is a market-wide broadcast, not a symbol-specific channel.
+    # Every event must identify its own symbol so the caller can refresh stream
+    # liveness for all valid markets while feeding only the selected market.
+    if symbol is None:
+        return {"ok": False, "reason": "missing_symbol"}
+    if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z0-9]+_USDT", symbol, re.IGNORECASE):
+        return {"ok": False, "reason": "invalid_symbol"}
+    if expected_symbol and symbol.upper() != expected_symbol.upper():
+        return {"ok": False, "reason": "symbol_mismatch"}
     price = _finite_positive(_first(trade, ALIASES["price"]))
     quantity = _finite_positive(_first(trade, ALIASES["quantity"]))
     raw_timestamp = _first(trade, ALIASES["timestamp"])
@@ -149,7 +153,7 @@ def parse_trade_message(message, expected_symbol=None):
     if side_name is not None and not isinstance(side_name, str):
         return {"ok": False, "reason": "invalid_side_name"}
 
-    result = {"ok": True, "symbol": str(symbol or expected_symbol or ""),
+    result = {"ok": True, "symbol": symbol.upper(),
               "price": price, "quantity": quantity, "timestamp_ms": timestamp_ms}
     if sequence is not None:
         result["sequence"] = sequence
@@ -180,8 +184,10 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
               "last_diagnostic": "no_message", "symbol": symbol}
 
     def on_open(ws):
+        # The official Tabdeal SDK's FutureBroadcastWebsocketClient uses this
+        # endpoint without a stream name or payload. It is a broadcast feed;
+        # filter incoming trade events by symbol instead of sending a raw symbol. 
         result["connected"] = True
-        ws.send(symbol)  # Documented broadcast protocol: plain text, not JSON.
 
     def on_message(ws, message):
         result["messages"] += 1

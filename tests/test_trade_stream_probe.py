@@ -51,7 +51,9 @@ class TradeStreamProbeTests(unittest.TestCase):
                                  "invalid_expected_symbol")
 
     def test_unknown_schema_is_not_guessed(self):
-        result = parse_trade_message('{"trade":{"foo":"bar"}}', "AEVO_USDT")
+        result = parse_trade_message(
+            '{"trade":{"symbol":"AEVO_USDT","foo":"bar"}}', "AEVO_USDT"
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason"], "trade_schema_unrecognized")
 
@@ -169,10 +171,67 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(parse_trade_message(json.dumps(other), "AEVO_USDT")["reason"],
                          "symbol_mismatch")
 
+    def test_broadcast_parser_preserves_other_market_symbol_for_local_filtering(self):
+        payload = {"trade": {"symbol": "ETH_USDT", "price": "100",
+                             "quantity": "1", "timestamp": 1700000000}}
+        result = parse_trade_message(json.dumps(payload))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["symbol"], "ETH_USDT")
+
+    def test_broadcast_parser_rejects_trade_without_explicit_symbol(self):
+        payload = {"trade": {"price": "100", "quantity": "1",
+                             "timestamp": 1700000000}}
+        result = parse_trade_message(json.dumps(payload))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "missing_symbol")
+
     def test_symbol_comparison_is_case_insensitive(self):
         payload = {"trade": {"symbol": "aevo_usdt", "price": "1",
                              "quantity": "1", "timestamp": 1700000000}}
         self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
+
+    def test_broadcast_probe_does_not_send_unsupported_subscription_payload(self):
+        import sys
+        import types
+        from unittest.mock import patch
+        from trade_stream_probe import probe_broadcast
+
+        observed = {"sent": [], "trades": []}
+
+        class FakeWebSocketApp:
+            def __init__(self, url, **callbacks):
+                self.callbacks = callbacks
+
+            def send(self, payload):
+                observed["sent"].append(payload)
+
+            def close(self):
+                return None
+
+            def run_forever(self, **kwargs):
+                self.callbacks["on_open"](self)
+                message = json.dumps({
+                    "trade": {
+                        "symbol": "BTC_USDT",
+                        "price": "90000",
+                        "quantity": "0.01",
+                        "timestamp": time.time(),
+                    }
+                })
+                self.callbacks["on_message"](self, message)
+
+        fake_module = types.SimpleNamespace(WebSocketApp=FakeWebSocketApp)
+        with patch.dict(sys.modules, {"websocket": fake_module}):
+            result = probe_broadcast(
+                symbol="BTC_USDT",
+                timeout_seconds=1,
+                on_trade=lambda trade: observed["trades"].append(trade),
+            )
+
+        self.assertTrue(result["connected"])
+        self.assertEqual(result["valid_trades"], 1)
+        self.assertEqual(observed["sent"], [])
+        self.assertEqual(len(observed["trades"]), 1)
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
         from trade_stream_probe import probe_broadcast

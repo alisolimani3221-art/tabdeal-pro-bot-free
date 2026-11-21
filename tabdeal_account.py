@@ -37,7 +37,16 @@ def _signed_get(path, key, secret, params=None, timeout=20, session=None, timest
             raise RuntimeError("Tabdeal HTTP {}: {}".format(response.status_code, detail))
         data = response.json()
         if isinstance(data, dict) and data.get("code") not in (None, 0, "0"):
-            raise RuntimeError("Tabdeal API error: {}".format(str(data)[:240]))
+            code = data.get("code")
+            message = str(data.get("msg", data.get("message", data)))[:200]
+            # Code 1300 with a Python NameError message is generated inside
+            # Tabdeal's gateway. Keep it distinct from a local app exception.
+            if str(code) == "1300" and "name" in message.lower() and "market" in message.lower() and "defined" in message.lower():
+                raise RuntimeError(
+                    "Tabdeal server internal error (code 1300; undefined market variable): "
+                    + message
+                )
+            raise RuntimeError("Tabdeal API error (code {}): {}".format(code, message))
         return data
     finally:
         response.close()
