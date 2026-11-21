@@ -8,7 +8,7 @@ import time
 import unittest
 
 from market_candles import TradeCandleBuilder
-from paper_trader import PaperTradingEngine
+from paper_trader import PaperTradingEngine, prepare_live_market_snapshot
 from risk_analysis import analyze_klines
 from trade_stream_probe import parse_trade_message
 
@@ -24,6 +24,8 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         # Alternating +0.30/-0.20 closes produce a rising trend with RSI near 60.
         price = 100.0
         last_result = None
+        opened_result = None
+        opened_price = None
         for index in range(53):
             if index:
                 price += 0.30 if index % 2 else -0.20
@@ -40,15 +42,22 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
             if builder.is_ready:
                 technical = analyze_klines(builder.candles_for_analysis())
                 technical["symbol"] = symbol
+                technical = prepare_live_market_snapshot(technical, parsed["price"])
+                technical["candle_open_time"] = int(builder.closed[-1][0])
                 last_result = engine.process_scan([technical])
+                if any(event.get("event") == "OPENED" for event in last_result.get("events", [])):
+                    opened_result = last_result
+                    opened_price = parsed["price"]
 
         self.assertEqual(accepted, 53)
         self.assertTrue(builder.is_ready)
         self.assertEqual(last_result["candidates"][0]["symbol"], symbol)
-        self.assertEqual(last_result["events"][0]["event"], "OPENED")
+        self.assertIsNotNone(opened_result, "a valid setup should open a simulated position once")
+        self.assertEqual(opened_result["events"][0]["event"], "OPENED")
         self.assertEqual(last_result["open_position"]["symbol"], symbol)
+        self.assertAlmostEqual(last_result["open_position"]["entry"], opened_price * (1 + engine.slippage_rate))
         self.assertLessEqual(last_result["open_position"]["leverage"], 3)
-        self.assertLessEqual(last_result["open_position"]["risk_limit"], 0.04)
+        self.assertLessEqual(last_result["open_position"]["risk_limit"], (last_result["cash"] + last_result["open_position"]["fees_entry"]) * 0.005 + 1e-9)
         self.assertFalse(hasattr(engine, "create_order"))
         self.assertFalse(hasattr(engine, "new_order"))
 

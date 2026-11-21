@@ -22,7 +22,7 @@ def _finite(value, name):
 
 
 def analyze_klines(candles):
-    """Calculate SMA20/SMA50, Wilder RSI14 and Wilder ATR14.
+    """Calculate SMA10/SMA20, Wilder RSI14 and Wilder ATR14.
 
     The final candle is excluded because it may still be forming. Input uses
     Binance-compatible [open_time, open, high, low, close, volume, ...] rows.
@@ -30,8 +30,8 @@ def analyze_klines(candles):
     if not isinstance(candles, (list, tuple)):
         raise ValueError("candles must be a list")
     closed = list(candles[:-1])
-    if len(closed) < 51:
-        raise ValueError("at least 52 candles are required")
+    if len(closed) < 20:
+        raise ValueError("at least 21 candles are required")
 
     opens, highs, lows, closes, timestamps = [], [], [], [], []
     for candle in closed:
@@ -61,8 +61,8 @@ def analyze_klines(candles):
            for previous, current in zip(timestamps, timestamps[1:])):
         raise ValueError("one-minute candle history must be gap-free")
 
+    sma10 = sum(closes[-10:]) / 10.0
     sma20 = sum(closes[-20:]) / 20.0
-    sma50 = sum(closes[-50:]) / 50.0
 
     changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
     initial_gains = [max(change, 0.0) for change in changes[:14]]
@@ -94,9 +94,9 @@ def analyze_klines(candles):
         atr14 = (atr14 * 13.0 + true_range) / 14.0
     price = closes[-1]
 
-    if price > sma20 > sma50 and 50.0 <= rsi < 68.0:
+    if price > sma10 > sma20 and 50.0 <= rsi < 68.0:
         signal = "BULLISH"
-    elif price < sma20 < sma50 and 32.0 < rsi <= 50.0:
+    elif price < sma10 < sma20 and 32.0 < rsi <= 50.0:
         signal = "BEARISH"
     else:
         signal = "NEUTRAL"
@@ -106,8 +106,8 @@ def analyze_klines(candles):
         "candle_open": opens[-1],
         "candle_high": highs[-1],
         "candle_low": lows[-1],
+        "sma10": sma10,
         "sma20": sma20,
-        "sma50": sma50,
         "rsi14": rsi,
         "atr14": atr14,
         "signal": signal,

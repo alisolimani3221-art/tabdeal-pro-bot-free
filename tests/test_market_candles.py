@@ -45,26 +45,26 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.status()["gaps"], 1)
         self.assertFalse(builder.is_ready)
 
-    def test_ready_requires_51_closed_and_one_forming_candle(self):
+    def test_ready_requires_20_closed_and_one_forming_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 153):
+        for minute in range(100, 122):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
-        self.assertEqual(len(builder.candles_for_analysis()), 52)
+        self.assertEqual(len(builder.candles_for_analysis()), 21)
 
-    # Include 51 fully observed closed candles after discarding the first partial bucket.
+    # Include 20 fully observed closed candles after discarding the first partial bucket.
     def test_gap_prevents_false_contiguous_readiness(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 153):
+        for minute in range(100, 122):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
-        builder.add_trade(self.trade(154))
+        builder.add_trade(self.trade(123))
         self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), 0)
 
     def test_short_reconnect_preserves_closed_history_but_discards_partial_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 153):
+        for minute in range(100, 122):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         retained = len(builder.closed)
@@ -93,12 +93,12 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_reconnect_after_minute_boundary_invalidates_retained_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 153):
+        for minute in range(100, 122):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         builder.reset_after_reconnect()
 
-        result = builder.add_trade(self.trade(153))
+        result = builder.add_trade(self.trade(122))
         self.assertTrue(result["accepted"])
         self.assertTrue(result["gap_detected"])
         self.assertEqual(len(builder.closed), 0)

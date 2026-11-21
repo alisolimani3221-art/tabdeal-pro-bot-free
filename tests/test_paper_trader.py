@@ -1,18 +1,36 @@
 import unittest
-from paper_trader import PaperTradingEngine, rank_signal, diagnose_signal
+from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal,
+                          prepare_live_market_snapshot)
 
 
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
-        return {"symbol": symbol, "price": price, "sma20": 99, "sma50": 98,
+        return {"symbol": symbol, "price": price, "sma10": 99, "sma20": 98,
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
-                "closed_candles": 51}
-    return {"symbol": symbol, "price": price, "sma20": 101, "sma50": 102,
+                "closed_candles": 20, "candle_open_time": 60_000}
+    return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
-            "closed_candles": 51}
+            "closed_candles": 20, "candle_open_time": 60_000}
 
 
 class PaperTraderTests(unittest.TestCase):
+    def test_live_snapshot_uses_current_trade_and_discards_pre_entry_candle_range(self):
+        original = dict(setup(), candle_open=99.0, candle_high=110.0, candle_low=90.0)
+        snapshot = prepare_live_market_snapshot(original, 102.5)
+        self.assertEqual(snapshot["price"], 102.5)
+        self.assertEqual(snapshot["candle_open"], 102.5)
+        self.assertEqual(snapshot["candle_high"], 102.5)
+        self.assertEqual(snapshot["candle_low"], 102.5)
+        self.assertEqual(snapshot["sma20"], original["sma20"])
+        self.assertEqual(snapshot["candle_open_time"], original["candle_open_time"])
+        self.assertEqual(original["candle_high"], 110.0)
+
+    def test_live_snapshot_rejects_invalid_current_trade_price(self):
+        for value in (None, True, 0, -1, float("nan"), float("inf"), "bad"):
+            with self.subTest(live_price=value):
+                with self.assertRaises(ValueError):
+                    prepare_live_market_snapshot(setup(), value)
+
     def test_entry_diagnostics_explain_neutral_and_invalid_setups(self):
         self.assertIn("خنثی", diagnose_signal(dict(setup(), signal="NEUTRAL")))
         self.assertIn("RSI", diagnose_signal(dict(setup(), rsi14=75)))
@@ -20,13 +38,18 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIn("تأیید شده", diagnose_signal(setup()))
 
     def test_rejects_signal_without_minimum_closed_candle_provenance(self):
-        for value in (None, 0, 50, 50.9, True, "51"):
+        for value in (None, 0, 19, 19.9, True, "20"):
             with self.subTest(closed_candles=value):
                 self.assertIsNone(rank_signal(dict(setup(), closed_candles=value)))
 
     def test_accepts_signal_with_minimum_closed_candle_provenance(self):
         self.assertIsNotNone(rank_signal(setup()))
-        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=52)))
+        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=21)))
+
+    def test_rejects_signal_without_valid_closed_candle_timestamp(self):
+        for value in (None, 0, -1, True, "60000"):
+            with self.subTest(candle_open_time=value):
+                self.assertIsNone(rank_signal(dict(setup(), candle_open_time=value)))
 
     def test_rejects_neutral_or_extreme_volatility(self):
         self.assertIsNone(rank_signal(dict(setup(), signal="NEUTRAL")))
@@ -100,13 +123,32 @@ class PaperTraderTests(unittest.TestCase):
                                            signal="NEUTRAL")])
         self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
 
-    def test_does_not_reopen_on_same_scan_after_stop(self):
+    def test_does_not_reopen_on_same_candle_after_stop_across_scans(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
         result = engine.process_scan([setup(price=98.0)])
         self.assertTrue(any(e["event"] == "CLOSED" for e in result["events"]))
         self.assertFalse(any(e["event"] == "OPENED" for e in result["events"]))
         self.assertIsNone(result["open_position"])
+        repeated = engine.process_scan([setup(price=100.0)])
+        self.assertFalse(any(e["event"] == "OPENED" for e in repeated["events"]))
+        self.assertIsNone(repeated["open_position"])
+
+    def test_allows_entry_on_a_new_candle_after_previous_candle_entry(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        engine.process_scan([setup(price=98.0)])
+        result = engine.process_scan([dict(setup(), candle_open_time=120_000)])
+        self.assertTrue(any(e["event"] == "OPENED" for e in result["events"]))
+
+    def test_last_entry_candle_survives_engine_restore(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        restored = PaperTradingEngine.restore_state(engine.export_state())
+        self.assertEqual(restored.last_entry_candle,
+                         {"symbol": "AAA_USDT", "open_time": 60_000})
+        repeated = restored.process_scan([setup()])
+        self.assertFalse(any(e["event"] == "OPENED" for e in repeated["events"]))
 
     def test_entry_fee_does_not_consume_required_margin(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.01, slippage_rate=0)
@@ -164,14 +206,14 @@ class PaperTraderTests(unittest.TestCase):
                     PaperTradingEngine(**kwargs)
 
     def test_rejects_boolean_and_nonfinite_candidate_values(self):
-        for field, value in (("price", True), ("sma20", float("inf")),
-                             ("sma50", float("nan")), ("atr14", False),
+        for field, value in (("price", True), ("sma10", float("inf")),
+                             ("sma20", float("nan")), ("atr14", False),
                              ("rsi14", True), ("rsi14", float("inf"))):
             with self.subTest(field=field, value=value):
                 self.assertIsNone(rank_signal(dict(setup(), **{field: value})))
 
     def test_rejects_missing_technical_fields(self):
-        for field in ("price", "sma20", "sma50", "rsi14", "atr14"):
+        for field in ("price", "sma10", "sma20", "rsi14", "atr14"):
             candidate = setup()
             candidate.pop(field)
             with self.subTest(field=field):

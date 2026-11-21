@@ -61,12 +61,21 @@ class RiskAnalysisTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             calculate_position_risk(1e308, 5, 1e-308, 1, 3, 2)
 
+    def test_analysis_accepts_20_closed_candles_and_rejects_19(self):
+        rows = candles(21)
+        result = analyze_klines(rows)
+        self.assertEqual(result["closed_candles"], 20)
+        self.assertIn("sma10", result)
+        self.assertIn("sma20", result)
+        with self.assertRaisesRegex(ValueError, "at least 21 candles"):
+            analyze_klines(candles(20))
+
     def test_analysis_ignores_open_candle(self):
         rows = candles(56)
         rows[-1] = [56, 1000, 2000, 1, 1500, 1]
         result = analyze_klines(rows)
         self.assertAlmostEqual(result["price"], 154)
-        self.assertGreater(result["sma20"], result["sma50"])
+        self.assertGreater(result["sma10"], result["sma20"])
         self.assertEqual(result["closed_candles"], 55)
 
     def test_analysis_rejects_close_outside_candle_range(self):
