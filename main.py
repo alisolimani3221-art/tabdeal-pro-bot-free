@@ -42,6 +42,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
@@ -1650,8 +1651,12 @@ class FuturesAnalyzerApp(App):
                     .format(number)
                 ), 0
             )
+            stream_watchdog = TradeStreamWatchdog(silence_timeout=45.0)
+            watchdog_stop = threading.Event()
+
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
+                stream_watchdog.connected()
                 if connected_once:
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
@@ -1702,6 +1707,8 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                # A validated, accepted trade refreshes the stream-silence watchdog.
+                stream_watchdog.mark_valid_trade()
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
                 if not update.get("ready"):
@@ -1875,6 +1882,32 @@ class FuturesAnalyzerApp(App):
                 on_error=on_error, on_close=on_close,
             )
             self.auto_ws = app
+
+            def monitor_stream_silence():
+                # A connected socket can remain open while no valid trades arrive.
+                # Close it after 45 seconds so the outer worker reconnects and
+                # revalidates candle continuity instead of waiting forever.
+                while not watchdog_stop.wait(5.0):
+                    if self.auto_stop_event.is_set():
+                        return
+                    if stream_watchdog.is_stale():
+                        silent_for = stream_watchdog.seconds_since_valid_trade()
+                        Clock.schedule_once(
+                            lambda dt, value=silent_for: self.update_auto_status(
+                                "بیش از ۴۵ ثانیه معامله معتبر دریافت نشد؛ جریان برای اتصال مجدد بسته می‌شود. "
+                                "مدت سکوت: {:.0f} ثانیه.".format(value or 0.0)
+                            ), 0
+                        )
+                        try:
+                            app.close()
+                        except Exception:
+                            pass
+                        return
+
+            watchdog_thread = threading.Thread(
+                target=monitor_stream_silence, daemon=True
+            )
+            watchdog_thread.start()
             try:
                 # Bound the WebSocket handshake; otherwise the worker can block
                 # before on_open and leave the UI on the retry message indefinitely.
@@ -1892,6 +1925,8 @@ class FuturesAnalyzerApp(App):
                     ), 0
                 )
             finally:
+                watchdog_stop.set()
+                watchdog_thread.join(timeout=1.0)
                 self.auto_ws = None
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
