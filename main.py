@@ -940,14 +940,26 @@ class FuturesAnalyzerApp(App):
             if not api_key or not prompt:
                 result.text = assistant_rtl_text("کلید API و متن درخواست را وارد کنید.")
                 return
+            # Send only bounded, non-secret diagnostic data. Never include API keys,
+            # API secrets, credential-store contents, or order-control callbacks.
+            account_label = getattr(self, "account_summary", None)
+            account_text = getattr(account_label, "text", "") if account_label is not None else ""
+            technical = getattr(self, "latest_technical_analysis", None)
             context = {
                 "app_version": APP_VERSION,
                 "selected_symbol": getattr(self, "current_symbol", "نامشخص"),
                 "diagnostics": getattr(self, "last_diagnostic_results", {}),
                 "diagnostic_time": getattr(self, "last_diagnostic_time", "نامشخص"),
+                "market_snapshot": getattr(self, "last_market_snapshot", None),
+                "account_summary": str(account_text)[:3000],
+                "technical_analysis": technical if isinstance(technical, dict) else None,
+                "worker_status": str(getattr(self, "auto_worker_status", ""))[:1200],
+                "worker_status_time": str(getattr(self, "auto_worker_status_time", ""))[:80],
                 "access_mode": "read_only",
-                "permissions": ["read app diagnostics", "read selected market symbol"],
-                "restrictions": ["no settings changes", "no trading", "no order placement"]
+                "permissions": ["read app diagnostics", "read selected market snapshot",
+                                "read displayed account summary"],
+                "restrictions": ["no settings changes", "no trading", "no order placement",
+                                 "no order cancellation", "no credential access"]
             }
             send_button.disabled = True
             result.text = assistant_rtl_text("در حال اتصال به OpenAI...")
@@ -1177,6 +1189,15 @@ class FuturesAnalyzerApp(App):
     def show_result(self, results):
         self.check_in_progress = False
         self.last_diagnostic_results = dict(results)
+        # Preserve a compact snapshot for the read-only AI assistant. This is
+        # diagnostic market data only; it contains no account credentials.
+        self.last_market_snapshot = {
+            key: results.get(key) for key in (
+                "market_symbol", "symbol_verified", "depth_status", "depth_diagnostic",
+                "best_bid", "best_ask", "mid_price", "market_price_source",
+                "market_error", "market_info_error", "depth_http", "depth_content_type"
+            ) if key in results
+        }
         self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.check_button.disabled = False
         self.symbol_spinner.disabled = False
