@@ -59,10 +59,11 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn("TradeCandleBuilder", source)
         self.assertIn("هیچ سفارش واقعی ارسال نمی‌شود", source)
 
-    def test_ci_runs_optional_redacted_trade_stream_probe(self):
+    def test_ci_requires_a_validated_redacted_trade_stream_probe(self):
         workflow = self.read(".github/workflows/android.yml")
         self.assertIn("Read-only Tabdeal trade broadcast probe", workflow)
-        self.assertIn("continue-on-error: true", workflow)
+        self.assertNotIn("continue-on-error: true", workflow)
+        self.assertIn('report["messages"] < 1 or report["valid_trades"] < 1', workflow)
         self.assertIn("trade-stream-probe-report.json", workflow)
         self.assertIn("Upload redacted trade-stream probe report", workflow)
 
