@@ -1457,7 +1457,7 @@ class FuturesAnalyzerApp(App):
         self.update_auto_status(message)
 
     def _paper_stream_worker(self, symbol, builder, engine):
-        """Reconnect public trade stream and simulate only after gap-free warm-up."""
+        """Run a fresh-data paper scan every 15 seconds; never scan stale data."""
         try:
             import websocket
         except Exception:
@@ -1467,15 +1467,109 @@ class FuturesAnalyzerApp(App):
             )
             return
 
-        last_processed_bucket = None
+        data_lock = threading.RLock()
+        last_trade_at = [None]
         connected_once = False
+
+        def publish_scan():
+            with data_lock:
+                if not builder.is_ready or builder.current is None:
+                    return
+                received_at = last_trade_at[0]
+                if received_at is None or time.monotonic() - received_at > 30:
+                    return
+                rows = builder.candles_for_analysis()
+                forming = dict(builder.current)
+                status = builder.status()
+
+            # Indicators use closed candles only. The forming candle is used
+            # solely for live mark/stop/target monitoring, never for signal math.
+            technical = analyze_klines(rows)
+            technical["symbol"] = symbol
+            technical["signal_key"] = rows[-2][0]
+            technical["mark_price"] = forming["close"]
+            technical["candle_open"] = forming["open"]
+            technical["candle_high"] = forming["high"]
+            technical["candle_low"] = forming["low"]
+
+            if self.auto_stop_event.is_set():
+                return
+            result = engine.process_scan([technical])
+            Clock.schedule_once(
+                lambda dt, value=dict(technical): self.update_technical_labels(value), 0
+            )
+            events = result.get("events", [])
+            event_text = ""
+            if events:
+                event = events[-1]
+                if event.get("event") == "OPENED":
+                    pos = event["position"]
+                    event_text = (
+                        "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
+                    ).format(pos["symbol"], "خرید" if pos["side"] == "BULLISH" else "فروش",
+                             pos["stop"], pos["target"], pos["leverage"])
+                elif event.get("event") == "CLOSED":
+                    trade = event["trade"]
+                    event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
+                        trade["reason"], trade["net_pnl"]
+                    )
+            message_text = (
+                "شبیه‌ساز فعال | بررسی هر ۱۵ ثانیه | {}\\n"
+                "سیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g} | قیمت زنده: {:.8g}\\n"
+                "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\\n"
+                "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\\n{}"
+            ).format(symbol, technical["signal"], technical["price"],
+                     technical["mark_price"], status["closed_candles"],
+                     result["equity"], result["closed_trades"], event_text)
+            Clock.schedule_once(
+                lambda dt, value=message_text: self.update_auto_status(value), 0
+            )
+
+        def scan_clock():
+            # One independent clock keeps the 15-second cadence even when
+            # the WebSocket is quiet. It refuses to act on data older than 30s.
+            while not self.auto_stop_event.wait(15):
+                if self.auto_stop_event.is_set():
+                    break
+                with data_lock:
+                    ready = builder.is_ready
+                    status = builder.status()
+                    received_at = last_trade_at[0]
+                if not ready:
+                    Clock.schedule_once(
+                        lambda dt, count=status["closed_candles"]: self.update_auto_status(
+                            "در حال آماده‌سازی داده پیوسته: {} از ۵۱ کندل بسته‌شده معتبر. "
+                            "تا تکمیل داده کافی، معامله آزمایشی باز نمی‌شود.".format(count)
+                        ), 0
+                    )
+                    continue
+                if received_at is None or time.monotonic() - received_at > 30:
+                    Clock.schedule_once(
+                        lambda dt: self.update_auto_status(
+                            "داده معاملات تازه دریافت نمی‌شود؛ بررسی و ورود تا رسیدن داده معتبر متوقف است."
+                        ), 0
+                    )
+                    continue
+                try:
+                    publish_scan()
+                except Exception as exc:
+                    Clock.schedule_once(
+                        lambda dt, value=type(exc).__name__: self.update_auto_status(
+                            "تحلیل انجام نشد؛ تا داده معتبر بعدی معامله‌ای باز نمی‌شود. علت: " + value
+                        ), 0
+                    )
+
+        scan_thread = threading.Thread(target=scan_clock, daemon=True)
+        scan_thread.start()
+
         while not self.auto_stop_event.is_set():
             def on_open(ws):
-                nonlocal connected_once, last_processed_bucket
-                if connected_once:
-                    builder.reset_after_gap()
-                    last_processed_bucket = None
-                connected_once = True
+                nonlocal connected_once
+                with data_lock:
+                    if connected_once:
+                        builder.reset_after_gap()
+                        last_trade_at[0] = None
+                    connected_once = True
                 ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
@@ -1484,63 +1578,19 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_message(ws, message):
-                nonlocal last_processed_bucket
                 parsed = parse_trade_message(message, expected_symbol=symbol)
                 if self.auto_stop_event.is_set() or not parsed.get("ok"):
                     return
-                update = builder.add_trade(parsed)
+                with data_lock:
+                    update = builder.add_trade(parsed)
+                    if update.get("accepted"):
+                        last_trade_at[0] = time.monotonic()
                 if not update.get("accepted"):
                     return
                 if update.get("gap_detected"):
-                    last_processed_bucket = None
                     Clock.schedule_once(
                         lambda dt: self.update_auto_status(
-                            "شکاف یا قطع داده شناسایی شد؛ برای جلوگیری از تحلیل ناقص، جمع‌آوری کندل از نو آغاز شد."
-                        ), 0
-                    )
-                    return
-                current_bucket = (builder.current or {}).get("open_time")
-                if not builder.is_ready or current_bucket is None or current_bucket == last_processed_bucket:
-                    return
-                try:
-                    technical = analyze_klines(builder.candles_for_analysis())
-                    technical["symbol"] = symbol
-                    Clock.schedule_once(
-                        lambda dt, value=dict(technical): self.update_technical_labels(value), 0
-                    )
-                    if self.auto_stop_event.is_set():
-                        return
-                    result = engine.process_scan([technical])
-                    last_processed_bucket = current_bucket
-                    events = result.get("events", [])
-                    event_text = ""
-                    if events:
-                        event = events[-1]
-                        if event.get("event") == "OPENED":
-                            pos = event["position"]
-                            event_text = (
-                                "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
-                            ).format(pos["symbol"], "خرید" if pos["side"] == "BULLISH" else "فروش",
-                                     pos["stop"], pos["target"], pos["leverage"])
-                        elif event.get("event") == "CLOSED":
-                            trade = event["trade"]
-                            event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
-                                trade["reason"], trade["net_pnl"]
-                            )
-                    message_text = (
-                        "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
-                        "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
-                        "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
-                    ).format(symbol, technical["signal"], technical["price"],
-                             builder.status()["closed_candles"], result["equity"],
-                             result["closed_trades"], event_text)
-                    Clock.schedule_once(
-                        lambda dt, value=message_text: self.update_auto_status(value), 0
-                    )
-                except Exception as exc:
-                    Clock.schedule_once(
-                        lambda dt, value=type(exc).__name__: self.update_auto_status(
-                            "تحلیل کندل انجام نشد؛ شبیه‌ساز تا داده معتبر بعدی معامله‌ای باز نمی‌کند. علت: " + value
+                            "شکاف داده شناسایی شد؛ گرم‌سازی کندل‌ها از نو آغاز شد."
                         ), 0
                     )
 
@@ -1570,6 +1620,7 @@ class FuturesAnalyzerApp(App):
                 )
                 self.auto_stop_event.wait(3)
 
+        scan_thread.join(timeout=1.0)
         Clock.schedule_once(
             lambda dt: self.update_auto_status("شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است."),
             0,
