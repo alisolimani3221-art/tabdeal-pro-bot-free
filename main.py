@@ -1677,7 +1677,11 @@ class FuturesAnalyzerApp(App):
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
-                ws.send(symbol)
+                # Tabdeal's official FutureBroadcastWebsocketClient connects to
+                # this broadcast endpoint without a subscription payload. Sending
+                # the bare symbol here is not part of the documented protocol and
+                # can be interpreted as an invalid control message. The broadcast
+                # carries trade.symbol; filter it locally in parse_trade_message.
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
