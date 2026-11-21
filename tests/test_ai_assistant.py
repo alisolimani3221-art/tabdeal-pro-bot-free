@@ -34,7 +34,10 @@ class OpenAIAssistantUiTests(unittest.TestCase):
 
     def test_assistant_output_is_plain_text_and_shaped_once(self):
         self.assertIn("markup=False", self.method_source)
-        self.assertIn("assistant_rtl_text(value)", self.method_source)
+        self.assertIn("assistant_rtl_text(message)", self.method_source)
+        self.assertIn("chat_history", self.method_source)
+        self.assertIn("conversation_history=history_snapshot", self.method_source)
+        self.assertIn('title=fa_plain("گفت‌وگو با ChatGPT")', self.method_source)
         self.assertNotIn('result.text = fa(', self.method_source)
         self.assertNotIn('setattr(result, "text", fa(value))', self.method_source)
 
@@ -58,6 +61,8 @@ class OpenAIAssistantUiTests(unittest.TestCase):
 
     def test_assistant_uses_privacy_safe_read_only_context(self):
         self.assertIn("build_ai_diagnostic_context(self)", self.method_source)
+        self.assertIn("def render_chat()", self.method_source)
+        self.assertIn('label = "شما" if item["role"] == "user" else "ChatGPT"', self.method_source)
         helper = Path("ai_diagnostics.py").read_text(encoding="utf-8")
         self.assertIn('"access_mode": "read_only"', helper)
         self.assertIn('"no trading"', helper)
