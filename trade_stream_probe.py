@@ -162,8 +162,8 @@ def parse_trade_message(message, expected_symbol=None):
     return result
 
 
-def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
-    """Connect once, send plain-text symbol on open, and observe public trades."""
+def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None, send_symbol=False):
+    """Probe Tabdeal broadcast with or without a plain-text symbol control message."""
     if (not isinstance(symbol, str) or len(symbol) > 32
             or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
         raise ValueError("symbol must be an ASCII USDT futures symbol such as AEVO_USDT")
@@ -180,22 +180,32 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     except ImportError as exc:
         raise RuntimeError("websocket-client is not installed") from exc
 
+    if not isinstance(send_symbol, bool):
+        raise ValueError("send_symbol must be a boolean")
     result = {"connected": False, "messages": 0, "valid_trades": 0,
+              "matching_symbol_trades": 0, "payload_mode": "symbol" if send_symbol else "none",
               "last_diagnostic": "no_message", "symbol": symbol}
 
     def on_open(ws):
-        # Official FutureBroadcastWebsocketClient uses this endpoint without
-        # a stream name or payload; filter incoming broadcast events by symbol.
+        if send_symbol:
+            try:
+                ws.send(symbol)
+            except Exception as exc:
+                result["last_diagnostic"] = "symbol_send_error:" + type(exc).__name__
+                ws.close()
+                return
         result["connected"] = True
 
     def on_message(ws, message):
         result["messages"] += 1
-        parsed = parse_trade_message(message, expected_symbol=symbol)
+        parsed = parse_trade_message(message)
         result["last_diagnostic"] = parsed.get("reason", "ok")
         if parsed.get("ok"):
             result["valid_trades"] += 1
-            if on_trade:
-                on_trade(parsed)
+            if parsed.get("symbol", "").upper() == symbol.upper():
+                result["matching_symbol_trades"] += 1
+                if on_trade:
+                    on_trade(parsed)
         if result["messages"] >= 100:
             ws.close()
 
