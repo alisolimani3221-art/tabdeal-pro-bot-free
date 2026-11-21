@@ -1693,7 +1693,10 @@ class FuturesAnalyzerApp(App):
                 nonlocal last_processed_bucket, last_scan_monotonic, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
                 received_messages += 1
-                parsed = parse_trade_message(message, expected_symbol=symbol)
+                # This socket is a market-wide broadcast. Parse each event's
+                # own symbol first: activity in any market proves the socket is
+                # alive, even when the selected low-volume symbol has no trade.
+                parsed = parse_trade_message(message)
                 if self.auto_stop_event.is_set():
                     return
                 if not parsed.get("ok"):
@@ -1711,8 +1714,12 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 valid_messages += 1
-                # Reset backoff only after real, validated exchange data arrives.
+                # Any fully validated broadcast trade refreshes transport
+                # liveness. Only the selected symbol may enter its candle builder.
+                stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
+                if parsed.get("symbol") != symbol:
+                    return
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     now = time.monotonic()
@@ -1727,8 +1734,6 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
-                # A validated, accepted trade refreshes the stream-silence watchdog.
-                stream_watchdog.mark_valid_trade()
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
                 if not update.get("ready"):
