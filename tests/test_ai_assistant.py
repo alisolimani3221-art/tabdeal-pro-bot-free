@@ -44,7 +44,7 @@ class OpenAIAssistantUiTests(unittest.TestCase):
 
     def test_persian_assistant_result_uses_rtl_alignment_and_scrollable_height(self):
         self.assertIn('halign="right"', self.method_source)
-        self.assertIn('base_direction="rtl"', self.method_source)
+        self.assertIn('base_direction="rtl", text_language="fa", halign="right"', self.method_source)
         self.assertIn('text_language="ar"', self.method_source)
         self.assertIn("result.bind(texture_size=", self.method_source)
         self.assertIn("result_scroll = ScrollView(", self.method_source)
