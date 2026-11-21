@@ -19,6 +19,7 @@ on:
       - 'tabdeal_account.py'
       - 'ai_assistant.py'
       - 'openai_assistant.py'
+      - 'ai_diagnostics.py'
       - 'market_format.py'
       - 'trade_stream_probe.py'
       - 'market_candles.py'
