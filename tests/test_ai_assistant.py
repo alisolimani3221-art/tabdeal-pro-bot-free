@@ -16,13 +16,17 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         cls.method_source = ast.get_source_segment(cls.source, cls.method)
 
     def test_openai_assistant_is_wired_into_android_app(self):
-        imports = {
+        imported_modules = {
+            node.module.split(".")[0]
+            for node in ast.walk(self.module)
+            if isinstance(node, ast.ImportFrom) and node.module
+        } | {
             alias.name.split(".")[0]
             for node in ast.walk(self.module)
-            if isinstance(node, (ast.Import, ast.ImportFrom))
+            if isinstance(node, ast.Import)
             for alias in node.names
         }
-        self.assertIn("openai_assistant", imports)
+        self.assertIn("openai_assistant", imported_modules)
         self.assertIn("open_openai_assistant", {
             node.name for node in ast.walk(self.module)
             if isinstance(node, ast.FunctionDef)
