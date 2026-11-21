@@ -1612,7 +1612,10 @@ class FuturesAnalyzerApp(App):
         # Give the worker a bounded opportunity to exit after the engine is
         # halted. A slow worker must never prevent closing/persisting the paper
         # position, and a halted engine rejects any later scan attempts.
-        worker_stopped = self._stop_auto_worker(timeout=3.0)
+        worker = getattr(self, "auto_trader_thread", None)
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=3.0)
+        worker_stopped = worker is None or not worker.is_alive()
         if close_error:
             message = (
                 "توقف اضطراری ثبت شد، اما ذخیره/بستن موقعیت مجازی خطا داد: {}. "
