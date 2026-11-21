@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.39"
+APP_VERSION = "1.41"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -42,6 +42,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
@@ -1593,32 +1594,46 @@ class FuturesAnalyzerApp(App):
         return worker is None or not worker.is_alive()
 
     def stop_auto_paper_trader(self):
-        """Stop the paper stream before closing its simulated position."""
-        if not self._stop_auto_worker(timeout=3.0):
-            self.update_auto_status(
-                "توقف درخواست شد، اما پایان کامل رشته شبیه‌ساز هنوز تأیید نشده است؛ "
-                "برای جلوگیری از تغییر هم‌زمان وضعیت، بستن موقعیت مجازی انجام نشد."
-            )
-            return
+        """Halt the paper engine immediately; worker joining is best-effort cleanup."""
+        # First prevent new stream work and close the socket. Do not make the
+        # simulated-position close conditional on the worker's join timeout:
+        # emergency_close() serializes with process_scan() using the engine lock.
+        worker_stopped = self._stop_auto_worker(timeout=0.0)
         engine = getattr(self, "auto_engine", None)
         close_result = None
+        close_error = None
         if engine is not None:
             try:
                 close_result = engine.emergency_close()
                 self._persist_paper_engine_state(engine)
-            except Exception:
-                close_result = None
-        if close_result and close_result.get("event") == "CLOSED":
+            except Exception as exc:
+                close_error = "{}: {}".format(type(exc).__name__, str(exc)[:120])
+
+        # Give the worker a bounded opportunity to exit after the engine is
+        # halted. A slow worker must never prevent closing/persisting the paper
+        # position, and a halted engine rejects any later scan attempts.
+        worker = getattr(self, "auto_trader_thread", None)
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=3.0)
+        worker_stopped = worker is None or not worker.is_alive()
+        if close_error:
+            message = (
+                "توقف اضطراری ثبت شد، اما ذخیره/بستن موقعیت مجازی خطا داد: {}. "
+                "موتور ورود جدید را مسدود کرده است؛ وضعیت را بررسی کنید."
+            ).format(close_error)
+        elif close_result and close_result.get("event") == "CLOSED":
             trade = close_result["trade"]
             message = (
-                "توقف اضطراری فعال شد؛ موقعیت مجازی در آخرین قیمت ثبت‌شده بسته شد. "
+                "توقف اضطراری فعال شد؛ موقعیت مجازی در آخرین قیمت ثبت‌شده بسته و ذخیره شد. "
                 "سود/زیان خالص: {:.4f} تتر. هیچ سفارش واقعی ارسال نشده است."
             ).format(trade["net_pnl"])
         else:
             message = (
-                "توقف اضطراری فعال شد. جریان و شبیه‌ساز متوقف شدند؛ "
+                "توقف اضطراری فعال شد؛ موتور آزمایشی متوقف و وضعیت ذخیره شد. "
                 "موقعیت مجازی بازی وجود نداشت. هیچ سفارش واقعی ارسال نشده است."
             )
+        if not worker_stopped:
+            message += " خروج رشته پس‌زمینه هنوز کامل نشده؛ موتور قفل و متوقف باقی می‌ماند."
         self.update_auto_status(message)
 
     def _paper_stream_worker(self, symbol, builder, engine):
@@ -1650,8 +1665,12 @@ class FuturesAnalyzerApp(App):
                     .format(number)
                 ), 0
             )
+            stream_watchdog = TradeStreamWatchdog(silence_timeout=45.0)
+            watchdog_stop = threading.Event()
+
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
+                stream_watchdog.connected()
                 if connected_once:
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
@@ -1702,6 +1721,8 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                # A validated, accepted trade refreshes the stream-silence watchdog.
+                stream_watchdog.mark_valid_trade()
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
                 if not update.get("ready"):
@@ -1875,6 +1896,32 @@ class FuturesAnalyzerApp(App):
                 on_error=on_error, on_close=on_close,
             )
             self.auto_ws = app
+
+            def monitor_stream_silence():
+                # A connected socket can remain open while no valid trades arrive.
+                # Close it after 45 seconds so the outer worker reconnects and
+                # revalidates candle continuity instead of waiting forever.
+                while not watchdog_stop.wait(5.0):
+                    if self.auto_stop_event.is_set():
+                        return
+                    if stream_watchdog.is_stale():
+                        silent_for = stream_watchdog.seconds_since_valid_trade()
+                        Clock.schedule_once(
+                            lambda dt, value=silent_for: self.update_auto_status(
+                                "بیش از ۴۵ ثانیه معامله معتبر دریافت نشد؛ جریان برای اتصال مجدد بسته می‌شود. "
+                                "مدت سکوت: {:.0f} ثانیه.".format(value or 0.0)
+                            ), 0
+                        )
+                        try:
+                            app.close()
+                        except Exception:
+                            pass
+                        return
+
+            watchdog_thread = threading.Thread(
+                target=monitor_stream_silence, daemon=True
+            )
+            watchdog_thread.start()
             try:
                 # Bound the WebSocket handshake; otherwise the worker can block
                 # before on_open and leave the UI on the retry message indefinitely.
@@ -1892,6 +1939,8 @@ class FuturesAnalyzerApp(App):
                     ), 0
                 )
             finally:
+                watchdog_stop.set()
+                watchdog_thread.join(timeout=1.0)
                 self.auto_ws = None
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
