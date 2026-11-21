@@ -1689,20 +1689,9 @@ class FuturesAnalyzerApp(App):
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
-                # The observed broadcast protocol requires the plain-text market
-                # symbol after the socket opens. A handshake without subscription
-                # can look connected while delivering zero trades.
-                try:
-                    ws.send(symbol)
-                except Exception as subscribe_exc:
-                    detail = "{}: {}".format(type(subscribe_exc).__name__, str(subscribe_exc)[:100])
-                    Clock.schedule_once(
-                        lambda dt, value=detail: self.update_auto_status(
-                            "اتصال برقرار شد اما اشتراک نماد ناموفق بود: " + value
-                        ), 0
-                    )
-                    ws.close()
-                    return
+                # Official FutureBroadcastWebsocketClient connects without a
+                # stream name or subscription payload. Filter broadcast events
+                # by symbol in parse_trade_message(); never send raw symbol text.
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
