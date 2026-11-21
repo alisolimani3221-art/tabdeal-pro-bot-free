@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.40"
+APP_VERSION = "1.41"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1594,32 +1594,43 @@ class FuturesAnalyzerApp(App):
         return worker is None or not worker.is_alive()
 
     def stop_auto_paper_trader(self):
-        """Stop the paper stream before closing its simulated position."""
-        if not self._stop_auto_worker(timeout=3.0):
-            self.update_auto_status(
-                "توقف درخواست شد، اما پایان کامل رشته شبیه‌ساز هنوز تأیید نشده است؛ "
-                "برای جلوگیری از تغییر هم‌زمان وضعیت، بستن موقعیت مجازی انجام نشد."
-            )
-            return
+        """Halt the paper engine immediately; worker joining is best-effort cleanup."""
+        # First prevent new stream work and close the socket. Do not make the
+        # simulated-position close conditional on the worker's join timeout:
+        # emergency_close() serializes with process_scan() using the engine lock.
+        worker_stopped = self._stop_auto_worker(timeout=0.0)
         engine = getattr(self, "auto_engine", None)
         close_result = None
+        close_error = None
         if engine is not None:
             try:
                 close_result = engine.emergency_close()
                 self._persist_paper_engine_state(engine)
-            except Exception:
-                close_result = None
-        if close_result and close_result.get("event") == "CLOSED":
+            except Exception as exc:
+                close_error = "{}: {}".format(type(exc).__name__, str(exc)[:120])
+
+        # Give the worker a bounded opportunity to exit after the engine is
+        # halted. A slow worker must never prevent closing/persisting the paper
+        # position, and a halted engine rejects any later scan attempts.
+        worker_stopped = self._stop_auto_worker(timeout=3.0) and worker_stopped
+        if close_error:
+            message = (
+                "توقف اضطراری ثبت شد، اما ذخیره/بستن موقعیت مجازی خطا داد: {}. "
+                "موتور ورود جدید را مسدود کرده است؛ وضعیت را بررسی کنید."
+            ).format(close_error)
+        elif close_result and close_result.get("event") == "CLOSED":
             trade = close_result["trade"]
             message = (
-                "توقف اضطراری فعال شد؛ موقعیت مجازی در آخرین قیمت ثبت‌شده بسته شد. "
+                "توقف اضطراری فعال شد؛ موقعیت مجازی در آخرین قیمت ثبت‌شده بسته و ذخیره شد. "
                 "سود/زیان خالص: {:.4f} تتر. هیچ سفارش واقعی ارسال نشده است."
             ).format(trade["net_pnl"])
         else:
             message = (
-                "توقف اضطراری فعال شد. جریان و شبیه‌ساز متوقف شدند؛ "
+                "توقف اضطراری فعال شد؛ موتور آزمایشی متوقف و وضعیت ذخیره شد. "
                 "موقعیت مجازی بازی وجود نداشت. هیچ سفارش واقعی ارسال نشده است."
             )
+        if not worker_stopped:
+            message += " خروج رشته پس‌زمینه هنوز کامل نشده؛ موتور قفل و متوقف باقی می‌ماند."
         self.update_auto_status(message)
 
     def _paper_stream_worker(self, symbol, builder, engine):
