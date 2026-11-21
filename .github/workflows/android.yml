@@ -255,7 +255,6 @@ jobs:
           retention-days: 7
 
       - name: Read-only Tabdeal trade broadcast probe
-        continue-on-error: true
         timeout-minutes: 2
         run: |
           python - <<'PY'
@@ -270,9 +269,12 @@ jobs:
           )
           print(json.dumps(report, sort_keys=True))
           if not report["connected"]:
-              raise SystemExit("Public trade broadcast connection was not established")
-          if report["messages"] and report["valid_trades"] == 0:
-              raise SystemExit("Messages arrived but none matched the observed strict schema")
+              raise SystemExit("Public trade broadcast subscription was not established")
+          if report["messages"] < 1 or report["valid_trades"] < 1:
+              raise SystemExit(
+                  "Public trade broadcast returned no validated trades: "
+                  + json.dumps(report, sort_keys=True)
+              )
           PY
 
       - name: Upload redacted trade-stream probe report
