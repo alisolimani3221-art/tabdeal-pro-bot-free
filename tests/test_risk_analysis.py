@@ -3,11 +3,11 @@ import unittest
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 
 
-def candles(count=56):
+def candles(count=56, interval_ms=60_000):
     rows = []
     for i in range(count):
         close = 100 + i
-        rows.append([i * 60_000, close - 1, close + 1, close - 2, close, 1])
+        rows.append([i * interval_ms, close - 1, close + 1, close - 2, close, 1])
     return rows
 
 
@@ -69,6 +69,19 @@ class RiskAnalysisTests(unittest.TestCase):
         self.assertIn("sma20", result)
         with self.assertRaisesRegex(ValueError, "at least 21 candles"):
             analyze_klines(candles(20))
+
+    def test_analysis_accepts_gap_free_15_second_candles(self):
+        rows = candles(22, interval_ms=15_000)
+        result = analyze_klines(rows, interval_ms=15_000)
+        self.assertEqual(result["closed_candles"], 21)
+        self.assertGreater(result["sma20"], 0)
+        with self.assertRaisesRegex(ValueError, "gap-free"):
+            analyze_klines(rows, interval_ms=30_000)
+
+    def test_analysis_rejects_invalid_candle_interval(self):
+        for value in (True, 0, -1, 15_000.0, "15000"):
+            with self.subTest(interval_ms=value), self.assertRaises(ValueError):
+                analyze_klines(candles(), interval_ms=value)
 
     def test_analysis_ignores_open_candle(self):
         rows = candles(56)
