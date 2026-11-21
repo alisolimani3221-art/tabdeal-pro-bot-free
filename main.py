@@ -1681,6 +1681,7 @@ class FuturesAnalyzerApp(App):
             )
             stream_watchdog = TradeStreamWatchdog(silence_timeout=45.0)
             watchdog_stop = threading.Event()
+            connection_trade_seen = False
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
@@ -1712,14 +1713,15 @@ class FuturesAnalyzerApp(App):
                     return
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
-                        "در صورت نبود شکاف، کندل‌های معتبر قبلی حفظ می‌شوند."
+                        "دست‌دهی شبکه و ارسال اشتراک نماد انجام شد؛ هنوز دریافت معامله معتبر تأیید نشده است. " 
+                        "تا رسیدن داده معتبر، کندل‌سازی و بررسی سیگنال انجام نمی‌شود."
                     ), 0
                 )
 
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
+                nonlocal connection_trade_seen
                 received_messages += 1
                 # This socket is a market-wide broadcast. Parse each event's
                 # own symbol first: activity in any market proves the socket is
@@ -1746,6 +1748,17 @@ class FuturesAnalyzerApp(App):
                 # liveness. Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
+                if not connection_trade_seen:
+                    connection_trade_seen = True
+                    first_status = (
+                        "اولین معامله معتبر از جریان عمومی دریافت شد؛ اتصال داده زنده تأیید شد. "
+                        "اکنون منتظر معامله نماد انتخاب‌شده {} هستیم."
+                    ).format(symbol) if parsed.get("symbol") != symbol else (
+                        "اولین معامله معتبر نماد {} دریافت شد؛ در حال ساخت کندل‌های پیوسته یک‌دقیقه‌ای."
+                    ).format(symbol)
+                    Clock.schedule_once(
+                        lambda dt, value=first_status: self.update_auto_status(value), 0
+                    )
                 if parsed.get("symbol") != symbol:
                     now = time.monotonic()
                     if now - last_status_update >= 10:
