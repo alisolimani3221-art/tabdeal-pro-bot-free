@@ -63,6 +63,7 @@ class TabdealApiContractTests(unittest.TestCase):
         workflow = self.read(".github/workflows/android.yml")
         self.assertIn("Read-only Tabdeal trade broadcast probe", workflow)
         self.assertIn("continue-on-error: true", workflow)
+        self.assertIn('probe_broadcast(symbol="BTC_USDT", timeout_seconds=60)', workflow)
         self.assertIn("trade-stream-probe-report.json", workflow)
         self.assertIn("Upload redacted trade-stream probe report", workflow)
 
