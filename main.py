@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.42"
+APP_VERSION = "1.43"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1451,7 +1451,7 @@ class FuturesAnalyzerApp(App):
         initial_status = (
             "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\n"
             "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\n"
-            "برای تحلیل معتبر، حداقل ۲۰ کندل یک‌دقیقه‌ای بسته‌شده لازم است؛ آماده‌سازی اولیه حدود ۲۰ تا ۲۱ دقیقه طول می‌کشد.\n"
+            "برای تحلیل معتبر، حداقل ۲۰ کندل بسته‌شده ۱۵ثانیه‌ای لازم است؛ آماده‌سازی اولیه حدود ۵ دقیقه و ۱۵ ثانیه طول می‌کشد.\n"
             "بعد از آماده‌سازی هم فقط با سیگنال معتبر معامله مجازی باز می‌شود؛ سیگنال یا سود تضمین‌شده نیست.\n"
             "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\n"
             "هیچ سفارش واقعی ارسال نمی‌شود."
@@ -1548,7 +1548,7 @@ class FuturesAnalyzerApp(App):
                 builder = previous_builder
                 builder.reset_after_reconnect()
             else:
-                builder = TradeCandleBuilder(symbol)
+                builder = TradeCandleBuilder(symbol, interval_ms=15_000)
             state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
@@ -1754,7 +1754,7 @@ class FuturesAnalyzerApp(App):
                         "اولین معامله معتبر از جریان عمومی دریافت شد؛ اتصال داده زنده تأیید شد. "
                         "اکنون منتظر معامله نماد انتخاب‌شده {} هستیم."
                     ).format(symbol) if parsed.get("symbol") != symbol else (
-                        "اولین معامله معتبر نماد {} دریافت شد؛ در حال ساخت کندل‌های پیوسته یک‌دقیقه‌ای."
+                        "اولین معامله معتبر نماد {} دریافت شد؛ در حال ساخت کندل‌های پیوسته ۱۵ثانیه‌ای."
                     ).format(symbol)
                     Clock.schedule_once(
                         lambda dt, value=first_status: self.update_auto_status(value), 0
@@ -1831,7 +1831,7 @@ class FuturesAnalyzerApp(App):
                     tick_event = engine.process_tick(symbol, parsed["price"])
                     if tick_event:
                         self._persist_paper_engine_state(engine)
-                        last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
+                        last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % builder.interval_ms
                         trade = tick_event["trade"]
                         tick_message = "خروج حفاظتی معامله آزمایشی: {}؛ سود/زیان خالص={:.4f} USDT.".format(trade["reason"], trade["net_pnl"])
                         if tick_event["halted"]:
@@ -1860,7 +1860,7 @@ class FuturesAnalyzerApp(App):
                 current_bucket = (builder.current or {}).get("open_time")
                 if builder.is_ready and current_bucket is not None and builder.closed:
                     try:
-                        technical = analyze_klines(builder.candles_for_analysis())
+                        technical = analyze_klines(builder.candles_for_analysis(), interval_ms=builder.interval_ms)
                         technical["symbol"] = symbol
                         technical = prepare_live_market_snapshot(technical, parsed["price"])
                         technical["candle_open_time"] = int(builder.closed[-1][0])
