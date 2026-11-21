@@ -402,6 +402,8 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.diagnostics_button)
         self.last_diagnostic_results = {}
         self.last_diagnostic_time = "هنوز اجرا نشده"
+        self.ai_font_loaded = bool(FONT_PATH)
+        self.ai_font_error = str(FONT_LOAD_ERROR or "")
         self.check_in_progress = False
 
         self.auto_trader_button = Button(
