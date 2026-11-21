@@ -66,11 +66,12 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn("trade-stream-probe-report.json", workflow)
         self.assertIn("Upload redacted trade-stream probe report", workflow)
 
-    def test_public_trade_probe_uses_broadcast_protocol_without_subscription_payload(self):
+    def test_public_trade_probe_uses_plain_text_symbol_subscription(self):
         source = self.read("trade_stream_probe.py")
         self.assertIn("BROADCAST_URL", source)
-        self.assertIn("without a stream name or payload", source)
-        self.assertNotIn("ws.send(symbol)", source)
+        self.assertIn("ws.send(symbol)", source)
+        app_source = self.read("main.py")
+        self.assertIn("ws.send(symbol)", app_source)
         self.assertNotIn("api_secret", source.lower())
         self.assertNotIn("api_key", source.lower())
         self.assertNotIn("new_order", source.lower())
