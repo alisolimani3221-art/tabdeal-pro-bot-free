@@ -43,6 +43,7 @@ from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from openai_assistant import analyze_with_openai
+from ai_diagnostics import build_ai_diagnostic_context
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -960,27 +961,9 @@ class FuturesAnalyzerApp(App):
             if not api_key or not prompt:
                 result.text = assistant_rtl_text("کلید API و متن درخواست را وارد کنید.")
                 return
-            # Send only bounded, non-secret diagnostic data. Never include API keys,
-            # API secrets, credential-store contents, or order-control callbacks.
-            account_label = getattr(self, "account_summary", None)
-            account_text = getattr(account_label, "text", "") if account_label is not None else ""
-            technical = getattr(self, "latest_technical_analysis", None)
-            context = {
-                "app_version": APP_VERSION,
-                "selected_symbol": getattr(self, "current_symbol", "نامشخص"),
-                "diagnostics": getattr(self, "last_diagnostic_results", {}),
-                "diagnostic_time": getattr(self, "last_diagnostic_time", "نامشخص"),
-                "market_snapshot": getattr(self, "last_market_snapshot", None),
-                "account_summary": str(account_text)[:3000],
-                "technical_analysis": technical if isinstance(technical, dict) else None,
-                "worker_status": str(getattr(self, "auto_worker_status", ""))[:1200],
-                "worker_status_time": str(getattr(self, "auto_worker_status_time", ""))[:80],
-                "access_mode": "read_only",
-                "permissions": ["read app diagnostics", "read selected market snapshot",
-                                "read displayed account summary"],
-                "restrictions": ["no settings changes", "no trading", "no order placement",
-                                 "no order cancellation", "no credential access"]
-            }
+            # Build a strict allow-listed context. Account summaries, balances, positions,
+            # orders, API keys/secrets and credential-store contents are never sent.
+            context = build_ai_diagnostic_context(self)
             send_button.disabled = True
             result.text = assistant_rtl_text("در حال اتصال به OpenAI...")
 
