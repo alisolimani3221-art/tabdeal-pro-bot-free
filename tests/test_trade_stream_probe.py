@@ -169,6 +169,20 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(parse_trade_message(json.dumps(other), "AEVO_USDT")["reason"],
                          "symbol_mismatch")
 
+    def test_broadcast_parser_preserves_other_market_symbol_for_local_filtering(self):
+        payload = {"trade": {"symbol": "ETH_USDT", "price": "100",
+                             "quantity": "1", "timestamp": 1700000000}}
+        result = parse_trade_message(json.dumps(payload))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["symbol"], "ETH_USDT")
+
+    def test_broadcast_parser_rejects_trade_without_explicit_symbol(self):
+        payload = {"trade": {"price": "100", "quantity": "1",
+                             "timestamp": 1700000000}}
+        result = parse_trade_message(json.dumps(payload))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "missing_symbol")
+
     def test_symbol_comparison_is_case_insensitive(self):
         payload = {"trade": {"symbol": "aevo_usdt", "price": "1",
                              "quantity": "1", "timestamp": 1700000000}}
