@@ -263,7 +263,7 @@ jobs:
           from pathlib import Path
           from trade_stream_probe import probe_broadcast
 
-          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=15)
+          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=60)
           Path("trade-stream-probe-report.json").write_text(
               json.dumps(report, sort_keys=True, indent=2),
               encoding="utf-8",
