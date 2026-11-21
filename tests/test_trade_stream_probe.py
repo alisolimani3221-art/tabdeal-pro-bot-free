@@ -51,7 +51,9 @@ class TradeStreamProbeTests(unittest.TestCase):
                                  "invalid_expected_symbol")
 
     def test_unknown_schema_is_not_guessed(self):
-        result = parse_trade_message('{"trade":{"foo":"bar"}}', "AEVO_USDT")
+        result = parse_trade_message(
+            '{"trade":{"symbol":"AEVO_USDT","foo":"bar"}}', "AEVO_USDT"
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason"], "trade_schema_unrecognized")
 
