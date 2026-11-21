@@ -1508,7 +1508,13 @@ class FuturesAnalyzerApp(App):
         temporary_path = state_path + ".tmp"
         # Serialize snapshots and atomic replacement across the scan and stop
         # threads so a late pre-stop write cannot overwrite the halted state.
-        with self.paper_state_lock:
+        state_lock = getattr(self, "paper_state_lock", None)
+        if state_lock is None:
+            # Keep lightweight lifecycle harnesses and defensive recovery paths
+            # compatible; the real app creates this lock during initialization.
+            state_lock = threading.RLock()
+            self.paper_state_lock = state_lock
+        with state_lock:
             with open(temporary_path, "w", encoding="utf-8") as state_file:
                 json.dump(engine.export_state(), state_file, ensure_ascii=False,
                           allow_nan=False, separators=(",", ":"))
