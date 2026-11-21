@@ -20,7 +20,8 @@ APP_CLASS = next(
     if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
 )
 METHOD_NAMES = {
-    "on_start", "on_stop", "_stop_auto_worker", "start_auto_paper_trader"
+    "on_start", "on_stop", "_stop_auto_worker", "start_auto_paper_trader",
+    "stop_auto_paper_trader"
 }
 METHOD_NODES = [
     node for node in APP_CLASS.body
@@ -47,6 +48,7 @@ class LifecycleHarness:
     on_stop = LIFECYCLE_GLOBALS["on_stop"]
     _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
+    stop_auto_paper_trader = LIFECYCLE_GLOBALS["stop_auto_paper_trader"]
 
     def __init__(self, user_data_dir):
         self.user_data_dir = user_data_dir
@@ -140,6 +142,38 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         app.update_auto_status.assert_called_once()
         self.assertIn("شروع شبیه‌ساز مسدود شد", app.update_auto_status.call_args.args[0])
         self.assertIsNone(app.auto_trader_thread)
+
+
+    def test_emergency_stop_closes_engine_and_persists_durable_halt(self):
+        app = LifecycleHarness(self.temp.name)
+        app._stop_auto_worker = Mock(return_value=True)
+        app.coordinator_session = Mock()
+        app.auto_engine = Mock()
+        app.auto_engine.emergency_close.return_value = {
+            "event": "STOPPED", "trade": None
+        }
+
+        app.stop_auto_paper_trader()
+
+        app._stop_auto_worker.assert_called_once_with(timeout=3.0)
+        app.coordinator_session.emergency_stop.assert_called_once_with(
+            "operator emergency stop"
+        )
+        app.auto_engine.emergency_close.assert_called_once_with()
+        self.assertTrue(app._paper_emergency_latched)
+        self.assertIn("توقف اضطراری فعال شد", app.update_auto_status.call_args.args[0])
+
+    def test_emergency_stop_does_not_claim_success_when_worker_is_stuck(self):
+        app = LifecycleHarness(self.temp.name)
+        app._stop_auto_worker = Mock(return_value=False)
+        app.coordinator_session = Mock()
+        app.auto_engine = Mock()
+
+        app.stop_auto_paper_trader()
+
+        app.coordinator_session.emergency_stop.assert_not_called()
+        app.auto_engine.emergency_close.assert_not_called()
+        self.assertIn("پایان کامل رشته", app.update_auto_status.call_args.args[0])
 
     def test_persisted_state_is_readable_after_clean_restart(self):
         app = LifecycleHarness(self.temp.name)
