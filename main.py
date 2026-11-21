@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.41"
+APP_VERSION = "1.44"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -42,6 +42,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from openai_assistant import analyze_with_openai
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -374,6 +375,14 @@ class FuturesAnalyzerApp(App):
         self.smart_analysis_button.bind(on_press=self.open_smart_analysis)
 
         content.add_widget(self.smart_analysis_button)
+
+        self.openai_assistant_button = Button(
+            markup=True, text=fa("اتصال به هوش مصنوعی OpenAI"), font_name=FONT_NAME,
+            font_size=sp(16), size_hint_y=None, height=dp(50),
+            background_normal="", background_color=(0.18, 0.34, 0.48, 1),
+            color=(1, 1, 1, 1))
+        self.openai_assistant_button.bind(on_press=self.open_openai_assistant)
+        content.add_widget(self.openai_assistant_button)
         self.latest_technical_analysis = None
         content.add_widget(self.analysis_metrics)
 
@@ -879,6 +888,91 @@ class FuturesAnalyzerApp(App):
                       size_hint=(0.88, 0.42))
         close_button.bind(on_press=popup.dismiss)
         body.add_widget(close_button)
+        popup.open()
+
+    def open_openai_assistant(self, instance):
+        """Read-only OpenAI assistant. API key is kept in this popup session only."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        key_label = self.make_label("کلید API اوپن‌ای‌آی (فقط در همین نشست؛ ذخیره نمی‌شود)", size=13, height=dp(36))
+        body.add_widget(key_label)
+        key_input = TextInput(
+            multiline=False, password=True, hint_text="sk-...",
+            font_name=NUMERIC_FONT_NAME, font_size=sp(14),
+            base_direction="ltr", text_language="en", halign="left",
+            size_hint_y=None, height=dp(46))
+        body.add_widget(key_input)
+        prompt_label = self.make_label("پیام یا درخواست شما", size=13, height=dp(30))
+        prompt_label.halign = "right"
+        body.add_widget(prompt_label)
+        prompt_input = TextInput(
+            text="وضعیت فعلی برنامه و بازار را بررسی کن و فقط ایرادها و پیشنهادهای اصلاحی را گزارش بده.",
+            multiline=True, font_name=FONT_NAME, font_size=sp(14),
+            base_direction="rtl", text_language="ar", halign="right",
+            padding=[dp(10), dp(10), dp(10), dp(10)],
+            size_hint_y=None, height=dp(112))
+        body.add_widget(prompt_input)
+        # Render model output as plain text; never interpret model text as Kivy markup.
+        # Shape and resolve bidi exactly once, then keep Kivy's base direction neutral.
+        result = Label(
+            text=assistant_rtl_text("اتصال برقرار نشده است."),
+            font_name=FONT_NAME, font_size=sp(13), markup=False,
+            color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
+            halign="right", valign="top",
+            base_direction="ltr", text_language="ar",
+        )
+        result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
+        body.add_widget(result)
+        controls = BoxLayout(orientation="horizontal", spacing=dp(8),
+                             size_hint_y=None, height=dp(48))
+        send_button = Button(markup=True, text=fa("اتصال و ارسال"),
+                             font_name=FONT_NAME, font_size=sp(14))
+        close_button = Button(markup=True, text=fa("بستن"),
+                              font_name=FONT_NAME, font_size=sp(14))
+        controls.add_widget(send_button)
+        controls.add_widget(close_button)
+        body.add_widget(controls)
+        popup = Popup(title=fa_plain("مرکز هوش مصنوعی OpenAI"),
+                      title_font=FONT_NAME, content=body, size_hint=(0.95, 0.90))
+
+        def send_request(_button):
+            api_key = key_input.text.strip()
+            prompt = prompt_input.text.strip()
+            if not api_key or not prompt:
+                result.text = assistant_rtl_text("کلید API و متن درخواست را وارد کنید.")
+                return
+            context = {
+                "app_version": APP_VERSION,
+                "selected_symbol": getattr(self, "current_symbol", "نامشخص"),
+                "diagnostics": getattr(self, "last_diagnostic_results", {}),
+                "diagnostic_time": getattr(self, "last_diagnostic_time", "نامشخص"),
+                "access_mode": "read_only",
+                "permissions": ["read app diagnostics", "read selected market symbol"],
+                "restrictions": ["no settings changes", "no trading", "no order placement"]
+            }
+            send_button.disabled = True
+            result.text = assistant_rtl_text("در حال اتصال به OpenAI...")
+            def worker():
+                try:
+                    answer = analyze_with_openai(api_key, prompt, context)
+                    message = answer
+                except Exception as exc:
+                    message = "خطا در ارتباط با OpenAI: {}: {}".format(
+                        type(exc).__name__, str(exc)[:240])
+                Clock.schedule_once(
+                    lambda _dt, value=message: (
+                        setattr(result, "text", assistant_rtl_text(value)),
+                        setattr(send_button, "disabled", False)
+                    ), 0)
+            threading.Thread(target=worker, daemon=True).start()
+
+        send_button.bind(on_press=send_request)
+        def close_popup(_button):
+            # Clear the credential from the closed popup widget.
+            key_input.text = ""
+            popup.dismiss()
+
+        close_button.bind(on_press=close_popup)
+        popup.bind(on_dismiss=lambda *_args: setattr(key_input, "text", ""))
         popup.open()
 
     def open_smart_analysis(self, instance):
@@ -1650,7 +1744,8 @@ class FuturesAnalyzerApp(App):
             return
 
         last_processed_bucket = None
-        last_scan_monotonic = 0.0
+        scan_state_lock = threading.Lock()
+        scan_state = {"technical": None, "received_at": 0.0}
         last_progress_count = -1
         last_status_update = 0.0
         received_messages = 0
@@ -1677,7 +1772,11 @@ class FuturesAnalyzerApp(App):
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
-                ws.send(symbol)
+                # Tabdeal's official FutureBroadcastWebsocketClient connects to
+                # this broadcast endpoint without a subscription payload. Sending
+                # the bare symbol here is not part of the documented protocol and
+                # can be interpreted as an invalid control message. The broadcast
+                # carries trade.symbol; filter it locally in parse_trade_message.
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
@@ -1686,10 +1785,13 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_message(ws, message):
-                nonlocal last_processed_bucket, last_scan_monotonic, last_progress_count
+                nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
                 received_messages += 1
-                parsed = parse_trade_message(message, expected_symbol=symbol)
+                # This socket is a market-wide broadcast. Parse each event's
+                # own symbol first: activity in any market proves the socket is
+                # alive, even when the selected low-volume symbol has no trade.
+                parsed = parse_trade_message(message)
                 if self.auto_stop_event.is_set():
                     return
                 if not parsed.get("ok"):
@@ -1707,8 +1809,22 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 valid_messages += 1
-                # Reset backoff only after real, validated exchange data arrives.
+                # Any fully validated broadcast trade refreshes transport
+                # liveness. Only the selected symbol may enter its candle builder.
+                stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
+                if parsed.get("symbol") != symbol:
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "جریان عمومی بازار زنده است؛ پیام معتبر از نمادهای دیگر دریافت می‌شود. "
+                            "هنوز معامله تازه‌ای برای {} نرسیده؛ کندل‌سازی و ورود با قیمت کهنه انجام نمی‌شود."
+                        ).format(symbol)
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
+                    return
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     now = time.monotonic()
@@ -1723,8 +1839,6 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
-                # A validated, accepted trade refreshes the stream-silence watchdog.
-                stream_watchdog.mark_valid_trade()
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
                 if not update.get("ready"):
@@ -1795,84 +1909,27 @@ class FuturesAnalyzerApp(App):
                     Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
                     return
+                # Build a fresh immutable scan snapshot on the websocket thread.
+                # The independent scheduler below consumes it every 15 seconds.
                 current_bucket = (builder.current or {}).get("open_time")
-                scan_now = time.monotonic()
-                # Re-evaluate a fresh snapshot every 15 seconds, even while the
-                # current one-minute candle is forming. Entry idempotency is
-                # persisted separately by the paper engine.
-                if (not builder.is_ready or current_bucket is None
-                        or scan_now - last_scan_monotonic < 15.0):
-                    return
-                try:
-                    technical = analyze_klines(builder.candles_for_analysis())
-                    technical["symbol"] = symbol
-                    # Keep indicators tied to closed candles, but use the latest
-                    # validated trade for realistic paper entry and live marking.
-                    # Do not reuse the previous candle's pre-entry high/low range.
-                    technical = prepare_live_market_snapshot(technical, parsed["price"])
-                    # Key entries to the exact closed candle that produced the signal.
-                    if not builder.closed:
-                        return
-                    technical["candle_open_time"] = int(builder.closed[-1][0])
-                    Clock.schedule_once(
-                        lambda dt, value=dict(technical): self.update_technical_labels(value), 0
-                    )
-                    if self.auto_stop_event.is_set():
-                        return
-                    result = engine.process_scan([technical])
+                if builder.is_ready and current_bucket is not None and builder.closed:
                     try:
-                        self._persist_paper_engine_state(engine)
-                    except Exception as persist_exc:
-                        try:
-                            engine.emergency_close()
-                            self._persist_paper_engine_state(engine)
-                        except Exception:
-                            pass
-                        self.auto_stop_event.set()
-                        try:
-                            ws.close()
-                        except Exception:
-                            pass
-                        Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
-                            "ذخیره وضعیت موتور ناموفق بود؛ توقف اضطراری فعال شد: " + value), 0)
-                        return
-                    last_processed_bucket = current_bucket
-                    last_scan_monotonic = time.monotonic()
-                    events = result.get("events", [])
-                    event_text = ""
-                    if events:
-                        event = events[-1]
-                        if event.get("event") == "OPENED":
-                            pos = event["position"]
-                            event_text = (                                "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
-                            ).format(pos["symbol"], "خرید" if pos["side"] == "BULLISH" else "فروش",
-                                     pos["stop"], pos["target"], pos["leverage"])
-                        elif event.get("event") == "CLOSED":
-                            trade = event["trade"]
-                            event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
-                                trade["reason"], trade["net_pnl"]
-                            )
-                    if result.get("halted"):
-                        event_text += " سقف زیان تجمعی فعال شد؛ موتور متوقف است."
-                        self.auto_stop_event.set()
-                        ws.close()
-                    message_text = (
-                        "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g}\n"
-                        "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
-                        "وضعیت ورود: {}\n"
-                        "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
-                    ).format(symbol, technical["signal"], technical["price"],
-                             builder.status()["closed_candles"], result["equity"],
-                             result["closed_trades"], diagnose_signal(technical), event_text)
-                    Clock.schedule_once(
-                        lambda dt, value=message_text: self.update_auto_status(value), 0
-                    )
-                except Exception as exc:
-                    Clock.schedule_once(
-                        lambda dt, value=type(exc).__name__: self.update_auto_status(
-                            "تحلیل کندل انجام نشد؛ شبیه‌ساز تا داده معتبر بعدی معامله‌ای باز نمی‌کند. علت: " + value
-                        ), 0
-                    )
+                        technical = analyze_klines(builder.candles_for_analysis())
+                        technical["symbol"] = symbol
+                        technical = prepare_live_market_snapshot(technical, parsed["price"])
+                        technical["candle_open_time"] = int(builder.closed[-1][0])
+                        with scan_state_lock:
+                            scan_state["technical"] = dict(technical)
+                            scan_state["received_at"] = time.monotonic()
+                        Clock.schedule_once(
+                            lambda dt, value=dict(technical): self.update_technical_labels(value), 0
+                        )
+                    except Exception as snapshot_exc:
+                        Clock.schedule_once(
+                            lambda dt, value=type(snapshot_exc).__name__: self.update_auto_status(
+                                "ساخت تصویر تحلیلی ناموفق بود؛ ورود تا داده معتبر بعدی مسدود است: " + value
+                            ), 0
+                        )
 
             def on_error(ws, error):
                 detail = "{}: {}".format(type(error).__name__, str(error)[:140])
@@ -1892,6 +1949,96 @@ class FuturesAnalyzerApp(App):
                             "جریان معاملات بسته شد؛ اتصال مجدد انجام می‌شود. " + value
                         ), 0
                     )
+
+            scan_stop = threading.Event()
+
+            def periodic_paper_scan():
+                """Run scans independently of websocket callbacks, using only fresh snapshots."""
+                last_scan = 0.0
+                last_stale_notice = 0.0
+                while not scan_stop.wait(1.0):
+                    if self.auto_stop_event.is_set():
+                        return
+                    now = time.monotonic()
+                    if now - last_scan < 15.0:
+                        continue
+                    with scan_state_lock:
+                        technical = dict(scan_state["technical"]) if scan_state["technical"] else None
+                        received_at = float(scan_state["received_at"])
+                    if technical is None:
+                        continue
+                    age = now - received_at
+                    # Never open or manage a new position from an old market snapshot.
+                    if age > 30.0:
+                        if now - last_stale_notice >= 15.0:
+                            last_stale_notice = now
+                            Clock.schedule_once(
+                                lambda dt, seconds=age: self.update_auto_status(
+                                    "بررسی سیگنال به‌دلیل کهنگی داده متوقف شد؛ آخرین قیمت {} ثانیه قبل دریافت شده است. "
+                                    "تا داده تازه برسد معامله‌ای باز نمی‌شود.".format(int(seconds))
+                                ), 0
+                            )
+                        continue
+                    try:
+                        if self.auto_stop_event.is_set():
+                            return
+                        result = engine.process_scan([technical])
+                        self._persist_paper_engine_state(engine)
+                        last_scan = time.monotonic()
+                        events = result.get("events", [])
+                        event_text = ""
+                        if events:
+                            event = events[-1]
+                            if event.get("event") == "OPENED":
+                                pos = event["position"]
+                                event_text = (
+                                    "معامله مجازی باز شد: {} {}؛ حد ضرر: {:.8g}؛ حد سود: {:.8g}؛ اهرم: {}x."
+                                ).format(pos["symbol"], "خرید" if pos["side"] == "BULLISH" else "فروش",
+                                         pos["stop"], pos["target"], pos["leverage"])
+                            elif event.get("event") == "CLOSED":
+                                trade = event["trade"]
+                                event_text = "معامله مجازی بسته شد: علت={}؛ سود/زیان خالص={:.4f} USDT.".format(
+                                    trade["reason"], trade["net_pnl"]
+                                )
+                        if result.get("halted"):
+                            event_text += " سقف زیان تجمعی فعال شد؛ موتور متوقف است."
+                            self.auto_stop_event.set()
+                            try:
+                                app.close()
+                            except Exception:
+                                pass
+                        message_text = (
+                            "شبیه‌ساز فعال | {}\\nسیگنال آخر: {} | قیمت: {:.8g}\\n"
+                            "آخرین داده: {:.0f} ثانیه قبل | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\\n"
+                            "وضعیت ورود: {}\\nحداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\\n{}"
+                        ).format(symbol, technical["signal"], technical["price"], age,
+                                 result["equity"], result["closed_trades"],
+                                 diagnose_signal(technical), event_text)
+                        Clock.schedule_once(
+                            lambda dt, value=message_text: self.update_auto_status(value), 0
+                        )
+                    except Exception as scan_exc:
+                        try:
+                            engine.emergency_close()
+                            self._persist_paper_engine_state(engine)
+                        except Exception:
+                            pass
+                        self.auto_stop_event.set()
+                        try:
+                            app.close()
+                        except Exception:
+                            pass
+                        Clock.schedule_once(
+                            lambda dt, value=type(scan_exc).__name__: self.update_auto_status(
+                                "خطای بررسی دوره‌ای؛ موتور برای ایمنی متوقف شد: " + value
+                            ), 0
+                        )
+                        return
+
+            scan_thread = threading.Thread(
+                target=periodic_paper_scan, daemon=True
+            )
+            scan_thread.start()
 
             app = websocket.WebSocketApp(
                 BROADCAST_URL, on_open=on_open, on_message=on_message,
@@ -1941,6 +2088,8 @@ class FuturesAnalyzerApp(App):
                     ), 0
                 )
             finally:
+                scan_stop.set()
+                scan_thread.join(timeout=2.0)
                 watchdog_stop.set()
                 watchdog_thread.join(timeout=1.0)
                 self.auto_ws = None
