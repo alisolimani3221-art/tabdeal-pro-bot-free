@@ -51,7 +51,7 @@ def rank_signal(technical):
     return {"symbol": symbol, "side": signal,
             "price": price, "atr": atr, "rsi": rsi,
             "volatility_pct": volatility_pct, "score": score,
-            "signal_key": technical.get("signal_key")}
+            "signal_key": technical.get("signal_key"),\n            "entry_price": (_positive(technical.get("mark_price"), "mark_price")\n                            if technical.get("mark_price") is not None else price)}
 
 
 class PaperTradingEngine:
