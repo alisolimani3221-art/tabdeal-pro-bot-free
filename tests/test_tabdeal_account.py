@@ -98,6 +98,18 @@ class TabdealAccountTests(unittest.TestCase):
             _signed_get("/v3/account", "key", "secret", session=session)
         self.assertTrue(response.closed)
 
+    def test_tabdeal_code_1300_name_error_is_reported_as_server_internal_error(self):
+        response = FakeResponse({
+            "code": 1300,
+            "msg": "name 'market' is not defined",
+        })
+        session = FakeSession([response])
+        with self.assertRaisesRegex(
+            RuntimeError, "Tabdeal server internal error.*undefined market variable"
+        ):
+            _signed_get("/v3/account", "key", "secret", session=session)
+        self.assertTrue(response.closed)
+
     def test_account_reader_rejects_missing_wallet_fields(self):
         session = FakeSession([
             FakeResponse({"availableBalance": "10"}),
