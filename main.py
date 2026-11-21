@@ -1265,8 +1265,10 @@ class FuturesAnalyzerApp(App):
             "دفتر سفارش: " + depth_status,
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
-            "معامله‌گر آزمایشی: " + ("RUNNING" if auto_running else "STOPPED"),
-            "آخرین بررسی: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
+            "رشته پس‌زمینه معامله‌گر: " + ("ALIVE (سلامت جریان تأیید نشده)" if auto_running else "STOPPED"),
+            "آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status", "هنوز گزارشی از موتور ثبت نشده"))[:240],
+            "زمان آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status_time", "نامشخص")),
+            "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
@@ -1974,6 +1976,10 @@ class FuturesAnalyzerApp(App):
                      technical["rsi14"], technical["atr14"])
 
     def update_auto_status(self, message):
+        # Keep the actual worker phase for diagnostics. A live Python thread
+        # alone does not prove that the exchange stream is connected or healthy.
+        self.auto_worker_status = str(message)
+        self.auto_worker_status_time = time.strftime("%Y-%m-%d %H:%M:%S")
         label = getattr(self, "auto_status_label", None)
         if label is not None:
             label.text = assistant_rtl_text(message)
