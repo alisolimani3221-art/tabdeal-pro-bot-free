@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 
-class OpenAIAssistantUiTests(unittest.TestCase):
+class ChatGPTDiagnosticsShareTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = Path("main.py").read_text(encoding="utf-8")
@@ -14,39 +14,34 @@ class OpenAIAssistantUiTests(unittest.TestCase):
             and node.name == "open_openai_assistant"
         )
         cls.method_source = ast.get_source_segment(cls.source, cls.method)
+        cls.helper = Path("chatgpt_share.py").read_text(encoding="utf-8")
 
-    def test_openai_assistant_is_wired_into_android_app(self):
-        imported_modules = {
-            node.module.split(".")[0]
-            for node in ast.walk(self.module)
-            if isinstance(node, ast.ImportFrom) and node.module
-        } | {
-            alias.name.split(".")[0]
-            for node in ast.walk(self.module)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-        }
-        self.assertIn("openai_assistant", imported_modules)
-        self.assertIn("open_openai_assistant", {
-            node.name for node in ast.walk(self.module)
-            if isinstance(node, ast.FunctionDef)
-        })
+    def test_chatgpt_share_button_is_wired(self):
+        self.assertIn("open_openai_assistant", self.source)
+        self.assertIn("ارسال گزارش عیب‌یابی به ChatGPT", self.source)
+        self.assertIn("share_diagnostics_to_chatgpt(report)", self.method_source)
 
-    def test_assistant_output_is_plain_text_and_shaped_once(self):
-        self.assertIn("markup=False", self.method_source)
-        self.assertIn("assistant_rtl_text(value)", self.method_source)
-        self.assertNotIn('result.text = fa(', self.method_source)
-        self.assertNotIn('setattr(result, "text", fa(value))', self.method_source)
+    def test_report_is_read_only_and_excludes_credentials(self):
+        self.assertIn("Access mode: read-only", self.method_source)
+        self.assertIn("API keys, API secrets", self.method_source)
+        self.assertIn("balances, positions, orders", self.method_source)
+        self.assertNotIn("CredentialStore", self.method_source)
+        self.assertNotIn("api_secret", self.method_source.lower())
 
-    def test_api_key_is_cleared_when_popup_closes(self):
-        self.assertIn('key_input.text = ""', self.method_source)
-        self.assertIn('popup.bind(on_dismiss=', self.method_source)
-        self.assertIn('password=True', self.method_source)
+    def test_share_uses_android_chooser_and_user_confirmation(self):
+        self.assertIn("Intent.ACTION_SEND", self.helper)
+        self.assertIn("Intent.createChooser", self.helper)
+        self.assertIn("activity.startActivity(chooser)", self.helper)
+        self.assertIn("user chooses ChatGPT", self.helper)
 
-    def test_assistant_remains_read_only(self):
-        self.assertIn('"access_mode": "read_only"', self.method_source)
-        self.assertIn('"no trading"', self.method_source)
-        self.assertIn('"no order placement"', self.method_source)
+    def test_manual_api_key_popup_is_removed(self):
+        self.assertNotIn("کلید API اوپن‌ای‌آی", self.method_source)
+        self.assertNotIn("key_input", self.method_source)
+        self.assertNotIn("analyze_with_openai", self.method_source)
+
+    def test_report_is_bounded_and_line_separated(self):
+        self.assertIn('[:240]', self.method_source)
+        self.assertIn('"\\n".join(lines)', self.method_source)
 
 
 if __name__ == "__main__":
