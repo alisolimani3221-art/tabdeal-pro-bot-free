@@ -1719,6 +1719,16 @@ class FuturesAnalyzerApp(App):
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
                 if parsed.get("symbol") != symbol:
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "جریان عمومی بازار زنده است؛ پیام معتبر از نمادهای دیگر دریافت می‌شود. "
+                            "هنوز معامله تازه‌ای برای {} نرسیده؛ کندل‌سازی و ورود با قیمت کهنه انجام نمی‌شود."
+                        ).format(symbol)
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
                     return
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
