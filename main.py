@@ -892,7 +892,7 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def open_openai_assistant(self, instance):
-        """Read-only OpenAI assistant with explicit Persian RTL layout."""
+        """Multi-turn ChatGPT conversation with a session-only key and read-only app context."""
         body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(9))
 
         key_label = self.make_label(
@@ -902,7 +902,7 @@ class FuturesAnalyzerApp(App):
         key_label.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         body.add_widget(key_label)
 
-        # API credentials are Latin text and must remain left-to-right.
+        # API credentials are Latin text and remain left-to-right.
         key_input = TextInput(
             multiline=False, password=True, hint_text="sk-...",
             font_name=NUMERIC_FONT_NAME, font_size=sp(14),
@@ -910,87 +910,108 @@ class FuturesAnalyzerApp(App):
             size_hint_y=None, height=dp(46))
         body.add_widget(key_input)
 
-        prompt_label = self.make_label("پیام یا درخواست شما", size=13, height=dp(30))
-        prompt_label.halign = "right"
-        prompt_label.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
-        body.add_widget(prompt_label)
-
-        prompt_input = TextInput(
-            text="وضعیت فعلی برنامه و بازار را بررسی کن و فقط ایرادها و پیشنهادهای اصلاحی را گزارش بده.",
-            multiline=True, font_name=FONT_NAME, font_size=sp(14),
-            base_direction="rtl", text_language="ar", halign="right",
-            padding=[dp(10), dp(10), dp(10), dp(10)],
-            size_hint_y=None, height=dp(112))
-        body.add_widget(prompt_input)
-
-        # Shape and resolve bidi once. A neutral-direction Label prevents a second
-        # RTL pass; ScrollView keeps long Persian answers from being clipped.
+        chat_history = []
         result = Label(
-            text=assistant_rtl_text("هنوز پاسخی دریافت نشده است."),
+            text=assistant_rtl_text("سلام! من ChatGPT داخل Futures Analyzer هستم. پیام خود را بنویسید."),
             font_name=FONT_NAME, font_size=sp(13), markup=False,
-            color=(1, 1, 1, 1), size_hint_y=None, height=dp(72),
+            color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
             base_direction="ltr", text_language="ar",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
-            widget, "height", max(dp(72), size[1] + dp(12))))
+            widget, "height", max(dp(110), size[1] + dp(16))))
         result_scroll = ScrollView(
             do_scroll_x=False, do_scroll_y=True, bar_width=dp(4),
             size_hint=(1, 1))
         result_scroll.add_widget(result)
         body.add_widget(result_scroll)
 
+        prompt_label = self.make_label("پیام شما", size=13, height=dp(28))
+        prompt_label.halign = "right"
+        prompt_label.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
+        body.add_widget(prompt_label)
+        prompt_input = TextInput(
+            multiline=True, font_name=FONT_NAME, font_size=sp(14),
+            base_direction="rtl", text_language="ar", halign="right",
+            padding=[dp(10), dp(10), dp(10), dp(10)],
+            size_hint_y=None, height=dp(92))
+        body.add_widget(prompt_input)
+
         controls = BoxLayout(orientation="horizontal", spacing=dp(8),
                              size_hint_y=None, height=dp(48))
-        send_button = Button(markup=True, text=fa("اتصال و ارسال"),
+        send_button = Button(markup=True, text=fa("ارسال به ChatGPT"),
                              font_name=FONT_NAME, font_size=sp(14))
         close_button = Button(markup=True, text=fa("بستن"),
                               font_name=FONT_NAME, font_size=sp(14))
-        # In an RTL row, the first visual action belongs on the right.
         controls.add_widget(close_button)
         controls.add_widget(send_button)
         body.add_widget(controls)
 
-        popup = Popup(title=fa_plain("مرکز هوش مصنوعی OpenAI"),
-                      title_font=FONT_NAME, content=body, size_hint=(0.95, 0.90))
+        popup = Popup(title=fa_plain("گفت‌وگو با ChatGPT"),
+                      title_font=FONT_NAME, content=body, size_hint=(0.95, 0.92))
+
+        def render_chat():
+            lines = []
+            for item in chat_history:
+                label = "شما" if item["role"] == "user" else "ChatGPT"
+                lines.append(label + ":\n" + item["content"])
+            result.text = assistant_rtl_text("\n\n".join(lines))
+            Clock.schedule_once(lambda _dt: setattr(
+                result_scroll, "scroll_y", 0), 0)
 
         def send_request(_button):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = assistant_rtl_text("کلید API و متن درخواست را وارد کنید.")
+                result.text = assistant_rtl_text("کلید API و پیام خود را وارد کنید.")
                 return
-            # Build a strict allow-listed context. Account summaries, balances, positions,
-            # orders, API keys/secrets and credential-store contents are never sent.
+
+            # This context is allow-listed; account data, balances, positions,
+            # orders and credentials are never included in requests.
             context = build_ai_diagnostic_context(self)
+            history_snapshot = list(chat_history)
             send_button.disabled = True
-            result.text = assistant_rtl_text("در حال اتصال به OpenAI...")
+            send_button.text = fa("در حال دریافت پاسخ...")
+            prompt_input.disabled = True
 
             def worker():
                 try:
-                    answer = analyze_with_openai(api_key, prompt, context)
+                    answer = analyze_with_openai(
+                        api_key, prompt, context,
+                        conversation_history=history_snapshot)
+                    success = True
                     message = answer
                 except Exception as exc:
-                    message = "خطا در ارتباط با OpenAI: {}: {}".format(
+                    success = False
+                    message = "خطا در ارتباط با ChatGPT: {}: {}".format(
                         type(exc).__name__, str(exc)[:240])
-                Clock.schedule_once(
-                    lambda _dt, value=message: (
-                        setattr(result, "text", assistant_rtl_text(value)),
-                        setattr(send_button, "disabled", False)
-                    ), 0)
+
+                def finish(_dt):
+                    if success:
+                        chat_history.append({"role": "user", "content": prompt})
+                        chat_history.append({"role": "assistant", "content": message})
+                        prompt_input.text = ""
+                        render_chat()
+                    else:
+                        result.text = assistant_rtl_text(message)
+                    send_button.disabled = False
+                    send_button.text = fa("ارسال به ChatGPT")
+                    prompt_input.disabled = False
+
+                Clock.schedule_once(finish, 0)
 
             threading.Thread(target=worker, daemon=True).start()
 
         send_button.bind(on_press=send_request)
 
         def close_popup(_button):
-            # Clear the credential from the closed popup widget.
             key_input.text = ""
+            chat_history[:] = []
             popup.dismiss()
 
         close_button.bind(on_press=close_popup)
-        popup.bind(on_dismiss=lambda *_args: setattr(key_input, "text", ""))
+        popup.bind(on_dismiss=lambda *_: setattr(key_input, "text", ""))
         popup.open()
 
     def open_smart_analysis(self, instance):
