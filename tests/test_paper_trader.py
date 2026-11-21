@@ -91,6 +91,26 @@ class PaperTraderTests(unittest.TestCase):
         self.assertFalse(any(e["event"] == "OPENED" for e in result["events"]))
         self.assertIsNone(result["open_position"])
 
+    def test_same_signal_candle_does_not_reopen_after_intrabar_stop(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        candidate = dict(setup(), signal_key=12345)
+        engine.process_scan([candidate])
+        stopped = dict(setup(), signal_key=12345, candle_open=100.0,
+                       candle_high=101.0, candle_low=98.0)
+        result = engine.process_scan([stopped])
+        self.assertEqual(result["events"][0]["trade"]["reason"], "STOP")
+        self.assertIsNone(result["open_position"])
+        repeated = engine.process_scan([candidate])
+        self.assertFalse(any(event["event"] == "OPENED" for event in repeated["events"]))
+        self.assertIsNone(repeated["open_position"])
+
+    def test_entry_uses_live_mark_not_stale_closed_candle_price(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        candidate = dict(setup(), mark_price=101.0, signal_key=12345)
+        result = engine.process_scan([candidate])
+        self.assertEqual(result["events"][0]["event"], "OPENED")
+        self.assertAlmostEqual(result["open_position"]["entry"], 101.0)
+
     def test_entry_fee_does_not_consume_required_margin(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.01, slippage_rate=0)
         result = engine.process_scan([setup()])
