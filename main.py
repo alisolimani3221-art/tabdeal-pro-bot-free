@@ -1391,8 +1391,9 @@ class FuturesAnalyzerApp(App):
         self.auto_trader_thread.start()
         self.update_auto_status(
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
-            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
-            "تا تکمیل ۵۱ کندل بسته‌شده، هیچ سیگنال یا معامله آزمایشی ساخته نمی‌شود.".format(
+            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT.\n"
+            "مهلت نمایش وضعیت اتصال: ۵ ثانیه؛ این زمان، آماده‌شدن داده تحلیلی نیست.\n"
+            "تحلیل فقط پس از دریافت ۵۱ کندل بسته‌شده معتبر و پیوسته فعال می‌شود.".format(
                 self.capital_usdt
             )
         )
@@ -1563,8 +1564,28 @@ class FuturesAnalyzerApp(App):
         scan_thread.start()
 
         while not self.auto_stop_event.is_set():
+            connection_event = threading.Event()
+
+            def connection_wait_notice():
+                # Five seconds is only a connection-status checkpoint. It
+                # must never bypass the 51-closed-candle data-quality gate.
+                if not connection_event.is_set() and not self.auto_stop_event.is_set():
+                    Clock.schedule_once(
+                        lambda dt: self.update_auto_status(
+                            "اتصال هنوز در مهلت ۵ ثانیه‌ای تأیید نشده است؛ "
+                            "بررسی اتصال ادامه دارد. آماده‌سازی تحلیل جداگانه به "
+                            "۵۱ کندل بسته‌شده معتبر و پیوسته نیاز دارد."
+                        ), 0
+                    )
+
+            connection_timer = threading.Timer(5.0, connection_wait_notice)
+            connection_timer.daemon = True
+            connection_timer.start()
+
             def on_open(ws):
                 nonlocal connected_once
+                connection_event.set()
+                connection_timer.cancel()
                 with data_lock:
                     if connected_once:
                         builder.reset_after_gap()
@@ -1573,7 +1594,9 @@ class FuturesAnalyzerApp(App):
                 ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال جمع‌آوری معاملات برای ساخت کندل‌های یک‌دقیقه‌ای."
+                        "اتصال برقرار شد: " + symbol + ". "
+                        "اکنون فقط معاملات معتبر دریافت می‌شوند؛ تحلیل تا تکمیل "
+                        "۵۱ کندل بسته‌شده معتبر و پیوسته آماده نخواهد شد."
                     ), 0
                 )
 
@@ -1611,6 +1634,7 @@ class FuturesAnalyzerApp(App):
             except Exception:
                 pass
             finally:
+                connection_timer.cancel()
                 self.auto_ws = None
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
