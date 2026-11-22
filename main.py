@@ -943,7 +943,7 @@ class FuturesAnalyzerApp(App):
             # its RTL base-direction path is enabled on the Android SDL2
             # provider. Right alignment preserves the Persian input layout;
             # RTL shaping is applied only when rendering the conversation.
-            base_direction="ltr", text_language="ar", halign="right",
+            base_direction="ltr", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)
