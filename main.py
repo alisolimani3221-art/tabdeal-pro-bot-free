@@ -2018,16 +2018,24 @@ class FuturesAnalyzerApp(App):
                 """Run scans independently of websocket callbacks, using only fresh snapshots."""
                 last_scan = 0.0
                 last_stale_notice = 0.0
-                while not scan_stop.wait(1.0):
+                while not scan_stop.is_set():
                     if self.auto_stop_event.is_set():
                         return
+                    # Wait the remaining part of the five-second interval rather
+                    # than polling once per second (which made scans drift to 5–6s).
+                    if last_scan > 0.0:
+                        remaining = PAPER_SCAN_INTERVAL_SECONDS - (
+                            time.monotonic() - last_scan
+                        )
+                        if remaining > 0.0 and scan_stop.wait(remaining):
+                            return
                     now = time.monotonic()
-                    if not paper_scan_due(now, last_scan):
-                        continue
                     with scan_state_lock:
                         technical = dict(scan_state["technical"]) if scan_state["technical"] else None
                         received_at = float(scan_state["received_at"])
                     if technical is None:
+                        if scan_stop.wait(0.25):
+                            return
                         continue
                     age = now - received_at
                     # Never open or manage a new position from an old market snapshot.
@@ -2040,6 +2048,8 @@ class FuturesAnalyzerApp(App):
                                     "تا داده تازه برسد معامله‌ای باز نمی‌شود.".format(int(seconds))
                                 ), 0
                             )
+                        if scan_stop.wait(0.25):
+                            return
                         continue
                     try:
                         if self.auto_stop_event.is_set():
@@ -2097,16 +2107,20 @@ class FuturesAnalyzerApp(App):
                         )
                         return
 
-            scan_thread = threading.Thread(
-                target=periodic_paper_scan, daemon=True
-            )
-            scan_thread.start()
-
+            # Construct the socket before starting the scan worker. The worker
+            # may need to close it immediately on a persistence or scan failure.
+            # Starting the thread first created a race where app was not yet
+            # bound when the exception handler attempted app.close().
             app = websocket.WebSocketApp(
                 BROADCAST_URL, on_open=on_open, on_message=on_message,
                 on_error=on_error, on_close=on_close,
             )
             self.auto_ws = app
+
+            scan_thread = threading.Thread(
+                target=periodic_paper_scan, daemon=True
+            )
+            scan_thread.start()
 
             def monitor_stream_silence():
                 # A connected socket can remain open while no valid trades arrive.
