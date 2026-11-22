@@ -1472,6 +1472,15 @@ class FuturesAnalyzerApp(App):
         last_trade_at = [None]
         connected_once = False
 
+        def invalidate_stream():
+            """Immediately invalidate candle history whenever the socket is lost."""
+            with data_lock:
+                # Avoid counting the same close/error callback more than once.
+                if (last_trade_at[0] is not None or builder.current is not None
+                        or builder.closed):
+                    builder.reset_after_gap()
+                last_trade_at[0] = None
+
         def publish_scan():
             with data_lock:
                 if not builder.is_ready or builder.current is None:
@@ -1618,15 +1627,23 @@ class FuturesAnalyzerApp(App):
                     )
 
             def on_error(ws, error):
+                # Do not allow the 30-second freshness grace period to keep
+                # old candles eligible after a transport error.
+                invalidate_stream()
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "خطای جریان معاملات؛ تلاش برای اتصال مجدد. هیچ سفارش واقعی ارسال نمی‌شود."
+                        "خطای جریان معاملات؛ داده‌های قبلی نامعتبر شدند و گرم‌سازی پس از اتصال مجدد از نو آغاز می‌شود."
                     ), 0
                 )
 
+            def on_close(ws, close_status_code, close_msg):
+                # A clean close is just as important as an error: stale
+                # candle history must never survive a disconnected socket.
+                invalidate_stream()
+
             app = websocket.WebSocketApp(
                 BROADCAST_URL, on_open=on_open, on_message=on_message,
-                on_error=on_error,
+                on_error=on_error, on_close=on_close,
             )
             self.auto_ws = app
             try:
@@ -1635,6 +1652,9 @@ class FuturesAnalyzerApp(App):
                 pass
             finally:
                 connection_timer.cancel()
+                # run_forever may return without a useful close callback;
+                # fail closed before the reconnect delay begins.
+                invalidate_stream()
                 self.auto_ws = None
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
