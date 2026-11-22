@@ -37,6 +37,10 @@ LIFECYCLE_GLOBALS = {
     "AppRuntimeGuard": AppRuntimeGuard,
     "TradeCoordinatorSession": TradeCoordinatorSession,
     "ensure_paper_runner_ready": ensure_paper_runner_ready,
+    # Lifecycle methods are extracted from main.py without importing Kivy;
+    # provide the diagnostics hooks that main.py imports at module scope.
+    "install_crash_logging": __import__("app_diagnostics").install_crash_logging,
+    "crash_log_status": __import__("app_diagnostics").crash_log_status,
 }
 exec(
     compile(ast.Module(body=METHOD_NODES, type_ignores=[]), str(MAIN_SOURCE), "exec"),
