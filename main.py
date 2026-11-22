@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.45"
+APP_VERSION = "1.46"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -402,6 +402,8 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.diagnostics_button)
         self.last_diagnostic_results = {}
         self.last_diagnostic_time = "هنوز اجرا نشده"
+        self.ai_font_loaded = bool(FONT_PATH)
+        self.ai_font_error = str(FONT_LOAD_ERROR or "")
         self.check_in_progress = False
 
         self.auto_trader_button = Button(
@@ -916,7 +918,10 @@ class FuturesAnalyzerApp(App):
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            base_direction="ltr", text_language="ar",
+            # assistant_rtl_text() has already applied Arabic shaping and
+            # bidi visual ordering. Keep this label neutral so a Pango-based
+            # provider cannot process the Arabic run a second time.
+            base_direction="ltr",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
@@ -933,7 +938,12 @@ class FuturesAnalyzerApp(App):
         body.add_widget(prompt_label)
         prompt_input = TextInput(
             multiline=True, font_name=FONT_NAME, font_size=sp(14),
-            base_direction="rtl", text_language="ar", halign="right",
+            # Keep the editable buffer in logical Unicode order. Kivy's
+            # TextInput cursor/selection engine can reverse characters when
+            # its RTL base-direction path is enabled on the Android SDL2
+            # provider. Right alignment preserves the Persian input layout;
+            # RTL shaping is applied only when rendering the conversation.
+            base_direction="ltr", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)

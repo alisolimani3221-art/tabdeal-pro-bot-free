@@ -43,7 +43,7 @@ class AIDiagnosticContextTests(unittest.TestCase):
         app = SimpleNamespace(
             current_symbol="X" * 100,
             last_diagnostic_results={"market_error": "E" * 900},
-            last_market_snapshot={"bids": ["B" * 200] * 20},
+            last_market_snapshot={"bids": [[100, 2]] * 20},
         )
         context = build_ai_diagnostic_context(app)
         self.assertEqual(len(context["selected_symbol"]), 40)

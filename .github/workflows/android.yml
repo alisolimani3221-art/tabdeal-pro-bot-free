@@ -1,4 +1,4 @@
-name: Tabdeal Futures CI and signed APK build (v1.45)
+name: Tabdeal Futures CI and signed APK build (v1.46)
 # CI validates the current branch and builds a signed paper-only APK; live order placement remains disabled.
 
 on:
@@ -12,6 +12,7 @@ on:
       - fix/v1.42-worker-health-diagnostics
       - audit/pr12-decimal-safety
       - audit/v1.28-readonly-account-hardening
+      - fix/v1.45-ai-integrated
   push:
     paths:
       - 'main.py'
