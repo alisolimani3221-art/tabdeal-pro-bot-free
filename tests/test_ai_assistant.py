@@ -106,7 +106,10 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         self.assertEqual(result_keywords["base_direction"].value, "rtl")
         self.assertEqual(result_keywords["text_language"].value, "ar")
         self.assertIn('result.text = "\\n\\n".join(lines)', self.method_source)
-        self.assertNotIn("fa(", self.method_source)
+        # fa() is valid for static Persian button labels; editable prompts and
+        # assistant responses must remain logical Unicode text.
+        self.assertNotIn("fa(prompt)", self.method_source)
+        self.assertNotIn("fa(message)", self.method_source)
 
 
 if __name__ == "__main__":
