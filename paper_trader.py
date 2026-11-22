@@ -4,6 +4,23 @@ import re
 import threading
 
 
+PAPER_SCAN_INTERVAL_SECONDS = 5.0
+
+
+def paper_scan_due(now, last_scan):
+    """Return whether a fresh paper scan is due on the monotonic clock."""
+    try:
+        current = float(now)
+        previous = float(last_scan)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("scan timestamps must be finite numbers")
+    if (not math.isfinite(current) or not math.isfinite(previous)
+            or current < 0 or previous < 0):
+        raise ValueError("scan timestamps must be finite nonnegative numbers")
+    # A zero last-scan value means the first available fresh snapshot is due.
+    return previous == 0.0 or current - previous >= PAPER_SCAN_INTERVAL_SECONDS
+
+
 def _positive(value, name):
     if isinstance(value, bool) or value is None:
         raise ValueError("{} must be a positive finite number".format(name))
