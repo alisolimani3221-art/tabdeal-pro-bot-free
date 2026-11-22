@@ -1,4 +1,4 @@
-name: Tabdeal Futures CI and signed APK build (v1.47)
+name: Tabdeal Futures CI and signed APK build (v1.49)
 # CI validates the current branch and builds a signed paper-only APK; live order placement remains disabled.
 
 on:
