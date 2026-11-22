@@ -1861,6 +1861,7 @@ class FuturesAnalyzerApp(App):
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
+                nonlocal selected_symbol_messages
                 received_messages += 1
                 stream_diagnostics["received_messages"] = received_messages
                 stream_diagnostics["last_message_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
