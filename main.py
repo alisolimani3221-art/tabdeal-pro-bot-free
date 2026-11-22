@@ -1835,11 +1835,10 @@ class FuturesAnalyzerApp(App):
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
-                # Tabdeal's official FutureBroadcastWebsocketClient connects to
-                # this broadcast endpoint without a subscription payload. Sending
-                # the bare symbol here is not part of the documented protocol and
-                # can be interpreted as an invalid control message. The broadcast
-                # carries trade.symbol; filter it locally in parse_trade_message.
+                # Match the previously observed working public-feed protocol:
+                # send the market symbol as plain text after the socket opens.
+                # This is a read-only market subscription, never an order action.
+                ws.send(symbol)
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
