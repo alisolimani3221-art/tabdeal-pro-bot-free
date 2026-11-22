@@ -9,6 +9,8 @@ PAPER_SCAN_INTERVAL_SECONDS = 5.0
 
 def paper_scan_due(now, last_scan):
     """Return whether a fresh paper scan is due on the monotonic clock."""
+    if isinstance(now, bool) or isinstance(last_scan, bool):
+        raise ValueError("scan timestamps must be finite numbers")
     try:
         current = float(now)
         previous = float(last_scan)
