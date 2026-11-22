@@ -922,10 +922,10 @@ class FuturesAnalyzerApp(App):
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            # Android's Kivy text provider applies Arabic-script shaping and
+            # Android's Kivy text provider applies Persian-script shaping and
             # bidi layout reliably with the Arabic language tag. Persian uses
             # the same script; keep the logical Unicode text untouched.
-            base_direction="rtl", text_language="ar",
+            base_direction="rtl", text_language="fa",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
@@ -945,9 +945,9 @@ class FuturesAnalyzerApp(App):
             # Persian prompt entry must use RTL direction explicitly. Keep
             # the stored text as logical Unicode; do not reshape/reorder input
             # before sending it to the AI API.
-            # Use the Android/Kivy Arabic-script shaping path for Persian
+            # Use the Android/Kivy Persian-language shaping path for Persian
             # input. The TextInput retains logical Unicode for the API request.
-            base_direction="rtl", text_language="ar", halign="right",
+            base_direction="rtl", text_language="fa", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)
