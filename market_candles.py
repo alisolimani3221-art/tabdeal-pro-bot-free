@@ -27,6 +27,8 @@ class TradeCandleBuilder:
         self.gaps = 0
         # The first bucket after subscription/reconnect may be only partially observed.
         self.discard_next_close = True
+        # Set only when a strictly validated local cache was restored.
+        self.expected_next_bucket = None
 
     @staticmethod
     def _positive(value, name):
@@ -75,6 +77,18 @@ class TradeCandleBuilder:
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
         if self.current is None:
+            if self.expected_next_bucket is not None:
+                if bucket < self.expected_next_bucket:
+                    self.rejected += 1
+                    return {"accepted": False, "reason": "before_cached_history"}
+                if bucket > self.expected_next_bucket:
+                    # The app was offline across a missing minute. Cached
+                    # candles must not bridge that unobserved interval.
+                    self.closed.clear()
+                    self.gaps += 1
+                    gap_detected = True
+                    self.discard_next_close = True
+                self.expected_next_bucket = None
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
             self.rejected += 1
@@ -112,6 +126,44 @@ class TradeCandleBuilder:
         self.last_sequence = None
         self.gaps += 1
         self.discard_next_close = True
+        self.expected_next_bucket = None
+
+    def restore_closed_candles(self, rows):
+        """Restore a validated contiguous history for a short restart only."""
+        if not isinstance(rows, (list, tuple)) or len(rows) < 51:
+            raise ValueError("at least 51 closed candles are required")
+        normalized = []
+        previous = None
+        for row in rows:
+            if not isinstance(row, (list, tuple)) or len(row) < 6:
+                raise ValueError("invalid cached candle")
+            timestamp = row[0]
+            if (isinstance(timestamp, bool) or not isinstance(timestamp, int)
+                    or timestamp <= 0 or timestamp % self.interval_ms):
+                raise ValueError("invalid cached candle timestamp")
+            try:
+                values = [float(value) for value in row[1:6]]
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("invalid cached OHLCV values")
+            if any(not math.isfinite(value) for value in values):
+                raise ValueError("non-finite cached OHLCV values")
+            open_price, high, low, close, volume = values
+            if (min(open_price, high, low, close) <= 0 or volume < 0
+                    or high < max(open_price, close, low)
+                    or low > min(open_price, close, high)):
+                raise ValueError("inconsistent cached OHLCV values")
+            if previous is not None and timestamp != previous + self.interval_ms:
+                raise ValueError("cached candles are not contiguous")
+            normalized.append([timestamp] + values)
+            previous = timestamp
+        self.closed.clear()
+        for row in normalized[-self.closed.maxlen:]:
+            self.closed.append(row)
+        self.current = None
+        self.last_timestamp_ms = None
+        self.last_sequence = None
+        self.discard_next_close = True
+        self.expected_next_bucket = normalized[-1][0] + self.interval_ms
 
     @staticmethod
     def _new_candle(bucket, price, quantity, timestamp):
@@ -135,7 +187,8 @@ class TradeCandleBuilder:
     @property
     def is_ready(self):
         # analyze_klines excludes the final row as a still-forming candle.
-        return len(self.closed) >= 51 and self.current is not None
+        return (len(self.closed) >= 51 and self.current is not None
+                and not self.discard_next_close)
 
     def candles_for_analysis(self):
         """Return chronological closed candles plus current forming candle."""
