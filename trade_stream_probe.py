@@ -184,10 +184,12 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
               "last_diagnostic": "no_message", "symbol": symbol}
 
     def on_open(ws):
-        # The official Tabdeal SDK's FutureBroadcastWebsocketClient uses this
-        # endpoint without a stream name or payload. It is a broadcast feed;
-        # filter incoming trade events by symbol instead of sending a raw symbol. 
+        # Historical successful Tabdeal probe runs subscribed by sending the
+        # plain-text market symbol after the broadcast socket opens. This is
+        # not an order or authenticated action; it only selects the read-only
+        # market feed. Keep the exact observed wire format (not JSON).
         result["connected"] = True
+        ws.send(symbol)
 
     def on_message(ws, message):
         result["messages"] += 1
