@@ -1,4 +1,4 @@
-"""Privacy-safe, read-only diagnostics context for the in-app ChatGPT assistant."""
+"""Privacy-safe, read-only diagnostics context for the in-app Groq assistant."""
 
 APP_DIAGNOSTIC_KEYS = (
     "website", "market_ping", "market_info", "depth_status", "depth_http",
@@ -87,7 +87,7 @@ def build_ai_diagnostic_context(app):
     )
 
     return {
-        "app_version": "1.46",
+        "app_version": "1.47",
         "selected_symbol": _safe_status(getattr(app, "current_symbol", "unknown"), 40),
         "diagnostics": diagnostics,
         "order_book": {

@@ -38,15 +38,14 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         self.assertIn('result.text = "\\n\\n".join(lines)', self.method_source)
         self.assertIn("chat_history", self.method_source)
         self.assertIn("conversation_history=history_snapshot", self.method_source)
-        self.assertIn('title=fa_plain("گفت‌وگو با ChatGPT")', self.method_source)
+        self.assertIn('title=fa_plain("گفت‌وگو با هوش مصنوعی Groq")', self.method_source)
         self.assertNotIn('result.text = fa(', self.method_source)
         self.assertNotIn('setattr(result, "text", fa(value))', self.method_source)
 
     def test_persian_assistant_result_uses_rtl_alignment_and_scrollable_height(self):
         self.assertIn('halign="right"', self.method_source)
         self.assertIn('base_direction="rtl", text_language="fa"', self.method_source)
-        self.assertIn('base_direction=None, text_language="fa", halign="right"', self.method_source)
-        self.assertNotIn('text_language="ar"', self.method_source)
+        self.assertIn('base_direction="rtl", text_language="fa", halign="right"', self.method_source)
         self.assertIn("result.bind(texture_size=", self.method_source)
         self.assertIn("result_scroll = ScrollView(", self.method_source)
         self.assertIn("result_scroll.add_widget(result)", self.method_source)
@@ -65,13 +64,52 @@ class OpenAIAssistantUiTests(unittest.TestCase):
     def test_assistant_uses_privacy_safe_read_only_context(self):
         self.assertIn("build_ai_diagnostic_context(self)", self.method_source)
         self.assertIn("def render_chat()", self.method_source)
-        self.assertIn('label = "شما" if item["role"] == "user" else "ChatGPT"', self.method_source)
+        self.assertIn('label = "شما" if item["role"] == "user" else "Groq"', self.method_source)
         helper = Path("ai_diagnostics.py").read_text(encoding="utf-8")
         self.assertIn('"access_mode": "read_only"', helper)
         self.assertIn('"no trading"', helper)
         self.assertIn('"no order placement"', helper)
         self.assertNotIn("account_summary", self.method_source)
         self.assertNotIn("CredentialStore", self.method_source)
+
+
+    def test_persian_chat_input_and_mixed_response_keep_logical_text(self):
+        source = Path("main.py").read_text(encoding="utf-8")
+        module = ast.parse(source, filename="main.py")
+        method = next(
+            node for node in ast.walk(module)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "open_openai_assistant"
+        )
+        inputs = [
+            node.value for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "prompt_input"
+                    for target in node.targets)
+            and isinstance(node.value, ast.Call)
+        ]
+        self.assertEqual(len(inputs), 1)
+        input_keywords = {item.arg: item.value for item in inputs[0].keywords}
+        self.assertEqual(input_keywords["base_direction"].value, "rtl")
+        self.assertEqual(input_keywords["text_language"].value, "fa")
+        self.assertEqual(input_keywords["halign"].value, "right")
+
+        result_labels = [
+            node.value for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "result"
+                    for target in node.targets)
+            and isinstance(node.value, ast.Call)
+        ]
+        self.assertEqual(len(result_labels), 1)
+        result_keywords = {item.arg: item.value for item in result_labels[0].keywords}
+        self.assertEqual(result_keywords["base_direction"].value, "rtl")
+        self.assertEqual(result_keywords["text_language"].value, "fa")
+        self.assertIn('result.text = "\\n\\n".join(lines)', self.method_source)
+        # fa() is valid for static Persian button labels; editable prompts and
+        # assistant responses must remain logical Unicode text.
+        self.assertNotIn("fa(prompt)", self.method_source)
+        self.assertNotIn("fa(message)", self.method_source)
 
 
 if __name__ == "__main__":

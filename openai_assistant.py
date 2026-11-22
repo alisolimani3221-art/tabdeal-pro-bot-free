@@ -1,24 +1,28 @@
-"""Conversational, read-only OpenAI Responses API client for the Android app."""
+"""Groq free-tier conversational AI client for the Android app.
+
+The API key is supplied by the user at call time and is never persisted or logged.
+The assistant receives only a bounded, read-only app snapshot and cannot trade.
+"""
 import requests
 
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-OPENAI_MODEL = "gpt-6-luna"
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "qwen/qwen3.8-27b"
 
 
 def analyze_with_openai(api_key, question, app_context=None, session=None,
                         conversation_history=None):
-    """Send one chat turn with bounded app context and recent in-session history."""
+    """Send a Persian-friendly multi-turn chat request to Groq's OpenAI-compatible API."""
     key = str(api_key or "").strip()
     prompt = str(question or "").strip()
     if not key:
-        raise ValueError("OpenAI API key is required")
+        raise ValueError("Groq API key is required")
     if not prompt:
         raise ValueError("A message is required")
 
     context = app_context if isinstance(app_context, dict) else {}
     context_text = repr(context)[:12000]
     instructions = (
-        "You are the conversational ChatGPT assistant built into Futures Analyzer. "
+        "You are the conversational AI assistant built into Futures Analyzer. "
         "Have a natural, helpful multi-turn conversation, not merely a one-shot diagnostics report. "
         "Answer general questions as well as questions about the app, futures markets, order books, "
         "market data and troubleshooting. Respond in Persian when the user writes Persian. "
@@ -35,58 +39,55 @@ def analyze_with_openai(api_key, question, app_context=None, session=None,
         "Explain uncertainty and never promise profit."
     )
 
+    messages = [
+        {"role": "system", "content": instructions},
+        {"role": "system", "content": "APP CONTEXT (read-only, allow-listed):\n" + context_text},
+    ]
     history = conversation_history if isinstance(conversation_history, list) else []
-    safe_history = []
     for item in history[-12:]:
         if not isinstance(item, dict):
             continue
         role = item.get("role")
-        text = item.get("content")
-        if role in ("user", "assistant") and isinstance(text, str) and text.strip():
-            safe_history.append({"role": role, "content": text[:4000]})
+        content = item.get("content")
+        if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+            messages.append({"role": role, "content": content[:4000]})
+    messages.append({"role": "user", "content": prompt})
 
-    api_input = [
-        {
-            "role": "developer",
-            "content": "APP CONTEXT (read-only, allow-listed):\n" + context_text,
-        }
-    ] + safe_history
-    api_input.append({"role": "user", "content": prompt})
-
-    payload = {
-        "model": OPENAI_MODEL,
-        "instructions": instructions,
-        "input": api_input,
-        "max_output_tokens": 1200,
-    }
     client = session or requests
     response = client.post(
-        OPENAI_RESPONSES_URL,
+        GROQ_CHAT_URL,
         headers={
             "Authorization": "Bearer " + key,
             "Content-Type": "application/json",
         },
-        json=payload,
+        json={
+            "model": GROQ_MODEL,
+            "messages": messages,
+            "temperature": 0.3,
+            "max_tokens": 1200,
+        },
         timeout=(12, 55),
     )
-    if response.status_code >= 400:
-        detail = ""
-        try:
-            error = response.json().get("error", {})
-            detail = error.get("message", "")
-        except Exception:
-            detail = response.text[:240]
-        raise RuntimeError("OpenAI HTTP {}: {}".format(response.status_code, detail[:240]))
+    try:
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                error = response.json().get("error", {})
+                detail = error.get("message", "") if isinstance(error, dict) else str(error)
+            except Exception:
+                detail = getattr(response, "text", "")[:240]
+            raise RuntimeError("Groq HTTP {}: {}".format(response.status_code, detail[:240]))
 
-    data = response.json()
-    parts = []
-    for item in data.get("output", []):
-        if item.get("type") != "message":
-            continue
-        for block in item.get("content", []):
-            if block.get("type") == "output_text" and block.get("text"):
-                parts.append(block["text"])
-    answer = "\n".join(parts).strip()
-    if not answer:
-        raise RuntimeError("OpenAI returned no text output")
-    return answer
+        data = response.json()
+        choices = data.get("choices", []) if isinstance(data, dict) else []
+        if not choices:
+            raise RuntimeError("Groq returned no response choices")
+        message = choices[0].get("message", {})
+        answer = message.get("content", "") if isinstance(message, dict) else ""
+        if not isinstance(answer, str) or not answer.strip():
+            raise RuntimeError("Groq returned no text output")
+        return answer.strip()
+    finally:
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()

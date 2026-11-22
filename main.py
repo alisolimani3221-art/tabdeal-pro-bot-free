@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.46"
+APP_VERSION = "1.47"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -378,7 +378,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.smart_analysis_button)
 
         self.openai_assistant_button = Button(
-            markup=True, text=fa("اتصال به هوش مصنوعی OpenAI"), font_name=FONT_NAME,
+            markup=True, text=fa("اتصال به هوش مصنوعی رایگان"), font_name=FONT_NAME,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.18, 0.34, 0.48, 1),
             color=(1, 1, 1, 1))
@@ -894,11 +894,11 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def open_openai_assistant(self, instance):
-        """Multi-turn ChatGPT conversation with a session-only key and read-only app context."""
+        """Multi-turn Groq conversation with a session-only key and read-only app context."""
         body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(9))
 
         key_label = self.make_label(
-            "کلید API اوپن‌ای‌آی (فقط در همین نشست؛ ذخیره نمی‌شود)",
+            "کلید رایگان Groq (فقط در همین نشست؛ ذخیره نمی‌شود)",
             size=13, height=dp(40))
         key_label.halign = "right"
         key_label.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
@@ -906,7 +906,7 @@ class FuturesAnalyzerApp(App):
 
         # API credentials are Latin text and remain left-to-right.
         key_input = TextInput(
-            multiline=False, password=True, hint_text="sk-...",
+            multiline=False, password=True, hint_text="gsk_...",
             font_name=NUMERIC_FONT_NAME, font_size=sp(14),
             base_direction="ltr", text_language="en", halign="left",
             size_hint_y=None, height=dp(46))
@@ -922,6 +922,8 @@ class FuturesAnalyzerApp(App):
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
+            # Use the Persian language tag for Android/Kivy text shaping and
+            # bidi layout; keep the logical Unicode text untouched.
             base_direction="rtl", text_language="fa",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
@@ -939,17 +941,19 @@ class FuturesAnalyzerApp(App):
         body.add_widget(prompt_label)
         prompt_input = TextInput(
             multiline=True, font_name=FONT_NAME, font_size=sp(14),
-            # Let Kivy detect direction from each entered run instead of
-            # forcing the whole editable paragraph RTL. This preserves the
-            # logical Unicode order while Persian text is being edited.
-            base_direction=None, text_language="fa", halign="right",
+            # Persian prompt entry must use RTL direction explicitly. Keep
+            # the stored text as logical Unicode; do not reshape/reorder input
+            # before sending it to the AI API.
+            # Use the Android/Kivy Persian-language shaping path for Persian
+            # input. The TextInput retains logical Unicode for the API request.
+            base_direction="rtl", text_language="fa", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)
 
         controls = BoxLayout(orientation="horizontal", spacing=dp(8),
                              size_hint_y=None, height=dp(48))
-        send_button = Button(markup=True, text=fa("ارسال به ChatGPT"),
+        send_button = Button(markup=True, text=fa("ارسال به هوش مصنوعی"),
                              font_name=FONT_NAME, font_size=sp(14))
         close_button = Button(markup=True, text=fa("بستن"),
                               font_name=FONT_NAME, font_size=sp(14))
@@ -957,13 +961,13 @@ class FuturesAnalyzerApp(App):
         controls.add_widget(send_button)
         body.add_widget(controls)
 
-        popup = Popup(title=fa_plain("گفت‌وگو با ChatGPT"),
+        popup = Popup(title=fa_plain("گفت‌وگو با هوش مصنوعی Groq"),
                       title_font=FONT_NAME, content=body, size_hint=(0.95, 0.92))
 
         def render_chat():
             lines = []
             for item in chat_history:
-                label = "شما" if item["role"] == "user" else "ChatGPT"
+                label = "شما" if item["role"] == "user" else "Groq"
                 lines.append(label + ":\n" + item["content"])
             result.text = "\n\n".join(lines)
             Clock.schedule_once(lambda _dt: setattr(
@@ -973,7 +977,7 @@ class FuturesAnalyzerApp(App):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = "کلید API و پیام خود را وارد کنید."
+                result.text = "کلید Groq و پیام خود را وارد کنید."
                 return
 
             # This context is allow-listed; account data, balances, positions,
@@ -993,7 +997,7 @@ class FuturesAnalyzerApp(App):
                     message = answer
                 except Exception as exc:
                     success = False
-                    message = "خطا در ارتباط با ChatGPT: {}: {}".format(
+                    message = "خطا در ارتباط با Groq: {}: {}".format(
                         type(exc).__name__, str(exc)[:240])
 
                 def finish(_dt):
@@ -1005,7 +1009,7 @@ class FuturesAnalyzerApp(App):
                     else:
                         result.text = message
                     send_button.disabled = False
-                    send_button.text = fa("ارسال به ChatGPT")
+                    send_button.text = fa("ارسال به هوش مصنوعی")
                     prompt_input.disabled = False
 
                 Clock.schedule_once(finish, 0)
