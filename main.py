@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.46"
+APP_VERSION = "1.47"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -963,7 +963,7 @@ class FuturesAnalyzerApp(App):
         def render_chat():
             lines = []
             for item in chat_history:
-                label = "شما" if item["role"] == "user" else "ChatGPT"
+                label = "شما" if item["role"] == "user" else "Groq"
                 lines.append(label + ":\n" + item["content"])
             result.text = "\n\n".join(lines)
             Clock.schedule_once(lambda _dt: setattr(
