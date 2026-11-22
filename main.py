@@ -378,7 +378,7 @@ class FuturesAnalyzerApp(App):
         content.add_widget(self.smart_analysis_button)
 
         self.openai_assistant_button = Button(
-            markup=True, text=fa("اتصال به هوش مصنوعی OpenAI"), font_name=FONT_NAME,
+            markup=True, text=fa("اتصال به هوش مصنوعی رایگان"), font_name=FONT_NAME,
             font_size=sp(16), size_hint_y=None, height=dp(50),
             background_normal="", background_color=(0.18, 0.34, 0.48, 1),
             color=(1, 1, 1, 1))
@@ -894,11 +894,11 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def open_openai_assistant(self, instance):
-        """Multi-turn ChatGPT conversation with a session-only key and read-only app context."""
+        """Multi-turn Groq conversation with a session-only key and read-only app context."""
         body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(9))
 
         key_label = self.make_label(
-            "کلید API اوپن‌ای‌آی (فقط در همین نشست؛ ذخیره نمی‌شود)",
+            "کلید رایگان Groq (فقط در همین نشست؛ ذخیره نمی‌شود)",
             size=13, height=dp(40))
         key_label.halign = "right"
         key_label.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
@@ -906,7 +906,7 @@ class FuturesAnalyzerApp(App):
 
         # API credentials are Latin text and remain left-to-right.
         key_input = TextInput(
-            multiline=False, password=True, hint_text="sk-...",
+            multiline=False, password=True, hint_text="gsk_...",
             font_name=NUMERIC_FONT_NAME, font_size=sp(14),
             base_direction="ltr", text_language="en", halign="left",
             size_hint_y=None, height=dp(46))
@@ -949,7 +949,7 @@ class FuturesAnalyzerApp(App):
 
         controls = BoxLayout(orientation="horizontal", spacing=dp(8),
                              size_hint_y=None, height=dp(48))
-        send_button = Button(markup=True, text=fa("ارسال به ChatGPT"),
+        send_button = Button(markup=True, text=fa("ارسال به هوش مصنوعی"),
                              font_name=FONT_NAME, font_size=sp(14))
         close_button = Button(markup=True, text=fa("بستن"),
                               font_name=FONT_NAME, font_size=sp(14))
@@ -957,7 +957,7 @@ class FuturesAnalyzerApp(App):
         controls.add_widget(send_button)
         body.add_widget(controls)
 
-        popup = Popup(title=fa_plain("گفت‌وگو با ChatGPT"),
+        popup = Popup(title=fa_plain("گفت‌وگو با هوش مصنوعی Groq"),
                       title_font=FONT_NAME, content=body, size_hint=(0.95, 0.92))
 
         def render_chat():
@@ -973,7 +973,7 @@ class FuturesAnalyzerApp(App):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = "کلید API و پیام خود را وارد کنید."
+                result.text = "کلید Groq و پیام خود را وارد کنید."
                 return
 
             # This context is allow-listed; account data, balances, positions,
@@ -993,7 +993,7 @@ class FuturesAnalyzerApp(App):
                     message = answer
                 except Exception as exc:
                     success = False
-                    message = "خطا در ارتباط با ChatGPT: {}: {}".format(
+                    message = "خطا در ارتباط با Groq: {}: {}".format(
                         type(exc).__name__, str(exc)[:240])
 
                 def finish(_dt):
@@ -1005,7 +1005,7 @@ class FuturesAnalyzerApp(App):
                     else:
                         result.text = message
                     send_button.disabled = False
-                    send_button.text = fa("ارسال به ChatGPT")
+                    send_button.text = fa("ارسال به هوش مصنوعی")
                     prompt_input.disabled = False
 
                 Clock.schedule_once(finish, 0)
