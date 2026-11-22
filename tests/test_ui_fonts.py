@@ -142,7 +142,7 @@ class UiFontAssignmentTests(unittest.TestCase):
         assistant = source[start:end]
         self.assertIn('greeting = "سلام! من دستیار هوشمند برنامه هستم. پیام خود را بنویسید."', assistant)
         self.assertIn("text=greeting", assistant)
-        self.assertIn('base_direction="rtl", text_language="fa"', assistant)
+        self.assertEqual(assistant.count('base_direction="rtl", text_language="ar"'), 2)
         self.assertIn('result.text = "\\n\\n".join(lines)', assistant)
         self.assertNotIn("assistant_rtl_text(", assistant)
 
