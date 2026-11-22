@@ -128,8 +128,8 @@ class TradeCandleBuilder:
         self.discard_next_close = True
         self.expected_next_bucket = None
 
-    def restore_closed_candles(self, rows):
-        """Restore a validated contiguous history for a short restart only."""
+    def restore_closed_candles(self, rows, expected_next_bucket=None):
+        """Restore contiguous history; live data must resume in the validated bucket."""
         if not isinstance(rows, (list, tuple)) or len(rows) < 51:
             raise ValueError("at least 51 closed candles are required")
         normalized = []
@@ -163,7 +163,14 @@ class TradeCandleBuilder:
         self.last_timestamp_ms = None
         self.last_sequence = None
         self.discard_next_close = True
-        self.expected_next_bucket = normalized[-1][0] + self.interval_ms
+        expected = (normalized[-1][0] + self.interval_ms
+                    if expected_next_bucket is None else expected_next_bucket)
+        if (isinstance(expected, bool) or not isinstance(expected, int)
+                or expected % self.interval_ms
+                or expected - normalized[-1][0] not in
+                (self.interval_ms, 2 * self.interval_ms)):
+            raise ValueError("cached history cannot bridge the expected live bucket")
+        self.expected_next_bucket = expected
 
     @staticmethod
     def _new_candle(bucket, price, quantity, timestamp):
