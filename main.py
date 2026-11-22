@@ -41,7 +41,8 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import (PaperTradingEngine, diagnose_signal,
-                          prepare_live_market_snapshot, paper_scan_due)
+                          prepare_live_market_snapshot, paper_scan_due,
+                          PAPER_SCAN_INTERVAL_SECONDS)
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import build_ai_diagnostic_context
