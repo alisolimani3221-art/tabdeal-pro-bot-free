@@ -1888,6 +1888,8 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 update = builder.add_trade(parsed)
+                if update.get("accepted") and builder.closed:
+                    stream_diagnostics["last_closed_candle_at"] = int(builder.closed[-1][0])
                 if not update.get("accepted"):
                     now = time.monotonic()
                     if now - last_status_update >= 10:
