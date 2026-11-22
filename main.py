@@ -51,6 +51,7 @@ from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
+from app_diagnostics import install_crash_logging, crash_log_status
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -1413,6 +1414,7 @@ class FuturesAnalyzerApp(App):
             "مرکز عیب‌یابی برنامه",
             "نسخه برنامه: " + APP_VERSION,
             "سیستم: Android / Kivy",
+            "ثبت خطاهای برنامه: " + crash_log_status(),
             "فونت فارسی: " + font_status,
             "فونت لاتین: " + latin_status,
             "وضعیت بارگذاری فونت: " + (FONT_LOAD_ERROR or "OK"),
@@ -2199,6 +2201,8 @@ class FuturesAnalyzerApp(App):
             label.text_language = "ar"
 
     def on_start(self):
+        # Install privacy-conscious crash logging in app-private storage.
+        install_crash_logging(self.user_data_dir)
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
         self.runtime_guard = AppRuntimeGuard(self.user_data_dir)
