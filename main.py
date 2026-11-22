@@ -922,9 +922,8 @@ class FuturesAnalyzerApp(App):
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            # Android's Kivy text provider applies Persian-script shaping and
-            # bidi layout reliably with the Arabic language tag. Persian uses
-            # the same script; keep the logical Unicode text untouched.
+            # Use the Persian language tag for Android/Kivy text shaping and
+            # bidi layout; keep the logical Unicode text untouched.
             base_direction="rtl", text_language="fa",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
