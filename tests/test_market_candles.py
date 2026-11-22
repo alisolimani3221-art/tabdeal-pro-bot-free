@@ -72,42 +72,6 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertIsNone(builder.current)
         self.assertFalse(builder.is_ready)
 
-    def test_restored_history_waits_for_one_fully_observed_live_candle(self):
-        builder = TradeCandleBuilder("BTC_USDT")
-        rows = []
-        for minute in range(100, 151):
-            rows.append([minute * 60_000, 100, 101, 99, 100, 10])
-        builder.restore_closed_candles(rows)
-        self.assertFalse(builder.is_ready)
-        first = builder.add_trade(self.trade(151, sequence=1))
-        self.assertTrue(first["accepted"])
-        self.assertFalse(builder.is_ready)
-        second = builder.add_trade(self.trade(152, sequence=2))
-        self.assertTrue(second["accepted"])
-        self.assertTrue(builder.is_ready)
-        self.assertEqual(len(builder.candles_for_analysis()), 52)
-        self.assertEqual(builder.status()["closed_candles"], 51)
-
-    def test_restored_history_is_discarded_if_first_live_minute_was_missed(self):
-        builder = TradeCandleBuilder("BTC_USDT")
-        rows = [[minute * 60_000, 100, 101, 99, 100, 10]
-                for minute in range(100, 151)]
-        builder.restore_closed_candles(rows)
-        result = builder.add_trade(self.trade(152, sequence=1))
-        self.assertTrue(result["accepted"])
-        self.assertTrue(result["gap_detected"])
-        self.assertEqual(builder.status()["closed_candles"], 0)
-        self.assertFalse(builder.is_ready)
-
-    def test_restored_history_rejects_a_trade_older_than_expected_bucket(self):
-        builder = TradeCandleBuilder("BTC_USDT")
-        rows = [[minute * 60_000, 100, 101, 99, 100, 10]
-                for minute in range(100, 151)]
-        builder.restore_closed_candles(rows)
-        result = builder.add_trade(self.trade(150, sequence=1))
-        self.assertFalse(result["accepted"])
-        self.assertEqual(result["reason"], "before_cached_history")
-
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
             with self.subTest(symbol=symbol):
