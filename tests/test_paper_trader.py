@@ -1,6 +1,7 @@
 import unittest
 from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal,
-                          prepare_live_market_snapshot)
+                          prepare_live_market_snapshot, PAPER_SCAN_INTERVAL_SECONDS,
+                          paper_scan_due)
 
 
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
@@ -14,6 +15,19 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
 
 
 class PaperTraderTests(unittest.TestCase):
+    def test_paper_scan_scheduler_uses_five_second_interval(self):
+        self.assertEqual(PAPER_SCAN_INTERVAL_SECONDS, 5.0)
+        self.assertTrue(paper_scan_due(100.0, 0.0))
+        self.assertFalse(paper_scan_due(104.999, 100.0))
+        self.assertTrue(paper_scan_due(105.0, 100.0))
+        self.assertFalse(paper_scan_due(104.0, 100.0))
+
+    def test_paper_scan_scheduler_rejects_invalid_clock_values(self):
+        for now, previous in ((True, 1), (float('nan'), 1), (1, float('inf')), (-1, 0)):
+            with self.subTest(now=now, previous=previous):
+                with self.assertRaises(ValueError):
+                    paper_scan_due(now, previous)
+
     def test_live_snapshot_uses_current_trade_and_discards_pre_entry_candle_range(self):
         original = dict(setup(), candle_open=99.0, candle_high=110.0, candle_low=90.0)
         snapshot = prepare_live_market_snapshot(original, 102.5)
