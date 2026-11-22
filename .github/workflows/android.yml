@@ -273,7 +273,7 @@ jobs:
           from pathlib import Path
           from trade_stream_probe import probe_broadcast
 
-          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=15)
+          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=60)
           Path("trade-stream-probe-report.json").write_text(
               json.dumps(report, sort_keys=True, indent=2),
               encoding="utf-8",
@@ -281,7 +281,9 @@ jobs:
           print(json.dumps(report, sort_keys=True))
           if not report["connected"]:
               raise SystemExit("Public trade broadcast connection was not established")
-          if report["messages"] and report["valid_trades"] == 0:
+          if report["messages"] == 0:
+              raise SystemExit("No public trade-broadcast messages received during the 60-second observation")
+          if report["valid_trades"] == 0:
               raise SystemExit("Messages arrived but none matched the observed strict schema")
           PY
 
