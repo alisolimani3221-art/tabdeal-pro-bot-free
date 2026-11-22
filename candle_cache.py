@@ -71,7 +71,10 @@ def save_candle_cache(path, symbol, candles, saved_at_ms=None,
         if saved_at <= 0:
             return False
         current_bucket = saved_at - saved_at % interval_ms
-        if rows[-1][0] + interval_ms != current_bucket:
+        # A one-minute offset is normal. A two-minute offset is allowed
+        # only for the single intentionally discarded partial candle after
+        # restoring a cache; larger gaps must never be bridged.
+        if current_bucket - rows[-1][0] not in (interval_ms, 2 * interval_ms):
             return False
         payload = {
             "version": CACHE_VERSION,
@@ -131,7 +134,8 @@ def load_candle_cache(path, symbol, now_ms=None,
         rows = _validated_rows(
             payload.get("candles"), interval_ms, minimum=MIN_RESTORED_CANDLES
         )
-        if rows is None or rows[-1][0] + interval_ms != current_bucket:
+        if (rows is None or current_bucket - rows[-1][0]
+                not in (interval_ms, 2 * interval_ms)):
             return None
         return rows
     except (OSError, ValueError, TypeError, OverflowError):
