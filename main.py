@@ -40,7 +40,8 @@ from market_symbols import select_market_symbol, list_market_symbols
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
-from paper_trader import PaperTradingEngine, diagnose_signal, prepare_live_market_snapshot
+from paper_trader import (PaperTradingEngine, diagnose_signal,
+                          prepare_live_market_snapshot, paper_scan_due)
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import build_ai_diagnostic_context
@@ -1971,7 +1972,7 @@ class FuturesAnalyzerApp(App):
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
                     return
                 # Build a fresh immutable scan snapshot on the websocket thread.
-                # The independent scheduler below consumes it every 15 seconds.
+                # The independent scheduler below consumes fresh snapshots every 5 seconds.
                 current_bucket = (builder.current or {}).get("open_time")
                 if builder.is_ready and current_bucket is not None and builder.closed:
                     try:
@@ -2021,7 +2022,7 @@ class FuturesAnalyzerApp(App):
                     if self.auto_stop_event.is_set():
                         return
                     now = time.monotonic()
-                    if now - last_scan < 15.0:
+                    if not paper_scan_due(now, last_scan):
                         continue
                     with scan_state_lock:
                         technical = dict(scan_state["technical"]) if scan_state["technical"] else None
