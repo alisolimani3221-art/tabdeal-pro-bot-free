@@ -1423,6 +1423,7 @@ class FuturesAnalyzerApp(App):
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
             "رشته پس‌زمینه معامله‌گر: " + ("ALIVE (سلامت جریان تأیید نشده)" if auto_running else "STOPPED"),
+            "جزئیات جریان بازار: " + str(getattr(self, "auto_stream_diagnostics", {}))[:700],
             "آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status", "هنوز گزارشی از موتور ثبت نشده"))[:240],
             "زمان آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status_time", "نامشخص")),
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
@@ -1813,6 +1814,15 @@ class FuturesAnalyzerApp(App):
         last_status_update = 0.0
         received_messages = 0
         valid_messages = 0
+        selected_symbol_messages = 0
+        stream_diagnostics = {
+            "socket_connected": False, "received_messages": 0,
+            "valid_market_trades": 0, "selected_symbol_trades": 0,
+            "last_message_at": None, "last_market_trade_at": None,
+            "last_selected_trade_at": None, "last_closed_candle_at": None,
+            "last_error": None, "last_close": None, "reject_reasons": {},
+        }
+        self.auto_stream_diagnostics = stream_diagnostics
         connected_once = False
         retry_attempt = 0
         while not self.auto_stop_event.is_set():
@@ -1831,6 +1841,8 @@ class FuturesAnalyzerApp(App):
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
                 stream_watchdog.connected()
+                stream_diagnostics["socket_connected"] = True
+                stream_diagnostics["last_error"] = None
                 if connected_once:
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
@@ -1850,6 +1862,8 @@ class FuturesAnalyzerApp(App):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
                 received_messages += 1
+                stream_diagnostics["received_messages"] = received_messages
+                stream_diagnostics["last_message_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 # This socket is a market-wide broadcast. Parse each event's
                 # own symbol first: activity in any market proves the socket is
                 # alive, even when the selected low-volume symbol has no trade.
@@ -1857,6 +1871,9 @@ class FuturesAnalyzerApp(App):
                 if self.auto_stop_event.is_set():
                     return
                 if not parsed.get("ok"):
+                    reason = str(parsed.get("reason", "unknown"))[:48]
+                    rejected = stream_diagnostics["reject_reasons"]
+                    rejected[reason] = int(rejected.get(reason, 0)) + 1
                     now = time.monotonic()
                     if now - last_status_update >= 10:
                         last_status_update = now
@@ -1871,6 +1888,8 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 valid_messages += 1
+                stream_diagnostics["valid_market_trades"] = valid_messages
+                stream_diagnostics["last_market_trade_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 # Any fully validated broadcast trade refreshes transport
                 # liveness. Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
@@ -1887,10 +1906,16 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                selected_symbol_messages += 1
+                stream_diagnostics["selected_symbol_trades"] = selected_symbol_messages
+                stream_diagnostics["last_selected_trade_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 update = builder.add_trade(parsed)
                 if update.get("accepted") and builder.closed:
                     stream_diagnostics["last_closed_candle_at"] = int(builder.closed[-1][0])
                 if not update.get("accepted"):
+                    reason = str(update.get("reason", "builder_rejected"))[:48]
+                    rejected = stream_diagnostics["reject_reasons"]
+                    rejected[reason] = int(rejected.get(reason, 0)) + 1
                     now = time.monotonic()
                     if now - last_status_update >= 10:
                         last_status_update = now
@@ -1997,6 +2022,8 @@ class FuturesAnalyzerApp(App):
 
             def on_error(ws, error):
                 detail = "{}: {}".format(type(error).__name__, str(error)[:140])
+                stream_diagnostics["last_error"] = detail
+                stream_diagnostics["socket_connected"] = False
                 Clock.schedule_once(
                     lambda dt, value=detail: self.update_auto_status(
                         "خطای جریان معاملات؛ تلاش برای اتصال مجدد. علت: " + value
@@ -2004,6 +2031,10 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_close(ws, close_status_code, close_message):
+                stream_diagnostics["socket_connected"] = False
+                stream_diagnostics["last_close"] = "code={}; message={}".format(
+                    close_status_code, str(close_message or "no reason")[:100]
+                )
                 if not self.auto_stop_event.is_set():
                     detail = "کد={}; پیام={}".format(
                         close_status_code, str(close_message or "بدون توضیح")[:100]
