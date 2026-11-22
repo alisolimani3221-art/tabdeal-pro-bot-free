@@ -28,7 +28,7 @@ The strict read-only parser now recognizes `amount` as quantity and `updated` as
 - The meaning of `updated` and `side_name` has not been independently confirmed against an authoritative exchange specification.
 - This observation does not validate historical candles, 24-hour ticker data, funding, fees, or liquidation prices.
 - The Android app now aggregates normalized events into one-minute OHLCV candles for the currently selected symbol, but this is an experimental, local paper-simulation path—not a validated production trading feed.
-- The first candle after subscription and every reconnect is discarded; timestamp gaps (data gaps) clear the warm-up history and force a fresh warm-up; indicators never bridge a data gap. Analysis waits for at least 51 closed candles plus a forming candle.
+- The first candle after subscription and every reconnect is discarded; timestamp gaps (data gaps) clear the warm-up history and force a fresh warm-up; indicators never bridge a data gap. The current app code requires at least 20 closed one-minute candles plus a forming candle (about 20 minutes on a cold start). The five-second setting controls how often a fresh snapshot is scanned after warm-up; it does not manufacture historical candles or shorten candle duration.
 - Paper simulation uses closed-candle indicators and conservative local risk limits. No exchange order is generated or submitted.
 
 ## Remaining validation before wider deployment
