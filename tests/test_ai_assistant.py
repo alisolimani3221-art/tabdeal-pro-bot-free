@@ -73,5 +73,41 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         self.assertNotIn("CredentialStore", self.method_source)
 
 
+    def test_persian_chat_input_and_mixed_response_keep_logical_text(self):
+        source = Path("main.py").read_text(encoding="utf-8")
+        module = ast.parse(source, filename="main.py")
+        method = next(
+            node for node in ast.walk(module)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "open_openai_assistant"
+        )
+        inputs = [
+            node.value for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "prompt_input"
+                    for target in node.targets)
+            and isinstance(node.value, ast.Call)
+        ]
+        self.assertEqual(len(inputs), 1)
+        input_keywords = {item.arg: item.value for item in inputs[0].keywords}
+        self.assertEqual(input_keywords["base_direction"].value, "rtl")
+        self.assertEqual(input_keywords["text_language"].value, "ar")
+        self.assertEqual(input_keywords["halign"].value, "right")
+
+        result_labels = [
+            node.value for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "result"
+                    for target in node.targets)
+            and isinstance(node.value, ast.Call)
+        ]
+        self.assertEqual(len(result_labels), 1)
+        result_keywords = {item.arg: item.value for item in result_labels[0].keywords}
+        self.assertEqual(result_keywords["base_direction"].value, "rtl")
+        self.assertEqual(result_keywords["text_language"].value, "ar")
+        self.assertIn('result.text = "\\n\\n".join(lines)', self.method_source)
+        self.assertNotIn("fa(", self.method_source)
+
+
 if __name__ == "__main__":
     unittest.main()
