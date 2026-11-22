@@ -918,7 +918,10 @@ class FuturesAnalyzerApp(App):
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            base_direction="ltr", text_language="ar",
+            # assistant_rtl_text() has already applied Arabic shaping and
+            # bidi visual ordering. Keep this label neutral so a Pango-based
+            # provider cannot process the Arabic run a second time.
+            base_direction="ltr",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
