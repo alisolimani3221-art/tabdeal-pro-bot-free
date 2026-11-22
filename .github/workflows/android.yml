@@ -3,6 +3,12 @@ name: Tabdeal Futures CI (ARM64 debug APK + validation)
 
 on:
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: "Build the installable APK only after source validation is complete"
+        required: true
+        type: boolean
+        default: false
   pull_request:
     branches:
       - main
@@ -256,6 +262,7 @@ jobs:
 
 
       - name: Install Buildozer and Android Python packaging tools
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk == true
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install buildozer==1.5.0 cython==0.29.36
@@ -263,6 +270,7 @@ jobs:
           python -m pip install fonttools
 
       - name: Restore v1.15 unified Arabic and Latin runtime font
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk == true
         run: |
           python - <<'PY'
           import os
@@ -279,6 +287,7 @@ jobs:
           PY
 
       - name: Verify bundled fonts and RTL runtime dependencies
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk == true
         run: |
           test -s NotoSansArabic-Regular.ttf
           test -s NotoNaskhArabic-Regular.ttf
@@ -320,11 +329,13 @@ jobs:
           python -m compileall -q .
 
       - name: Build Android APK (debug, paper-only)
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk == true
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
         run: buildozer -v android debug
 
       - name: Verify APK output and packaged Persian fonts
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk == true
         run: |
           set -eu
           APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
@@ -340,6 +351,7 @@ jobs:
           sha256sum "$APK"
 
       - name: Upload installable APK
+        if: github.event_name == 'workflow_dispatch' && inputs.build_apk == true
         uses: actions/upload-artifact@v4
         with:
           name: Futures-Analyzer-APK
