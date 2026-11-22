@@ -122,6 +122,16 @@ class PaperTraderTests(unittest.TestCase):
     def test_rejects_volatility_above_two_percent(self):
         self.assertIsNone(rank_signal(dict(setup(), atr14=2.1)))
 
+    def test_malformed_live_mark_rejects_candidate_without_crashing_scan(self):
+        for bad_mark in (True, 0, -1, float("nan"), float("inf"), "not-a-price"):
+            with self.subTest(mark_price=bad_mark):
+                candidate = dict(setup(), mark_price=bad_mark)
+                self.assertIsNone(rank_signal(candidate))
+                engine = PaperTradingEngine(capital=8)
+                result = engine.process_scan([candidate, setup("BBB_USDT")])
+                # A bad mark on one symbol must not abort the scan of others.
+                self.assertEqual(result["open_position"]["symbol"], "BBB_USDT")
+
     def test_rejects_non_usdt_symbol(self):
         self.assertIsNone(rank_signal(setup(symbol="BTC_BTC")))
 
