@@ -265,7 +265,6 @@ jobs:
           retention-days: 7
 
       - name: Read-only Tabdeal trade broadcast probe
-        continue-on-error: true
         timeout-minutes: 2
         run: |
           python - <<'PY'
