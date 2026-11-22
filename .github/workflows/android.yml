@@ -1,446 +1,75 @@
-name: Tabdeal Futures CI and signed APK build (v1.47)
-# CI validates the current branch and builds a signed paper-only APK; live order placement remains disabled.
+name: Build offline candle-viewer demo APK
 
 on:
-  workflow_dispatch:
-    inputs:
-      build_apk:
-        description: 'Build the final APK only after all checks are approved'
-        required: true
-        default: false
-        type: boolean
-  pull_request:
-    branches:
-      - main
-      - fix/v1.33-account-api-connection
-      - fix/v1.37-15s-scan-idempotency
-      - fix/v1.38-live-paper-mark-price
-      - fix/v1.42-worker-health-diagnostics
-      - audit/pr12-decimal-safety
-      - audit/v1.28-readonly-account-hardening
-      - fix/v1.45-ai-integrated
   push:
+    branches:
+      - demo/v1.47-ui-only
     paths:
       - 'main.py'
-      - 'paper_runner_gate.py'
-      - 'tabdeal_account.py'
-      - 'ai_assistant.py'
-      - 'openai_assistant.py'
-      - 'ai_diagnostics.py'
-      - 'market_format.py'
-      - 'trade_stream_probe.py'
-      - 'market_candles.py'
       - 'buildozer.spec'
-      - 'multi_bot.py'
-      - 'orderbook.py'
-      - 'market_symbols.py'
-      - 'multi_market_scan.py'
-      - 'risk_analysis.py'
-      - 'requirements.txt'
-      - 'paper_trader.py'
-      - 'tabdeal_trade.py'
-      - 'trade_state_store.py'
-      - 'trade_state_lock.py'
-      - 'app_runtime_guard.py'
-      - 'secure_credentials.py'
-      - 'trade_coordinator.py'
-      - 'trade_preflight.py'
-      - 'server_paper_trader.py'
-      - 'Dockerfile.paper'
-      - 'docker-compose.paper.yml'
-      - '.env.paper.example'
-      - 'README.md'
-      - 'SERVER_PAPER_TRADING.md'
-      - 'tests/**'
       - '.github/workflows/android.yml'
 
-concurrency:
-  # Push and pull_request events for the same head branch share one build slot.
-  # The protected base branch (for example main) remains in its own group.
-  group: tabdeal-free-apk-build-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
-  build:
+  build-demo-apk:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-
     steps:
-      - name: Install Linux build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y autoconf automake autoconf-archive libtool libtool-bin m4 pkg-config build-essential fonts-noto-core
-
-      - name: Checkout
+      - name: Checkout isolated demo source
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Install dependencies
+      - name: Install system dependencies and Persian font
         run: |
           sudo apt-get update
-          sudo apt-get install -y git zip unzip \
-            autoconf automake autoconf-archive libtool libtool-bin pkg-config \
-            zlib1g-dev libncurses5-dev \
-            libffi-dev libssl-dev cmake
-
-      - name: Bundle Persian UI fonts
-        run: |
+          sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip             autoconf automake libtool pkg-config build-essential             zlib1g-dev libncurses5-dev libffi-dev libssl-dev cmake             fonts-noto-core
           mkdir -p assets
-          SANS_FONT="$(find /usr/share/fonts -type f -iname 'NotoSansArabic-Regular.ttf' -print -quit)"
-          NASKH_FONT="$(find /usr/share/fonts -type f -iname 'NotoNaskhArabic-Regular.ttf' -print -quit)"
-          LATIN_FONT="$(find /usr/share/fonts -type f -iname 'NotoSans-Regular.ttf' -print -quit)"
-          if [ -z "$NASKH_FONT" ]; then
-            echo "Noto Naskh Arabic is required for Arabic Presentation Forms coverage" >&2
-            exit 1
-          fi
-          if [ -n "$SANS_FONT" ]; then
-            cp "$SANS_FONT" assets/NotoSansArabic-Regular.ttf
-            cp "$SANS_FONT" NotoSansArabic-Regular.ttf
-          else
-            cp "$NASKH_FONT" assets/NotoSansArabic-Regular.ttf
-            cp "$NASKH_FONT" NotoSansArabic-Regular.ttf
-          fi
-          # The runtime selects this font first: arabic_reshaper emits
-          # Arabic Presentation Forms, which must exist in the selected face.
-          cp "$NASKH_FONT" assets/NotoNaskhArabic-Regular.ttf
-          cp "$NASKH_FONT" NotoNaskhArabic-Regular.ttf
-          if [ -n "$LATIN_FONT" ]; then
-            cp "$LATIN_FONT" assets/NotoSans-Regular.ttf
-            cp "$LATIN_FONT" NotoSans-Regular.ttf
-          fi
-          test -s NotoSans-Regular.ttf
-          test -s NotoSansArabic-Regular.ttf
-          FONT_LICENSE="/usr/share/doc/fonts-noto-core/copyright"
-          test -s "$FONT_LICENSE"
-          cp "$FONT_LICENSE" assets/FONT-LICENSE.txt
-          ls -l Noto*Regular.ttf assets/FONT-LICENSE.txt
+          FONT="$(find /usr/share/fonts -type f -iname 'NotoNaskhArabic-Regular.ttf' -print -quit)"
+          test -n "$FONT"
+          cp "$FONT" assets/NotoNaskhArabic-Regular.ttf
+          test -s assets/NotoNaskhArabic-Regular.ttf
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
-      - name: Cache Android and Python build dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.buildozer
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.cache/pip
-          key: ${{ runner.os }}-android-py311-buildozer-1.5.0-${{ hashFiles('buildozer.spec', 'requirements.txt', '.github/workflows/android.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-android-py311-buildozer-1.5.0-
-
-      - name: Install application test dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Compile Python sources
-        run: python -m compileall -q .
-
-      - name: Run full regression suite
-        run: python -m unittest discover -s tests -v
-
-      - name: Verify app version matches Buildozer package version
-        run: |
-          python - <<'PY'
-          import re
-          from pathlib import Path
-          app = Path("main.py").read_text(encoding="utf-8")
-          spec = Path("buildozer.spec").read_text(encoding="utf-8")
-          app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
-          package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
-          numeric_version = re.search(r'^android\.numeric_version\s*=\s*(\d+)', spec, re.M)
-          if not app_version or not package_version or app_version.group(1) != package_version.group(1):
-              raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
-          if not numeric_version or int(numeric_version.group(1)) < 125:
-              raise SystemExit("android.numeric_version must be set and monotonically increased")
-          print("App/APK versions match:", app_version.group(1), "versionCode:", numeric_version.group(1))
-          PY
-
-      - name: Smoke test live Tabdeal Futures API
-        run: |
-          python - <<'PY'
-          import json
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-          from market_symbols import select_market_symbol
-          from orderbook import parse_order_book
-          from risk_analysis import calculate_position_risk
-
-          base = "https://api1.tabdeal.org/r/fapi/v1"
-          def get(path, params=None):
-              url = base + path
-              if params:
-                  url += "?" + urllib.parse.urlencode(params)
-              request = urllib.request.Request(url, headers={"User-Agent": "FuturesAnalyzer-SmokeTest/1.0", "Accept": "application/json"})
-              last_error = None
-              for attempt in range(3):
-                  try:
-                      with urllib.request.urlopen(request, timeout=60) as response:
-                          if response.status != 200:
-                              raise RuntimeError("{} returned HTTP {}".format(path, response.status))
-                          return json.loads(response.read().decode("utf-8"))
-                  except (TimeoutError, OSError, urllib.error.URLError) as exc:
-                      last_error = exc
-                      if attempt < 2:
-                          delay = 3 * (attempt + 1)
-                          print("Transient Tabdeal API failure for {} (attempt {}/3): {}; retrying in {}s".format(path, attempt + 1, exc, delay))
-                          time.sleep(delay)
-              raise RuntimeError("Tabdeal API {} failed after 3 attempts: {}".format(path, last_error))
-
-          get("/ping")
-          info = get("/exchangeInfo")
-          if isinstance(info, list):
-              symbols = info
-          elif isinstance(info, dict):
-              symbols = info.get("symbols")
-              if symbols is None:
-                  nested = info.get("data")
-                  if isinstance(nested, dict):
-                      symbols = nested.get("symbols")
-                  elif isinstance(nested, list):
-                      symbols = nested
-              if symbols is None:
-                  raise RuntimeError("exchangeInfo response has no symbols list")
-          else:
-              raise RuntimeError("exchangeInfo response is not a list or object")
-          symbol = select_market_symbol(symbols, "BTCUSDT")
-          book = get("/depth", {"symbol": symbol, "limit": 5})
-          bids, asks = parse_order_book(book)
-          if not bids or not asks or asks[0][0] < bids[0][0]:
-              raise RuntimeError("Live order book failed validation")
-          sizing = calculate_position_risk(1000, 1, bids[0][0], 1, 3, 2)
-          if sizing["risk_amount"] > 10.000001:
-              raise RuntimeError("Risk sizing validation failed")
-          # The published public Futures REST API documents ping,
-          # time, exchangeInfo and depth, but not historical klines or a
-          # public 24h ticker. Do not probe Binance-compatible paths.
-          print("Tabdeal public REST candle/ticker feed: not documented; technical scanner remains disabled.")
-          print("LIVE API OK: symbol={}, bid={}, ask={}, technical_candles=disabled, risk={}".format(
-              symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
-          PY
-
-      - name: Live read-only scan of every active futures order book
-        timeout-minutes: 5
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          from multi_market_scan import scan_market_universe
-
-          report = scan_market_universe(max_workers=4)
-          Path("live-market-scan-report.json").write_text(
-              json.dumps(report, sort_keys=True, indent=2),
-              encoding="utf-8",
-          )
-          print(json.dumps({
-              "active_count": report["active_count"],
-              "success_count": report["success_count"],
-              "error_count": report["error_count"],
-              "data_type": report["data_type"],
-              "technical_signals": report["technical_signals"],
-              "live_orders": report["live_orders"],
-              "sample_errors": report["errors"][:5],
-          }, sort_keys=True))
-          if report["active_count"] < 1 or report["success_count"] != report["active_count"] or report["error_count"] != 0:
-              raise SystemExit("Order-book scan incomplete: {}/{} succeeded; {} errors".format(
-                  report["success_count"], report["active_count"], report["error_count"]))
-          PY
-
-      - name: Upload live market scan report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: live-market-scan-report
-          path: live-market-scan-report.json
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Read-only Tabdeal trade broadcast probe
-        continue-on-error: true
-        timeout-minutes: 2
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          from trade_stream_probe import probe_broadcast
-
-          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=15)
-          Path("trade-stream-probe-report.json").write_text(
-              json.dumps(report, sort_keys=True, indent=2),
-              encoding="utf-8",
-          )
-          print(json.dumps(report, sort_keys=True))
-          if not report["connected"]:
-              raise SystemExit("Public trade broadcast connection was not established")
-          if report["messages"] and report["valid_trades"] == 0:
-              raise SystemExit("Messages arrived but none matched the observed strict schema")
-          PY
-
-      - name: Upload redacted trade-stream probe report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trade-stream-probe-report
-          path: trade-stream-probe-report.json
-          if-no-files-found: warn
-          retention-days: 7
-
-
-      - name: Install Buildozer and Android Python packaging tools
-        if: ${{ inputs.build_apk == true }}
+      - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install buildozer==1.5.0 cython==0.29.36
-          python -m pip install --target vendor arabic-reshaper==3.0.0 python-bidi==0.4.2 future==1.0.0
-          python -m pip install fonttools
+          python -m pip install buildozer==1.5.0 cython==0.29.36 arabic-reshaper==3.0.0 python-bidi==0.4.2
 
-      - name: Restore v1.15 unified Arabic and Latin runtime font
-        if: ${{ inputs.build_apk == true }}
+      - name: Verify demo contains no network or trading integration
         run: |
-          python - <<'PY'
-          import os
-          from fontTools.merge import Merger
-          arabic = "NotoSansArabic-Regular.ttf"
-          latin = "NotoSans-Regular.ttf"
-          if not os.path.isfile(arabic) or not os.path.isfile(latin):
-              raise SystemExit("Arabic and Latin source fonts are both required")
-          merged = Merger().merge([arabic, latin])
-          merged.save(arabic)
-          os.makedirs("assets", exist_ok=True)
-          merged.save("assets/NotoSansArabic-Regular.ttf")
-          print("Unified Arabic+Latin Noto font restored from the v1.15 build path")
-          PY
-
-      - name: Verify bundled fonts and RTL runtime dependencies
-        if: ${{ inputs.build_apk == true }}
-        run: |
-          test -s NotoSansArabic-Regular.ttf
-          test -s NotoNaskhArabic-Regular.ttf
-          test -s NotoSans-Regular.ttf
-          test -s assets/NotoSansArabic-Regular.ttf
-          test -s assets/NotoNaskhArabic-Regular.ttf
-          test -s assets/NotoSans-Regular.ttf
-          PYTHONPATH=vendor python -c "import arabic_reshaper; from bidi.algorithm import get_display; print(get_display(arabic_reshaper.reshape('آزمایش فارسی'), base_dir='R'))"
-          PYTHONPATH=vendor python - <<'PY'
-          from fontTools.ttLib import TTFont
-          font = TTFont("NotoSansArabic-Regular.ttf")
-          cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
-          import arabic_reshaper
-          import unicodedata
-          from bidi.algorithm import get_display
-          samples = [
-              "مرکز عیب‌یابی برنامه",
-              "اتصال به بازار برقرار شد",
-              "بهترین قیمت خرید و فروش",
-              "دفتر سفارش خرید و فروش",
-              "نمادهای فعال فیوچرز",
-              "شروع آزمایش و توقف اضطراری",
-              "دریافت داده بازار ناموفق بود",
-              "قیمت میانی و اختلاف خرید و فروش",
-          ]
-          shaped = set()
-          for sample in samples:
-              visual = get_display(arabic_reshaper.reshape(sample), base_dir="R")
-              shaped.update(
-                  ord(ch) for ch in visual
-                  if not ch.isspace() and unicodedata.category(ch) != "Cf"
-              )
-          missing = sorted(shaped - cmap)
-          if missing:
-              raise SystemExit("Unified Noto Sans Arabic font lacks shaped UI glyphs: {}".format(
-                  ["U+{:04X}".format(cp) for cp in missing]))
-          print("Unified Noto Sans Arabic + Latin glyph coverage for representative Persian UI strings: OK")
-          PY
-          python -m compileall -q .
-
-      - name: Configure persistent Android signing (required)
-        if: ${{ inputs.build_apk == true }}
-        id: signing
-        shell: bash
-        env:
-          ANDROID_SIGNING_BUNDLE_BASE64: ${{ secrets.ANDROID_SIGNING_BUNDLE_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${ANDROID_SIGNING_BUNDLE_BASE64:-}" ]]; then
-            echo "Required GitHub Actions secret ANDROID_SIGNING_BUNDLE_BASE64 is missing." >&2
+          python -m py_compile main.py
+          if grep -Ein 'requests|websocket|api1\.tabdeal|create_order|place_order|leverage|signal|trade' main.py; then
+            echo "Unexpected network/trading-related code found in demo entrypoint" >&2
             exit 1
           fi
-          SIGN_DIR="$RUNNER_TEMP/tabdeal-signing"
-          mkdir -p "$SIGN_DIR"
-          printf '%s' "$ANDROID_SIGNING_BUNDLE_BASE64" | base64 --decode > "$SIGN_DIR/bundle.zip"
-          unzip -q "$SIGN_DIR/bundle.zip" -d "$SIGN_DIR"
-          test -s "$SIGN_DIR/tabdeal-release.p12"
-          test -s "$SIGN_DIR/signing.env"
-          source "$SIGN_DIR/signing.env"
-          test -n "${STORE_PASSWORD:-}"
-          test -n "${KEY_ALIAS:-}"
-          test -n "${KEY_PASSWORD:-}"
-          keytool -list -keystore "$SIGN_DIR/tabdeal-release.p12" -storetype PKCS12 \
-            -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
-          echo "Persistent release keystore validated."
+          grep -q 'SAMPLE = ' main.py
+          grep -q 'CandleChart' main.py
+          echo "Offline demo source checks passed."
 
-      - name: Build signed release APK (paper-only)
-        if: ${{ inputs.build_apk == true }}
+      - name: Build installable debug APK
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
-        run: |
-          set -euo pipefail
-          source "$RUNNER_TEMP/tabdeal-signing/signing.env"
-          export P4A_RELEASE_KEYSTORE="$RUNNER_TEMP/tabdeal-signing/tabdeal-release.p12"
-          export P4A_RELEASE_KEYSTORE_PASSWD="$STORE_PASSWORD"
-          export P4A_RELEASE_KEYALIAS="$KEY_ALIAS"
-          export P4A_RELEASE_KEYALIAS_PASSWD="$KEY_PASSWORD"
-          buildozer -v android release
+        run: buildozer -v android debug
 
-      - name: Verify persistent APK signing certificate
-        if: ${{ inputs.build_apk == true }}
-        shell: bash
+      - name: Verify APK exists
         run: |
-          set -euo pipefail
-          APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
-          test -n "$APK" && test -s "$APK"
-          APKSIGNER="$(find "$HOME/.buildozer/android/platform/android-sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
-          test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
-          ACTUAL="$(awk -F': ' '/certificate SHA-256 digest:/ {print tolower($NF); exit}' "$RUNNER_TEMP/apk-signature.txt" | tr -d ':')"
-          EXPECTED="9a41c32295b7723ee8dfadd4c40ee7dbdca9fb8a6c62e43aabc09c9bef741ae5"
-          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-            echo "APK signing certificate does not match the established release certificate." >&2
-            cat "$RUNNER_TEMP/apk-signature.txt"
-            exit 1
-          fi
-          echo "APK signature verified against the established release certificate."
-
-      - name: Verify APK output and packaged Persian fonts
-        if: ${{ inputs.build_apk == true }}
-        run: |
-          set -eu
           APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
           test -n "$APK"
           test -s "$APK"
           unzip -t "$APK"
-          unzip -p "$APK" assets/private.tar > /tmp/private.tar
-          test -s /tmp/private.tar
-          tar -tf /tmp/private.tar | grep -F 'NotoNaskhArabic-Regular.ttf'
-          tar -tf /tmp/private.tar | grep -F 'NotoSansArabic-Regular.ttf'
-          tar -tf /tmp/private.tar | grep -F 'NotoSans-Regular.ttf'
-          echo "Verified APK: $APK"
           sha256sum "$APK"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
-      - name: Upload installable APK
-        if: ${{ inputs.build_apk == true }}
+      - name: Upload demo APK
         uses: actions/upload-artifact@v4
         with:
-          name: Futures-Analyzer-APK
+          name: Candle-Viewer-Demo-APK
           path: bin/*.apk
           if-no-files-found: error
           retention-days: 14
