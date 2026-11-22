@@ -939,10 +939,10 @@ class FuturesAnalyzerApp(App):
         body.add_widget(prompt_label)
         prompt_input = TextInput(
             multiline=True, font_name=FONT_NAME, font_size=sp(14),
-            # Let Kivy detect direction from each entered run instead of
-            # forcing the whole editable paragraph RTL. This preserves the
-            # logical Unicode order while Persian text is being edited.
-            base_direction=None, text_language="fa", halign="right",
+            # Persian prompt entry must use RTL direction explicitly. Keep
+            # the stored text as logical Unicode; do not reshape/reorder input
+            # before sending it to the AI API.
+            base_direction="rtl", text_language="fa", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)
