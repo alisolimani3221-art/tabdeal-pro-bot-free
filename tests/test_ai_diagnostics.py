@@ -135,6 +135,34 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertEqual(health["health_state"], "BLOCKED_BY_SAFETY")
         self.assertEqual(health["last_stream_error"], "PaperRunnerGateError")
 
+    def test_engine_health_report_exposes_actionable_stream_telemetry(self):
+        from ai_diagnostics import build_engine_health_report_lines
+        import time
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "worker_phase": "connected_waiting_for_trade",
+                "websocket_connected": True,
+                "retry_attempt": 2,
+                "received_messages": 12,
+                "valid_market_trades": 9,
+                "selected_symbol_trade_count": 0,
+                "connected_at": time.monotonic(),
+                "last_stream_error": "",
+            },
+        )
+        lines = build_engine_health_report_lines(app)
+        rendered = "\\n".join(lines)
+        self.assertIn("سلامت جریان معاملات: WAITING_FOR_SELECTED_SYMBOL_TRADE", rendered)
+        self.assertIn("اتصال WebSocket: True", rendered)
+        self.assertIn("تلاش اتصال مجدد: 2", rendered)
+        self.assertIn("پیام‌های دریافتی: 12", rendered)
+        self.assertIn("معاملات معتبر همه نمادها: 9", rendered)
+        self.assertIn("معاملات معتبر نماد انتخابی: 0", rendered)
+        self.assertIn("آخرین خطای جریان: ندارد", rendered)
+
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
         worker.is_alive.return_value = False
