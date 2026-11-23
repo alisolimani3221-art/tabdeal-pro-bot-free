@@ -1748,6 +1748,21 @@ class FuturesAnalyzerApp(App):
             if state.get("intents") != {}:
                 self.update_auto_status("بازآماده‌سازی رد شد؛ درخواست آماده‌سازی معلق وجود دارد.")
                 return
+            # The paper engine has its own durable halt. Validate it too;
+            # coordinator re-arm alone must never bypass MAX_LOSS or an open position.
+            paper_state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            paper_engine = None
+            if os.path.isfile(paper_state_path):
+                with open(paper_state_path, "r", encoding="utf-8") as state_file:
+                    paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
+                if paper_engine.halted and (
+                    paper_engine.halt_reason != "EMERGENCY_STOP"
+                    or paper_engine.position is not None
+                ):
+                    self.update_auto_status(
+                        "بازآماده‌سازی رد شد؛ توقف موتور آزمایشی ناشی از توقف دستیِ بدون موقعیت نیست."
+                    )
+                    return
         except Exception as exc:
             self.update_auto_status("خواندن وضعیت ایمنی ناموفق بود؛ قفل حفظ شد: " + type(exc).__name__)
             return
@@ -1793,6 +1808,13 @@ class FuturesAnalyzerApp(App):
                     raise RuntimeError("exclusive app runtime lock is not held")
                 session.rearm_after_operator_stop()
                 rearmed = True
+                # Clear the paper-engine halt only for an explicit operator stop,
+                # after restore_state has validated the persisted snapshot.
+                # This preserves cash, closed-trade history, scan count and risk limits.
+                if paper_engine is not None and paper_engine.halted:
+                    paper_engine.rearm_after_operator_stop()
+                    self._persist_paper_engine_state(paper_engine)
+                    self.auto_engine = paper_engine
                 ensure_paper_runner_ready(guard, session)
                 self.update_auto_status(
                     "قفل توقف دستی با تأیید شما بازآماده شد. شبیه‌ساز هنوز اجرا نشده است؛ "
