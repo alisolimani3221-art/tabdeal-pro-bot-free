@@ -2415,13 +2415,15 @@ class FuturesAnalyzerApp(App):
                 target=monitor_stream_silence, daemon=True
             )
             watchdog_thread.start()
+            previous_socket_timeout = websocket.getdefaulttimeout()
+            websocket.setdefaulttimeout(12.0)
             try:
-                # Bound the WebSocket handshake; otherwise the worker can block
-                # before on_open and leave the UI on the retry message indefinitely.
+                # websocket-client 1.8.0 has no run_forever(timeout=...) argument.
+                # Its documented default socket timeout bounds the handshake
+                # without turning an otherwise quiet, connected feed into a failure.
                 app.run_forever(
                     ping_interval=20,
                     ping_timeout=10,
-                    timeout=12,
                     reconnect=0,
                 )
             except Exception as stream_exc:
@@ -2432,6 +2434,7 @@ class FuturesAnalyzerApp(App):
                     ), 0
                 )
             finally:
+                websocket.setdefaulttimeout(previous_socket_timeout)
                 scan_stop.set()
                 scan_thread.join(timeout=2.0)
                 watchdog_stop.set()
