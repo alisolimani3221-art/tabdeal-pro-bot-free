@@ -179,12 +179,13 @@ class PaperTradingEngine:
         self._lock = threading.RLock()
         self.halted = False
         self.halt_reason = None
+        self.halt_detail = None
 
     def export_state(self):
         """Return a JSON-safe snapshot suitable for atomic local persistence."""
         with self._lock:
             return {
-                "schema_version": 2,
+                "schema_version": 3,
                 "initial_capital": self.initial_capital,
                 "cash": self.cash,
                 "risk_percent": self.risk_percent,
@@ -199,6 +200,7 @@ class PaperTradingEngine:
                 "scans": self.scans,
                 "halted": self.halted,
                 "halt_reason": self.halt_reason,
+                "halt_detail": self.halt_detail,
             }
 
     @classmethod
@@ -212,8 +214,15 @@ class PaperTradingEngine:
         if not isinstance(state, dict) or type(state.get("schema_version")) is not int:
             raise ValueError("unsupported or malformed paper-engine state")
         version = state["schema_version"]
-        expected = common if version == 1 else common | {"last_entry_candle"}
-        if version not in (1, 2) or set(state) != expected:
+        if version == 1:
+            expected = common
+        elif version == 2:
+            expected = common | {"last_entry_candle"}
+        elif version == 3:
+            expected = common | {"last_entry_candle", "halt_detail"}
+        else:
+            raise ValueError("unsupported or malformed paper-engine state")
+        if set(state) != expected:
             raise ValueError("unsupported or malformed paper-engine state")
 
         engine = cls(
@@ -251,6 +260,13 @@ class PaperTradingEngine:
                 or (not engine.halted and reason is not None)):
             raise ValueError("paper-engine halt metadata is inconsistent")
         engine.halt_reason = reason
+        detail = state.get("halt_detail") if version >= 3 else None
+        if (detail is not None and (
+                not engine.halted or not isinstance(detail, str)
+                or len(detail) > 240 or not detail.strip()
+        )):
+            raise ValueError("paper-engine halt detail is invalid")
+        engine.halt_detail = detail
 
         last_entry = state.get("last_entry_candle")
         if last_entry is not None:
@@ -361,14 +377,18 @@ class PaperTradingEngine:
                 raise RuntimeError("maximum cumulative paper loss limit remains active")
             self.halted = False
             self.halt_reason = None
+            self.halt_detail = None
             return {"halted": False, "rearmed": True,
                     "live_order_submitted": False}
 
-    def emergency_close(self):
-        """Close any simulated position at its latest mark and permanently stop this engine."""
+    def emergency_close(self, detail=None):
+        """Close any simulated position and persist a short, non-secret stop diagnostic."""
         with self._lock:
             self.halted = True
             self.halt_reason = "EMERGENCY_STOP"
+            if detail is None:
+                detail = "operator requested emergency stop"
+            self.halt_detail = " ".join(str(detail).split())[:240]
             if self.position is None:
                 return {"event": "STOPPED", "trade": None}
             return self._close(self.position["last_price"], "EMERGENCY_STOP")
@@ -402,6 +422,7 @@ class PaperTradingEngine:
             if self.cash <= loss_floor:
                 self.halted = True
                 self.halt_reason = "MAX_LOSS"
+                self.halt_detail = "cumulative paper loss limit reached during tick reconciliation"
             return {
                 "event": event["event"],
                 "trade": event["trade"],
@@ -475,6 +496,7 @@ class PaperTradingEngine:
                 events.append(self._close(self.position["last_price"], "MAX_LOSS"))
             self.halted = True
             self.halt_reason = "MAX_LOSS"
+            self.halt_detail = "cumulative paper loss limit reached during scan"
             closed_this_scan = True
 
         # Never close and reopen on the same scan: that can create an
