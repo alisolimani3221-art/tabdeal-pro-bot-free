@@ -87,12 +87,16 @@ def _first(mapping, names):
     return None
 
 
-def parse_trade_message(message, expected_symbol=None):
+def parse_trade_message(message, expected_symbol=None, max_age_ms=None):
     """Return normalized trade or a safe diagnostic; never guess missing fields."""
     if expected_symbol is not None and (
             not isinstance(expected_symbol, str)
             or not re.fullmatch(r"[A-Za-z0-9]+_USDT", expected_symbol)):
         return {"ok": False, "reason": "invalid_expected_symbol"}
+    if max_age_ms is not None and (
+            isinstance(max_age_ms, bool) or not isinstance(max_age_ms, int)
+            or max_age_ms <= 0):
+        return {"ok": False, "reason": "invalid_max_age"}
     if isinstance(message, bytes):
         if len(message) > MAX_MESSAGE_BYTES:
             return {"ok": False, "reason": "message_too_large"}
@@ -139,6 +143,10 @@ def parse_trade_message(message, expected_symbol=None):
                 "trade_keys": sorted(str(k) for k in trade.keys())[:30]}
     if timestamp_ms is None:
         return {"ok": False, "reason": "invalid_timestamp"}
+    if max_age_ms is not None:
+        age_ms = int(time.time() * 1000) - timestamp_ms
+        if age_ms > max_age_ms:
+            return {"ok": False, "reason": "stale_timestamp"}
 
     sequence = trade.get("sequence")
     if sequence is not None:
