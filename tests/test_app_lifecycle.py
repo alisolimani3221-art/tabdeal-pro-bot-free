@@ -87,8 +87,17 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         second.on_start()
         self.assertTrue(second.runtime_lock_ready)
         self.assertTrue(second.runtime_guard.held)
-        self.assertIsNone(second.coordinator_session)
+        self.assertIsNotNone(second.coordinator_session)
+        recovered = second.coordinator_session.snapshot()
+        self.assertTrue(recovered["halted"])
+        self.assertEqual(recovered["halt_reason"], "lifecycle integration test")
+        self.assertEqual(recovered["intents"], {})
         self.assertIn("PaperRunnerGateError", second.coordinator_session_error)
+        self.assertIn("halt_reason: lifecycle integration test", second.coordinator_session_error)
+        self.assertIn("pending_intents: 0", second.coordinator_session_error)
+        second.start_auto_paper_trader()
+        second.update_auto_status.assert_called_once()
+        self.assertIn("persistent emergency stop", second.update_auto_status.call_args.args[0])
         second.on_stop()
         self.assertFalse(second.runtime_guard.held)
 
@@ -227,10 +236,14 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         workers = [threading.Thread(target=persist_many) for _ in range(8)]
         for worker in workers:
             worker.start()
+        # Each persistence operation flushes and fsyncs an atomic snapshot.
+        # On slower shared CI runners, 200 serialized fsyncs can exceed 5s;
+        # use a generous bounded wait so the test checks atomicity, not runner speed.
         for worker in workers:
-            worker.join(timeout=5.0)
+            worker.join(timeout=30.0)
 
-        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        alive = [worker.name for worker in workers if worker.is_alive()]
+        self.assertEqual(alive, [], "persistence workers did not finish: {}".format(alive))
         self.assertEqual(errors, [])
         state_path = os.path.join(self.temp.name, "paper-engine-state.json")
         with open(state_path, "r", encoding="utf-8") as state_file:
@@ -274,8 +287,16 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
 
         restarted = LifecycleHarness(self.temp.name)
         restarted.on_start()
-        self.assertIsNone(restarted.coordinator_session)
+        self.assertIsNotNone(restarted.coordinator_session)
+        recovered = restarted.coordinator_session.snapshot()
+        self.assertTrue(recovered["halted"])
+        self.assertEqual(recovered["halt_reason"], "operator emergency stop")
+        self.assertEqual(recovered["intents"], {})
         self.assertIn("PaperRunnerGateError", restarted.coordinator_session_error)
+        self.assertIn("halt_reason: operator emergency stop", restarted.coordinator_session_error)
+        restarted.start_auto_paper_trader()
+        restarted.update_auto_status.assert_called_once()
+        self.assertIn("persistent emergency stop", restarted.update_auto_status.call_args.args[0])
         restarted.on_stop()
         self.assertFalse(restarted.runtime_guard.held)
 

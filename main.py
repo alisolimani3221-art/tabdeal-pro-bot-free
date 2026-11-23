@@ -1477,6 +1477,34 @@ class FuturesAnalyzerApp(App):
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
+        coordinator = getattr(self, "coordinator_session", None)
+        coordinator_error = getattr(self, "coordinator_session_error", None)
+        if coordinator is not None:
+            try:
+                state = coordinator.snapshot()
+                halted = state.get("halted") is True
+                lines_state = [
+                    "وضعیت توقف اضطراری: " + ("ACTIVE" if halted else "NOT ACTIVE")
+                ]
+                if halted:
+                    reason = state.get("halt_reason")
+                    if isinstance(reason, str) and reason.strip():
+                        safe_reason = " ".join(reason.split())[:180]
+                        lines_state.append("علت توقف ذخیره‌شده: " + safe_reason)
+                intents = state.get("intents")
+                if isinstance(intents, dict):
+                    lines_state.append("تعداد درخواست‌های معلق: " + str(len(intents)))
+                elif isinstance(intents, (list, tuple)):
+                    lines_state.append("تعداد درخواست‌های معلق: " + str(len(intents)))
+                lines.extend(lines_state)
+            except Exception as state_exc:
+                lines.append("خواندن فقط‌خواندنی وضعیت توقف: ERROR " + type(state_exc).__name__)
+        elif coordinator_error:
+            lines.append("وضعیت نشست هماهنگ‌کننده: UNAVAILABLE")
+            lines.append("خطای نشست هماهنگ‌کننده: " + str(coordinator_error)[:220])
+        else:
+            lines.append("وضعیت نشست هماهنگ‌کننده: NOT INITIALIZED")
+
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
                     "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
@@ -1703,6 +1731,11 @@ class FuturesAnalyzerApp(App):
         if not getattr(self, "runtime_lock_ready", False):
             detail = getattr(self, "runtime_lock_error", None) or "قفل اجرا برقرار نیست."
             self.update_auto_status("شروع شبیه‌ساز مسدود شد؛ قفل ایمنی حافظه داخلی برقرار نشد. " + detail)
+        elif getattr(self, "coordinator_session_error", None):
+            self.update_auto_status(
+                "شروع شبیه‌ساز مسدود است؛ وضعیت ایمنی: "
+                + self.coordinator_session_error
+            )
         else:
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
@@ -2305,19 +2338,45 @@ class FuturesAnalyzerApp(App):
         self.coordinator_session = None
         self.coordinator_session_error = None
         if self.runtime_lock_ready:
+            state_path = os.path.join(self.user_data_dir, "trade-state.json")
             try:
-                state_path = os.path.join(self.user_data_dir, "trade-state.json")
                 self.coordinator_session = TradeCoordinatorSession(
                     state_path, max_open_positions=1
                 )
-                ensure_paper_runner_ready(
-                    self.runtime_guard, self.coordinator_session
-                )
             except Exception as exc:
+                # A session-construction or persistence failure means there is
+                # no trustworthy state boundary; keep the runner unavailable.
                 self.coordinator_session = None
                 self.coordinator_session_error = (
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
+            else:
+                # Keep a successfully opened session even when the readiness
+                # gate reports a persisted emergency halt. This preserves
+                # read-only diagnostics of the halt reason and intents while
+                # start_auto_paper_trader() continues to fail closed.
+                try:
+                    ensure_paper_runner_ready(
+                        self.runtime_guard, self.coordinator_session
+                    )
+                except Exception as exc:
+                    detail = "{}: {}".format(type(exc).__name__, str(exc)[:120])
+                    # Read-only inspection: preserve the exact persisted halt
+                    # reason and pending-intent count for operator diagnostics.
+                    try:
+                        snapshot = self.coordinator_session.snapshot()
+                        if snapshot.get("halted") is True:
+                            reason = snapshot.get("halt_reason")
+                            if isinstance(reason, str) and reason.strip():
+                                detail += " | halt_reason: " + reason[:120]
+                            intents = snapshot.get("intents")
+                            if isinstance(intents, dict):
+                                detail += " | pending_intents: " + str(len(intents))
+                    except Exception as diagnostic_exc:
+                        detail += " | snapshot_read: {}".format(
+                            type(diagnostic_exc).__name__
+                        )
+                    self.coordinator_session_error = detail
 
     def on_stop(self):
         worker_stopped = True
