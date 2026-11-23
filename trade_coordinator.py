@@ -60,8 +60,11 @@ class TradeCoordinator:
 
     def emergency_stop(self, reason="operator emergency stop"):
         with self._lock:
-            self._halted = True
-            self._halt_reason = str(reason)[:160]
+            # Preserve the first halt reason; a later stop request must not
+            # erase evidence of an ambiguous or otherwise non-rearmable state.
+            if not self._halted:
+                self._halted = True
+                self._halt_reason = str(reason)[:160]
             return {"halted": True, "reason": self._halt_reason,
                     "live_order_submitted": False}
 
