@@ -46,6 +46,7 @@ from paper_trader import (PaperTradingEngine, diagnose_signal,
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import build_ai_diagnostic_context
+from paper_state_store import PaperStatePersistence
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -246,6 +247,8 @@ def rtl_runtime_status():
 
 class FuturesAnalyzerApp(App):
     def build(self):
+        self.app_version = APP_VERSION
+        self.paper_state_store = PaperStatePersistence(self.user_data_dir)
         # User-editable capital is kept locally on this device between launches.
         self.settings_path = os.path.join(self.user_data_dir, "settings.json")
         try:
@@ -1659,15 +1662,12 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
     def _persist_paper_engine_state(self, engine):
-        """Atomically persist the paper-only engine snapshot in app-private storage."""
-        state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
-        temporary_path = state_path + ".tmp"
-        with open(temporary_path, "w", encoding="utf-8") as state_file:
-            json.dump(engine.export_state(), state_file, ensure_ascii=False,
-                      allow_nan=False, separators=(",", ":"))
-            state_file.flush()
-            os.fsync(state_file.fileno())
-        os.replace(temporary_path, state_path)
+        """Serialize concurrent writes and atomically persist the paper-only snapshot."""
+        store = getattr(self, "paper_state_store", None)
+        if store is None:
+            store = PaperStatePersistence(self.user_data_dir)
+            self.paper_state_store = store
+        store.persist(engine)
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
