@@ -1755,9 +1755,8 @@ class FuturesAnalyzerApp(App):
             if os.path.isfile(paper_state_path):
                 with open(paper_state_path, "r", encoding="utf-8") as state_file:
                     paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if paper_engine.halted and (
-                    paper_engine.halt_reason != "EMERGENCY_STOP"
-                    or paper_engine.position is not None
+                if paper_engine.position is not None or (
+                    paper_engine.halted and paper_engine.halt_reason != "EMERGENCY_STOP"
                 ):
                     self.update_auto_status(
                         "بازآماده‌سازی رد شد؛ توقف موتور آزمایشی ناشی از توقف دستیِ بدون موقعیت نیست."
