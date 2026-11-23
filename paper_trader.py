@@ -285,6 +285,22 @@ class PaperTradingEngine:
             leverage = position["leverage"]
             if type(leverage) is not int or not 1 <= leverage <= engine.max_leverage:
                 raise ValueError("paper-engine position leverage is invalid")
+            # Validate relationships between persisted financial fields, not
+            # only that each number is individually finite and positive.
+            expected_notional = position["entry"] * position["quantity"]
+            expected_entry_fee = expected_notional * engine.fee_rate
+            if not math.isclose(position["notional"], expected_notional,
+                                rel_tol=1e-9, abs_tol=1e-12):
+                raise ValueError("paper-engine position notional is inconsistent")
+            if not math.isclose(position["fees_entry"], expected_entry_fee,
+                                rel_tol=1e-9, abs_tol=1e-12):
+                raise ValueError("paper-engine entry fee is inconsistent")
+            if position["risk_budget"] > position["risk_limit"] + max(
+                    1e-12, abs(position["risk_limit"]) * 1e-9):
+                raise ValueError("paper-engine position exceeds its risk limit")
+            if position["notional"] / leverage > engine.cash + max(
+                    1e-12, abs(engine.cash) * 1e-9):
+                raise ValueError("paper-engine restored margin exceeds available cash")
             if position["side"] == "BULLISH":
                 if not position["stop"] < position["entry"] < position["target"]:
                     raise ValueError("paper-engine long protection is invalid")
