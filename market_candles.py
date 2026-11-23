@@ -89,7 +89,12 @@ class TradeCandleBuilder:
                 # Reject it conservatively so reconnect replay cannot double-count.
                 self.rejected += 1
                 return {"accepted": False, "reason": "out_of_order"}
-            if bucket != self._resume_bucket:
+            # A reconnect that resumes in the same minute or the immediately
+            # following minute is not a missing-candle gap. The interrupted
+            # forming candle is discarded, but older fully closed candles remain
+            # valid. Only one or more completely skipped minute buckets invalidate
+            # the retained indicator history.
+            if bucket > self._resume_bucket + self.interval_ms:
                 self.closed.clear()
                 self.gaps += 1
                 gap_detected = True
