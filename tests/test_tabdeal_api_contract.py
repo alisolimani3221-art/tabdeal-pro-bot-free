@@ -68,6 +68,16 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn("trade-stream-probe-report.json", workflow)
         self.assertIn("Upload redacted trade-stream probe report", workflow)
 
+    def test_websocket_app_uses_supported_default_timeout_api(self):
+        source = self.read("main.py")
+        probe = self.read("trade_stream_probe.py")
+        run_block = source[source.index("app.run_forever("):source.index("except Exception as stream_exc:")]
+        self.assertNotRegex(run_block, r"(?<![A-Za-z0-9_])timeout\s*=")
+        self.assertIn("websocket.setdefaulttimeout(12.0)", source)
+        self.assertIn("websocket.setdefaulttimeout(previous_socket_timeout)", source)
+        self.assertIn("websocket.setdefaulttimeout(min(12.0, timeout_value))", probe)
+        self.assertNotIn("timeout=min(12.0", probe)
+
     def test_public_trade_probe_uses_observed_plain_text_symbol_subscription(self):
         source = self.read("trade_stream_probe.py")
         self.assertIn("BROADCAST_URL", source)

@@ -244,7 +244,12 @@ class TradeStreamProbeTests(unittest.TestCase):
                 })
                 self.callbacks["on_message"](self, message)
 
-        fake_module = types.SimpleNamespace(WebSocketApp=FakeWebSocketApp)
+        timeout_state = {"value": None}
+        fake_module = types.SimpleNamespace(
+            WebSocketApp=FakeWebSocketApp,
+            getdefaulttimeout=lambda: timeout_state["value"],
+            setdefaulttimeout=lambda value: timeout_state.__setitem__("value", value),
+        )
         with patch.dict(sys.modules, {"websocket": fake_module}):
             result = probe_broadcast(
                 symbol="BTC_USDT",
@@ -256,6 +261,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(result["valid_trades"], 1)
         self.assertEqual(observed["sent"], ["BTC_USDT"])
         self.assertEqual(len(observed["trades"]), 1)
+        self.assertIsNone(timeout_state["value"])
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
         from trade_stream_probe import probe_broadcast
