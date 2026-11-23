@@ -45,6 +45,7 @@ from paper_trader import (PaperTradingEngine, diagnose_signal,
                           PAPER_SCAN_INTERVAL_SECONDS)
 from trade_stream_probe import (
     BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
+    clear_websocket_idle_timeout,
 )
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import build_ai_diagnostic_context
@@ -2124,6 +2125,21 @@ class FuturesAnalyzerApp(App):
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
+                try:
+                    clear_websocket_idle_timeout(ws)
+                except Exception as timeout_exc:
+                    detail = "WebSocket idle-timeout setup failed: {}: {}".format(
+                        type(timeout_exc).__name__, str(timeout_exc)[:120]
+                    )
+                    self._update_engine_health(
+                        worker_phase="socket_timeout_setup_failed",
+                        websocket_connected=False, last_stream_error=detail,
+                    )
+                    Clock.schedule_once(
+                        lambda dt, value=detail: self.update_auto_status(value), 0
+                    )
+                    ws.close()
+                    return
                 stream_watchdog.connected()
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
