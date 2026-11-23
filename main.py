@@ -48,7 +48,7 @@ from trade_stream_probe import (
     BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
 )
 from openai_assistant import analyze_with_openai
-from ai_diagnostics import build_ai_diagnostic_context
+from ai_diagnostics import (build_ai_diagnostic_context,\n                             build_engine_health_report_lines)
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -1721,7 +1721,7 @@ class FuturesAnalyzerApp(App):
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
-        for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
+        lines.extend(build_engine_health_report_lines(self))\n        for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
                     "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
             if key in results:
