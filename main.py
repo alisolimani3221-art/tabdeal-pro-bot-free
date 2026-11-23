@@ -560,7 +560,9 @@ class FuturesAnalyzerApp(App):
                         response.close()
                         response = None
                         raise RuntimeError("{} returned HTTP {}: {}".format(path, status_code, detail))
-                    return response
+                    successful_response = response
+                    response = None  # caller owns and closes the successful response
+                    return successful_response
                 except (requests.exceptions.ConnectionError,
                         requests.exceptions.SSLError,
                         requests.exceptions.Timeout) as exc:
