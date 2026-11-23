@@ -65,6 +65,16 @@ class PaperMarketUniverse:
         if not isinstance(symbol, str):
             return {"accepted": False, "reason": "invalid_symbol"}
         symbol = symbol.upper()
+        if now is None:
+            now = time.monotonic()
+        if isinstance(now, bool):
+            raise ValueError("monotonic timestamp must be finite")
+        try:
+            now = float(now)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("monotonic timestamp must be finite")
+        if not math.isfinite(now) or now < 0:
+            raise ValueError("monotonic timestamp must be finite")
         with self._lock:
             builder = self.builders.get(symbol)
             if builder is None:
@@ -72,16 +82,6 @@ class PaperMarketUniverse:
             update = builder.add_trade(trade)
             if not update.get("accepted"):
                 return update
-            if now is None:
-                now = time.monotonic()
-            if isinstance(now, bool):
-                raise ValueError("monotonic timestamp must be finite")
-            try:
-                now = float(now)
-            except (TypeError, ValueError, OverflowError):
-                raise ValueError("monotonic timestamp must be finite")
-            if not math.isfinite(now) or now < 0:
-                raise ValueError("monotonic timestamp must be finite")
             self._latest_prices[symbol] = float(trade["price"])
             self._last_trade_at[symbol] = now
             if update.get("gap_detected"):
