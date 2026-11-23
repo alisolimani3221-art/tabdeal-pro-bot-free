@@ -299,6 +299,14 @@ class PaperTraderTests(unittest.TestCase):
         engine.position = {"symbol": "AAA_USDT"}
         with self.assertRaisesRegex(RuntimeError, "open paper position"):
             engine.rearm_after_operator_stop()
+        loss_limited = PaperTradingEngine(capital=8, max_loss_percent=1.0)
+        loss_limited.halted = True
+        loss_limited.halt_reason = "EMERGENCY_STOP"
+        loss_limited.cash = 7.9
+        with self.assertRaisesRegex(RuntimeError, "maximum cumulative paper loss"):
+            loss_limited.rearm_after_operator_stop()
+        self.assertTrue(loss_limited.halted)
+        self.assertEqual(loss_limited.halt_reason, "MAX_LOSS")
 
 
     def test_engine_never_exposes_live_order_method(self):
