@@ -18,7 +18,7 @@ def ensure_paper_runner_ready(runtime_guard, coordinator_session):
     if not isinstance(snapshot, dict) or type(snapshot.get("halted")) is not bool:
         raise PaperRunnerGateError("persisted coordinator state is invalid")
     if snapshot["halted"]:
-        raise PaperRunnerGateError("persistent emergency stop is active")
+        raise PaperRunnerGateError("persistent emergency stop is active; reason={!r}".format(snapshot.get("halt_reason")))
     intents = snapshot.get("intents")
     if not isinstance(intents, dict):
         raise PaperRunnerGateError("persisted coordinator intents are invalid")
