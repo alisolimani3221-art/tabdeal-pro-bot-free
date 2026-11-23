@@ -1734,6 +1734,10 @@ class FuturesAnalyzerApp(App):
                 os.fsync(state_file.fileno())
             os.replace(temporary_path, state_path)
 
+    def _schedule_rearmed_paper_runner(self):
+        """Start paper mode after explicit operator confirmation."""
+        Clock.schedule_once(lambda _dt: self.start_auto_paper_trader(), 0.5)
+
     def request_rearm_paper_runner(self):
         """Offer a confirmed reset only for an explicit operator stop with no pending intents."""
         guard = getattr(self, "runtime_guard", None)
@@ -1779,7 +1783,7 @@ class FuturesAnalyzerApp(App):
             "این کار فقط قفل توقف دستی شبیه‌ساز آزمایشی را بازآماده می‌کند.\n"
             "هیچ سابقه‌ای حذف نمی‌شود؛ هیچ درخواست معلقی مجاز نیست؛ "
             "هیچ سفارش واقعی ارسال یا فعال نمی‌شود.\n"
-            "پس از تأیید، برای اجرا باید دوباره دکمه شروع آزمایش را بزنید."
+            "پس از تأیید، شبیه‌ساز آزمایشی به‌صورت خودکار راه‌اندازی می‌شود."
         )
         label = Label(
             text=assistant_rtl_text(explanation), font_name=FONT_NAME,
@@ -1808,6 +1812,7 @@ class FuturesAnalyzerApp(App):
                 return
             rearmed = False
             paper_rearmed = False
+            start_after_rearm = False
             try:
                 # Validate the process lock immediately before changing the
                 # persisted halt. The snapshot checks above already proved
@@ -1826,9 +1831,10 @@ class FuturesAnalyzerApp(App):
                     paper_rearmed = True
                 ensure_paper_runner_ready(guard, session)
                 self.update_auto_status(
-                    "قفل توقف دستی با تأیید شما بازآماده شد. شبیه‌ساز هنوز اجرا نشده است؛ "
-                    "برای شروع، دکمه شروع آزمایش را بزنید. هیچ سفارش واقعی ارسال نمی‌شود."
+                    "قفل توقف دستی با تأیید شما بازآماده شد؛ راه‌اندازی خودکار شبیه‌ساز آزمایشی در حال انجام است. "
+                    "سرمایه و تاریخچه حفظ شده‌اند و هیچ سفارش واقعی ارسال نمی‌شود."
                 )
+                start_after_rearm = True
             except Exception as exc:
                 # If any post-rearm readiness check fails, restore the
                 # persistent emergency stop before reporting failure. Never
@@ -1852,6 +1858,8 @@ class FuturesAnalyzerApp(App):
                     "بازآماده‌سازی انجام نشد؛ تلاش برای حفظ قفل ایمنی انجام شد: " + detail
                 )
             popup.dismiss()
+            if start_after_rearm:
+                self._schedule_rearmed_paper_runner()
 
         confirm.bind(on_press=confirm_rearm)
         popup.open()
