@@ -2139,6 +2139,21 @@ class FuturesAnalyzerApp(App):
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
+                try:
+                    clear_websocket_idle_timeout(ws)
+                except Exception as timeout_exc:
+                    detail = "WebSocket idle-timeout setup failed: {}: {}".format(
+                        type(timeout_exc).__name__, str(timeout_exc)[:120]
+                    )
+                    self._update_engine_health(
+                        worker_phase="socket_timeout_setup_failed",
+                        websocket_connected=False, last_stream_error=detail,
+                    )
+                    Clock.schedule_once(
+                        lambda dt, value=detail: self.update_auto_status(value), 0
+                    )
+                    ws.close()
+                    return
                 stream_watchdog.connected()
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
