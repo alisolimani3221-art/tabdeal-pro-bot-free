@@ -1791,17 +1791,16 @@ class FuturesAnalyzerApp(App):
             return
         try:
             state = session.snapshot()
-            if state.get("halted") is not True:
-                self.update_auto_status("قفل اضطراری فعال نیست؛ نیازی به بازآماده‌سازی وجود ندارد.")
-                return
-            if state.get("halt_reason") != "operator emergency stop":
-                self.update_auto_status("بازآماده‌سازی خودکار رد شد؛ علت توقف، توقف دستی معمولی نیست.")
+            coordinator_halted = state.get("halted") is True
+            if coordinator_halted and state.get("halt_reason") != "operator emergency stop":
+                self.update_auto_status("بازآماده‌سازی رد شد؛ توقف هماهنگ‌کننده از نوع توقف دستیِ قابل‌بازیابی نیست.")
                 return
             if state.get("intents") != {}:
                 self.update_auto_status("بازآماده‌سازی رد شد؛ درخواست آماده‌سازی معلق وجود دارد.")
                 return
-            # The paper engine has its own durable halt. Validate it too;
-            # coordinator re-arm alone must never bypass MAX_LOSS or an open position.
+            # A worker-side failure can persist EMERGENCY_STOP in the paper
+            # engine without setting the coordinator halt. Permit recovery only
+            # after explicit confirmation, with no position and above MAX_LOSS.
             paper_state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             paper_engine = None
             if os.path.isfile(paper_state_path):
@@ -1811,9 +1810,13 @@ class FuturesAnalyzerApp(App):
                     paper_engine.halted and paper_engine.halt_reason != "EMERGENCY_STOP"
                 ):
                     self.update_auto_status(
-                        "بازآماده‌سازی رد شد؛ توقف موتور آزمایشی ناشی از توقف دستیِ بدون موقعیت نیست."
+                        "بازآماده‌سازی رد شد؛ موقعیت باز یا توقف سقف زیان/ایمنی غیرقابل‌بازیابی وجود دارد."
                     )
                     return
+            paper_halted = paper_engine is not None and paper_engine.halted
+            if not coordinator_halted and not paper_halted:
+                self.update_auto_status("هیچ توقف قابل‌بازیابی فعالی وجود ندارد.")
+                return
         except Exception as exc:
             self.update_auto_status("خواندن وضعیت ایمنی ناموفق بود؛ قفل حفظ شد: " + type(exc).__name__)
             return
@@ -1854,21 +1857,38 @@ class FuturesAnalyzerApp(App):
             paper_rearmed = False
             start_after_rearm = False
             try:
-                # Validate the process lock immediately before changing the
-                # persisted halt. The snapshot checks above already proved
-                # the exact operator-stop reason and an empty intent set.
+                # Re-read both durable states at confirmation time; the popup
+                # may have remained open while another lifecycle event changed them.
                 if not getattr(guard, "held", False):
                     raise RuntimeError("exclusive app runtime lock is not held")
-                session.rearm_after_operator_stop()
-                rearmed = True
-                # Clear the paper-engine halt only for an explicit operator stop,
-                # after restore_state has validated the persisted snapshot.
-                # This preserves cash, closed-trade history, scan count and risk limits.
+                current_state = session.snapshot()
+                if current_state.get("intents") != {}:
+                    raise RuntimeError("pending prepared intents must be resolved before re-arming")
+                if current_state.get("halted"):
+                    if current_state.get("halt_reason") != "operator emergency stop":
+                        raise RuntimeError("coordinator halt is not operator-rearmable")
+                    session.rearm_after_operator_stop()
+                    rearmed = True
+                elif current_state.get("halt_reason") is not None:
+                    raise RuntimeError("coordinator recovery metadata is inconsistent")
+                # Reload the paper engine rather than trusting the snapshot
+                # captured when the confirmation dialog was first opened.
+                paper_state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+                paper_engine = None
+                if os.path.isfile(paper_state_path):
+                    with open(paper_state_path, "r", encoding="utf-8") as state_file:
+                        paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
                 if paper_engine is not None and paper_engine.halted:
+                    if paper_engine.halt_reason != "EMERGENCY_STOP":
+                        raise RuntimeError("paper engine halt is not operator-rearmable")
+                    if paper_engine.position is not None:
+                        raise RuntimeError("open paper position must be closed before re-arming")
                     paper_engine.rearm_after_operator_stop()
                     self._persist_paper_engine_state(paper_engine)
                     self.auto_engine = paper_engine
                     paper_rearmed = True
+                if not rearmed and not paper_rearmed:
+                    raise RuntimeError("no eligible persisted halt remains to re-arm")
                 ensure_paper_runner_ready(guard, session)
                 self.update_auto_status(
                     "قفل توقف دستی با تأیید شما بازآماده شد؛ راه‌اندازی خودکار شبیه‌ساز آزمایشی در حال انجام است. "
