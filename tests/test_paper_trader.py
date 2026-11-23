@@ -335,6 +335,9 @@ class PaperTraderTests(unittest.TestCase):
             loss_limited.rearm_after_operator_stop()
         self.assertTrue(loss_limited.halted)
         self.assertEqual(loss_limited.halt_reason, "MAX_LOSS")
+        self.assertEqual(
+            loss_limited.halt_detail, "cumulative paper loss limit remains active"
+        )
 
 
     def test_engine_never_exposes_live_order_method(self):
