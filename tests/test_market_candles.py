@@ -137,14 +137,37 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(accepted["gap_detected"])
         self.assertEqual(builder.current["volume"], 1.0)
 
-    def test_reconnect_after_minute_boundary_invalidates_retained_history(self):
+    def test_reconnect_at_adjacent_minute_boundary_preserves_closed_history(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 122):
+            builder.add_trade(self.trade(minute))
+        self.assertTrue(builder.is_ready)
+        retained = len(builder.closed)
+        builder.reset_after_reconnect()
+
+        result = builder.add_trade(self.trade(122))
+        self.assertTrue(result["accepted"])
+        self.assertFalse(result["gap_detected"])
+        self.assertEqual(len(builder.closed), retained)
+        self.assertFalse(builder.is_ready)
+
+        # The reconnect's first partial candle is discarded; the following
+        # fully observed candle restores readiness without a 20-candle reset.
+        builder.add_trade(self.trade(123))
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(len(builder.closed), retained)
+        builder.add_trade(self.trade(124))
+        self.assertTrue(builder.is_ready)
+        self.assertEqual(len(builder.closed), retained + 1)
+
+    def test_reconnect_with_missing_full_minute_invalidates_retained_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 122):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         builder.reset_after_reconnect()
 
-        result = builder.add_trade(self.trade(122))
+        result = builder.add_trade(self.trade(123))
         self.assertTrue(result["accepted"])
         self.assertTrue(result["gap_detected"])
         self.assertEqual(len(builder.closed), 0)
