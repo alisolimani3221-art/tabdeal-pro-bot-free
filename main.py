@@ -1703,6 +1703,11 @@ class FuturesAnalyzerApp(App):
         if not getattr(self, "runtime_lock_ready", False):
             detail = getattr(self, "runtime_lock_error", None) or "قفل اجرا برقرار نیست."
             self.update_auto_status("شروع شبیه‌ساز مسدود شد؛ قفل ایمنی حافظه داخلی برقرار نشد. " + detail)
+        elif getattr(self, "coordinator_session_error", None):
+            self.update_auto_status(
+                "شروع شبیه‌ساز مسدود است؛ وضعیت ایمنی: "
+                + self.coordinator_session_error
+            )
         else:
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
