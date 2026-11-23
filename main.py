@@ -2305,19 +2305,31 @@ class FuturesAnalyzerApp(App):
         self.coordinator_session = None
         self.coordinator_session_error = None
         if self.runtime_lock_ready:
+            state_path = os.path.join(self.user_data_dir, "trade-state.json")
             try:
-                state_path = os.path.join(self.user_data_dir, "trade-state.json")
                 self.coordinator_session = TradeCoordinatorSession(
                     state_path, max_open_positions=1
                 )
-                ensure_paper_runner_ready(
-                    self.runtime_guard, self.coordinator_session
-                )
             except Exception as exc:
+                # A session-construction or persistence failure means there is
+                # no trustworthy state boundary; keep the runner unavailable.
                 self.coordinator_session = None
                 self.coordinator_session_error = (
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
+            else:
+                # Keep a successfully opened session even when the readiness
+                # gate reports a persisted emergency halt. This preserves
+                # read-only diagnostics of the halt reason and intents while
+                # start_auto_paper_trader() continues to fail closed.
+                try:
+                    ensure_paper_runner_ready(
+                        self.runtime_guard, self.coordinator_session
+                    )
+                except Exception as exc:
+                    self.coordinator_session_error = (
+                        "{}: {}".format(type(exc).__name__, str(exc)[:160])
+                    )
 
     def on_stop(self):
         worker_stopped = True
