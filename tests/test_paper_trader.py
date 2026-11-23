@@ -336,6 +336,7 @@ class PaperTraderTests(unittest.TestCase):
             ("notional", valid["position"]["notional"] * 1.1),
             ("fees_entry", valid["position"]["fees_entry"] * 1.1),
             ("risk_budget", valid["position"]["risk_limit"] * 1.1 + 1e-9),
+            ("risk_limit", valid["position"]["risk_limit"] * 1.1),
             ("quantity", valid["position"]["quantity"] * 1.1),
         )
         for field, value in mutations:
