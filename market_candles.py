@@ -83,7 +83,10 @@ class TradeCandleBuilder:
             # Do not let it rewind the stream or trigger a paper exit at an
             # obsolete price. Keep the resume check pending until a newer tick.
             if (self._resume_last_timestamp_ms is not None
-                    and timestamp < self._resume_last_timestamp_ms):
+                    and timestamp <= self._resume_last_timestamp_ms):
+                # Without a sequence ID, an equal-timestamp replay cannot be
+                # distinguished from a new trade in the same millisecond.
+                # Reject it conservatively so reconnect replay cannot double-count.
                 self.rejected += 1
                 return {"accepted": False, "reason": "out_of_order"}
             if bucket != self._resume_bucket:
