@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.49"
+APP_VERSION = "1.50"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -543,6 +543,7 @@ class FuturesAnalyzerApp(App):
             return
         last_update = getattr(self, "market_price_last_update", None)
         if last_update is None or time.monotonic() - last_update > 15.0:
+            self.latest_market_price = None
             self.price_value.text = fa("داده تازه در دسترس نیست")
             self.price_value.font_name = FONT_NAME
             self.connection.text = fa("به‌روزرسانی خودکار قیمت ناموفق است؛ تلاش مجدد ادامه دارد")
@@ -2711,7 +2712,11 @@ class FuturesAnalyzerApp(App):
         return True
 
     def on_resume(self):
-        self._start_market_price_refresh()
+        worker = getattr(self, "market_refresh_thread", None)
+        if worker is not None and worker.is_alive():
+            Clock.schedule_once(lambda _dt: self.on_resume(), 1.0)
+        else:
+            self._start_market_price_refresh()
 
     def on_stop(self):
         self._stop_market_price_refresh(timeout=2.0)
