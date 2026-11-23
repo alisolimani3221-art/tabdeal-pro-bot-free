@@ -2045,7 +2045,7 @@ class FuturesAnalyzerApp(App):
             attempt_delay = min(15, 2 + retry_attempt * 2)
             self._record_auto_stream_diagnostic(
                 state="connecting", attempt=retry_attempt,
-                last_error="", close_code="", close_message="",
+                connecting_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             )
             Clock.schedule_once(
                 lambda dt, number=retry_attempt: self.update_auto_status(
@@ -2067,7 +2067,6 @@ class FuturesAnalyzerApp(App):
                 self._record_auto_stream_diagnostic(
                     state="connected", attempt=retry_attempt,
                     opened_at=time.strftime("%Y-%m-%d %H:%M:%S"),
-                    last_error="", close_code="", close_message="",
                 )
                 # Match the previously observed working public-feed protocol:
                 # send the market symbol as plain text after the socket opens.
