@@ -54,6 +54,13 @@ class PaperMarketUniverseTests(unittest.TestCase):
         candidates = universe.candidates(now=53.0, max_age_seconds=30.0)
         self.assertEqual([item["symbol"] for item in candidates], ["ETH_USDT"])
 
+    def test_future_freshness_clock_is_rejected(self):
+        universe = PaperMarketUniverse(["BTC_USDT"])
+        feed_warmup(universe, "BTC_USDT")
+        self.assertIsNone(
+            universe.snapshot_for_symbol("BTC_USDT", now=1.0, max_age_seconds=30.0)
+        )
+
     def test_gap_invalidates_only_the_affected_market(self):
         universe = PaperMarketUniverse(["BTC_USDT", "ETH_USDT"])
         feed_warmup(universe, "BTC_USDT")
