@@ -34,6 +34,7 @@ LIFECYCLE_GLOBALS = {
     "AppRuntimeGuard": AppRuntimeGuard,
     "TradeCoordinatorSession": TradeCoordinatorSession,
     "ensure_paper_runner_ready": ensure_paper_runner_ready,
+    "Clock": Mock(),
 }
 exec(
     compile(ast.Module(body=METHOD_NODES, type_ignores=[]), str(MAIN_SOURCE), "exec"),
@@ -56,6 +57,12 @@ class LifecycleHarness:
         self.auto_trader_thread = None
         self.auto_ws = None
         self.update_auto_status = Mock()
+        self.market_refresh_stop_event = threading.Event()
+        self.market_refresh_thread = None
+        self.show_status = Mock()
+
+    def _market_refresh_loop(self):
+        return None
 
 
 class AppLifecycleIntegrationTests(unittest.TestCase):
