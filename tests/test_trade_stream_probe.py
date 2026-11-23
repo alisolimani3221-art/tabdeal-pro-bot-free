@@ -4,7 +4,7 @@ import time
 import unittest
 from datetime import datetime, timezone
 
-from trade_stream_probe import MAX_MESSAGE_BYTES, parse_trade_message
+from trade_stream_probe import MAX_MESSAGE_BYTES, MAX_TRADE_AGE_MS, parse_trade_message
 
 
 class TradeStreamProbeTests(unittest.TestCase):
@@ -88,17 +88,18 @@ class TradeStreamProbeTests(unittest.TestCase):
                 self.assertFalse(self.parse_trade_with("price", value)["ok"])
 
     def test_parses_observed_tabdeal_iso_timestamp_and_sequence_schema(self):
+        updated = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         payload = {"trade": {
             "symbol": "BTC_USDT", "price": "123.4", "amount": "0.01234",
-            "sequence": 987654, "side_name": "BUY",
-            "updated": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "sequence": 987654, "side_name": "BUY", "updated": updated,
         }}
         result = parse_trade_message(json.dumps(payload), "BTC_USDT")
         self.assertTrue(result["ok"])
         self.assertEqual(result["quantity"], 0.01234)
         self.assertEqual(result["sequence"], 987654)
         self.assertEqual(result["side_name"], "buy")
-        self.assertEqual(result["timestamp_ms"], int(datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp() * 1000)
+        expected_ms = int(datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp() * 1000)
+        self.assertEqual(result["timestamp_ms"], expected_ms)
 
     def test_rejects_naive_iso_timestamp(self):
         payload = {"trade": {"symbol": "BTC_USDT", "price": "1",
@@ -118,6 +119,11 @@ class TradeStreamProbeTests(unittest.TestCase):
     def test_rejects_timestamps_far_in_the_future(self):
         future_seconds = time.time() + 600
         self.assertEqual(self.parse_trade_with("timestamp", future_seconds)["reason"],
+                         "invalid_timestamp")
+
+    def test_rejects_stale_trade_timestamps(self):
+        stale_seconds = time.time() - (MAX_TRADE_AGE_MS / 1000) - 10
+        self.assertEqual(self.parse_trade_with("timestamp", stale_seconds)["reason"],
                          "invalid_timestamp")
 
     def test_rejects_invalid_trade_symbol_format(self):
