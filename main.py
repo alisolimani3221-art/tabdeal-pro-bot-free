@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.49"
+APP_VERSION = "1.50"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -436,6 +436,14 @@ class FuturesAnalyzerApp(App):
         self._paper_state_lock = threading.RLock()
         self.auto_status_label = None
         self.latest_market_price = None
+        self._auto_stream_diag_lock = threading.Lock()
+        self.auto_stream_diagnostic = {
+            "state": "not_started", "attempt": 0,
+            "received_messages": 0, "valid_messages": 0,
+            "selected_symbol_trades": 0, "last_error": "",
+            "close_code": "", "close_message": "",
+            "last_message_at": "", "last_valid_trade_at": "",
+        }
 
         content.add_widget(self.section_title("نتیجه بررسی"))
         self.analysis = self.make_label(
@@ -1445,6 +1453,8 @@ class FuturesAnalyzerApp(App):
 
         results = getattr(self, "last_diagnostic_results", {}) or {}
         auto_running = bool(self.auto_trader_thread and self.auto_trader_thread.is_alive())
+        with self._auto_stream_diag_lock:
+            stream_diag = dict(getattr(self, "auto_stream_diagnostic", {}) or {})
         font_status = "OK: " + str(FONT_PATH) if FONT_PATH else "MISSING: Persian font"
         latin_status = "OK: " + str(LATIN_FONT_PATH) if LATIN_FONT_PATH else "MISSING: Latin font"
         depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
@@ -1475,6 +1485,15 @@ class FuturesAnalyzerApp(App):
             "آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status", "هنوز گزارشی از موتور ثبت نشده"))[:240],
             "زمان آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status_time", "نامشخص")),
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
+            "وضعیت جریان WebSocket: " + str(stream_diag.get("state", "نامشخص")),
+            "تلاش اتصال WebSocket: " + str(stream_diag.get("attempt", 0)),
+            "پیام‌های دریافتی جریان: " + str(stream_diag.get("received_messages", 0)),
+            "پیام‌های معتبر جریان: " + str(stream_diag.get("valid_messages", 0)),
+            "معامله‌های نماد انتخابی: " + str(stream_diag.get("selected_symbol_trades", 0)),
+            "آخرین پیام معتبر: " + str(stream_diag.get("last_valid_trade_at", "ثبت نشده")),
+            "خطای آخر WebSocket: " + str(stream_diag.get("last_error", "ندارد"))[:220],
+            "کد بسته‌شدن WebSocket: " + str(stream_diag.get("close_code", "ثبت نشده")),
+            "پیام بسته‌شدن WebSocket: " + str(stream_diag.get("close_message", ""))[:180],
             "وضعیت کلید امن API: " + credential_status,
         ]
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
@@ -2018,11 +2037,23 @@ class FuturesAnalyzerApp(App):
         last_status_update = 0.0
         received_messages = 0
         valid_messages = 0
+        selected_symbol_trades = 0
+        self._record_auto_stream_diagnostic(
+            state="starting", attempt=0,
+            received_messages=0, valid_messages=0,
+            selected_symbol_trades=0, last_error="",
+            close_code="", close_message="",
+            last_message_at="", last_valid_trade_at="",
+        )
         connected_once = False
         retry_attempt = 0
         while not self.auto_stop_event.is_set():
             retry_attempt += 1
             attempt_delay = min(15, 2 + retry_attempt * 2)
+            self._record_auto_stream_diagnostic(
+                state="connecting", attempt=retry_attempt,
+                connecting_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
             Clock.schedule_once(
                 lambda dt, number=retry_attempt: self.update_auto_status(
                     "در حال تلاش برای اتصال به جریان معاملات؛ تلاش شماره {}. "
@@ -2040,6 +2071,10 @@ class FuturesAnalyzerApp(App):
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
+                self._record_auto_stream_diagnostic(
+                    state="connected", attempt=retry_attempt,
+                    opened_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
                 # Match the previously observed working public-feed protocol:
                 # send the market symbol as plain text after the socket opens.
                 # This is a read-only market subscription, never an order action.
@@ -2054,7 +2089,12 @@ class FuturesAnalyzerApp(App):
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
+                nonlocal selected_symbol_trades
                 received_messages += 1
+                self._record_auto_stream_diagnostic(
+                    received_messages=received_messages,
+                    last_message_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
                 # This socket is a market-wide broadcast. Parse each event's
                 # own symbol first: activity in any market proves the socket is
                 # alive, even when the selected low-volume symbol has no trade.
@@ -2091,6 +2131,10 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 valid_messages += 1
+                self._record_auto_stream_diagnostic(
+                    valid_messages=valid_messages,
+                    last_valid_trade_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
                 # Only a fresh, fully validated broadcast trade refreshes liveness.
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
@@ -2107,6 +2151,11 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                selected_symbol_trades += 1
+                self._record_auto_stream_diagnostic(
+                    selected_symbol_trades=selected_symbol_trades,
+                    last_selected_symbol_trade_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
                     now = time.monotonic()
@@ -2214,7 +2263,8 @@ class FuturesAnalyzerApp(App):
                         )
 
             def on_error(ws, error):
-                detail = "{}: {}".format(type(error).__name__, str(error)[:140])
+                detail = "{}: {}".format(type(error).__name__, str(error)[:180])
+                self._record_auto_stream_diagnostic(state="error", last_error=detail)
                 Clock.schedule_once(
                     lambda dt, value=detail: self.update_auto_status(
                         "خطای جریان معاملات؛ تلاش برای اتصال مجدد. علت: " + value
@@ -2222,6 +2272,10 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_close(ws, close_status_code, close_message):
+                self._record_auto_stream_diagnostic(
+                    state="closed", close_code=str(close_status_code),
+                    close_message=str(close_message or "")[:180],
+                )
                 if not self.auto_stop_event.is_set():
                     detail = "کد={}; پیام={}".format(
                         close_status_code, str(close_message or "بدون توضیح")[:100]
@@ -2351,6 +2405,9 @@ class FuturesAnalyzerApp(App):
                         return
                     if stream_watchdog.is_stale():
                         silent_for = stream_watchdog.seconds_since_valid_trade()
+                        self._record_auto_stream_diagnostic(
+                            state="stale", silence_seconds=round(silent_for or 0.0, 1),
+                        )
                         Clock.schedule_once(
                             lambda dt, value=silent_for: self.update_auto_status(
                                 "بیش از ۴۵ ثانیه معامله معتبر دریافت نشد؛ جریان برای اتصال مجدد بسته می‌شود. "
@@ -2377,7 +2434,8 @@ class FuturesAnalyzerApp(App):
                     reconnect=0,
                 )
             except Exception as stream_exc:
-                detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:140])
+                detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:180])
+                self._record_auto_stream_diagnostic(state="exception", last_error=detail)
                 Clock.schedule_once(
                     lambda dt, value=detail: self.update_auto_status(
                         "خطای اجرای جریان معاملات؛ تلاش مجدد. علت: " + value
@@ -2390,6 +2448,10 @@ class FuturesAnalyzerApp(App):
                 watchdog_thread.join(timeout=1.0)
                 self.auto_ws = None
             if not self.auto_stop_event.is_set():
+                self._record_auto_stream_diagnostic(
+                    state="retrying", attempt=retry_attempt,
+                    retry_delay_seconds=attempt_delay,
+                )
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال قطع شد؛ تلاش مجدد پس از مکث کوتاه. پس از اتصال، " 
@@ -2399,6 +2461,7 @@ class FuturesAnalyzerApp(App):
                 )
                 self.auto_stop_event.wait(attempt_delay)
 
+        self._record_auto_stream_diagnostic(state="stopped")
         final_status = (
             "شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است. "
             "برای جزئیات، پیام آخر وضعیت موتور را بررسی کنید."
@@ -2431,6 +2494,17 @@ class FuturesAnalyzerApp(App):
             label.font_name = font_for_text(message)
             label.base_direction = "ltr"
             label.text_language = "ar"
+
+    def _record_auto_stream_diagnostic(self, **fields):
+        """Keep transport-level WebSocket evidence for the on-device diagnostic report."""
+        lock = getattr(self, "_auto_stream_diag_lock", None)
+        if lock is None:
+            return
+        with lock:
+            diagnostic = dict(getattr(self, "auto_stream_diagnostic", {}) or {})
+            diagnostic.update(fields)
+            diagnostic["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.auto_stream_diagnostic = diagnostic
 
     def on_start(self):
         # Kivy user_data_dir is the app-private writable storage on Android.

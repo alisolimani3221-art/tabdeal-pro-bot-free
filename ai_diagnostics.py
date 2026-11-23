@@ -1,6 +1,6 @@
 """Privacy-safe, read-only diagnostics context for the in-app Groq assistant."""
 
-APP_VERSION = "1.49"
+APP_VERSION = "1.50"
 
 APP_DIAGNOSTIC_KEYS = (
     "website", "market_ping", "market_info", "depth_status", "depth_http",

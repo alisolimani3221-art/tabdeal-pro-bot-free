@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -23,6 +24,7 @@ APP_CLASS = next(
 )
 METHOD_NAMES = {
     "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader",
+    "_record_auto_stream_diagnostic",
     "_persist_paper_engine_state"
 }
 METHOD_NODES = [
@@ -34,6 +36,7 @@ LIFECYCLE_GLOBALS = {
     "os": os,
     "json": json,
     "threading": threading,
+    "time": time,
     "AppRuntimeGuard": AppRuntimeGuard,
     "TradeCoordinatorSession": TradeCoordinatorSession,
     "ensure_paper_runner_ready": ensure_paper_runner_ready,
@@ -53,6 +56,7 @@ class LifecycleHarness:
     _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
     stop_auto_paper_trader = LIFECYCLE_GLOBALS["stop_auto_paper_trader"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
+    _record_auto_stream_diagnostic = LIFECYCLE_GLOBALS["_record_auto_stream_diagnostic"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
 
     def __init__(self, user_data_dir):
@@ -63,9 +67,21 @@ class LifecycleHarness:
         self.auto_engine = None
         self._paper_state_lock = threading.RLock()
         self.update_auto_status = Mock()
+        self._auto_stream_diag_lock = threading.Lock()
+        self.auto_stream_diagnostic = {}
 
 
 class AppLifecycleIntegrationTests(unittest.TestCase):
+    def test_stream_diagnostic_preserves_transport_error_and_later_counters(self):
+        app = LifecycleHarness("unused")
+        app._record_auto_stream_diagnostic(state="error", last_error="TimeoutError: handshake timed out")
+        app._record_auto_stream_diagnostic(received_messages=0, attempt=3)
+        self.assertEqual(app.auto_stream_diagnostic["state"], "error")
+        self.assertEqual(app.auto_stream_diagnostic["last_error"], "TimeoutError: handshake timed out")
+        self.assertEqual(app.auto_stream_diagnostic["received_messages"], 0)
+        self.assertEqual(app.auto_stream_diagnostic["attempt"], 3)
+        self.assertIn("updated_at", app.auto_stream_diagnostic)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
 
