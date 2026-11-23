@@ -1,5 +1,5 @@
-name: Tabdeal Futures CI (APK build paused)
-# Run validation only. APK builds stay paused until all six project gates are verified.
+name: Tabdeal Futures CI (debug APK, paper-only)
+# Builds a debug APK after validation; the app remains paper-only and sends no live orders.
 
 on:
   workflow_dispatch:
