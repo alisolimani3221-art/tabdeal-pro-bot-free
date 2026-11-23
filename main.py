@@ -1448,6 +1448,44 @@ class FuturesAnalyzerApp(App):
         font_status = "OK: " + str(FONT_PATH) if FONT_PATH else "MISSING: Persian font"
         latin_status = "OK: " + str(LATIN_FONT_PATH) if LATIN_FONT_PATH else "MISSING: Latin font"
         depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
+        coordinator_status = "UNAVAILABLE"
+        paper_state_status = "NOT FOUND"
+        try:
+            session = getattr(self, "coordinator_session", None)
+            if session is not None:
+                coordinator_state = session.snapshot()
+                coordinator_status = (
+                    "halted={}; reason={!r}; pending_intents={}".format(
+                        coordinator_state.get("halted"),
+                        coordinator_state.get("halt_reason"),
+                        len(coordinator_state.get("intents", {}))
+                        if isinstance(coordinator_state.get("intents"), dict) else "INVALID"
+                    )
+                )
+            elif getattr(self, "coordinator_session_error", None):
+                coordinator_status = "ERROR: " + str(self.coordinator_session_error)[:180]
+        except Exception as coordinator_exc:
+            coordinator_status = "ERROR: {}: {}".format(
+                type(coordinator_exc).__name__, str(coordinator_exc)[:140]
+            )
+        try:
+            paper_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            if os.path.isfile(paper_path):
+                with open(paper_path, "r", encoding="utf-8") as paper_file:
+                    paper_state = json.load(paper_file)
+                if isinstance(paper_state, dict):
+                    paper_state_status = "halted={}; reason={!r}; has_position={}; closed_trades={}".format(
+                        paper_state.get("halted"), paper_state.get("halt_reason"),
+                        paper_state.get("position") is not None,
+                        len(paper_state.get("closed_trades", []))
+                        if isinstance(paper_state.get("closed_trades"), list) else "INVALID"
+                    )
+                else:
+                    paper_state_status = "ERROR: invalid JSON state shape"
+        except Exception as paper_exc:
+            paper_state_status = "ERROR: {}: {}".format(
+                type(paper_exc).__name__, str(paper_exc)[:140]
+            )
         try:
             credential_status = CredentialStore(
                 os.path.join(self.user_data_dir, "account-credentials.enc")
@@ -1472,6 +1510,8 @@ class FuturesAnalyzerApp(App):
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
             "رشته پس‌زمینه معامله‌گر: " + ("ALIVE (سلامت جریان تأیید نشده)" if auto_running else "STOPPED"),
+            "وضعیت پایدار هماهنگ‌کننده: " + coordinator_status,
+            "وضعیت پایدار موتور آزمایشی: " + paper_state_status,
             "آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status", "هنوز گزارشی از موتور ثبت نشده"))[:240],
             "زمان آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status_time", "نامشخص")),
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
