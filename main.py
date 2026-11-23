@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.49"
+APP_VERSION = "1.50"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -436,6 +436,11 @@ class FuturesAnalyzerApp(App):
         self._paper_state_lock = threading.RLock()
         self.auto_status_label = None
         self.latest_market_price = None
+        # Read-only order-book refresh runs independently from the paper engine,
+        # so an emergency-stopped simulator cannot freeze the market display.
+        self.market_refresh_stop_event = threading.Event()
+        self.market_refresh_thread = None
+        self.market_price_last_update = None
 
         content.add_widget(self.section_title("نتیجه بررسی"))
         self.analysis = self.make_label(
@@ -472,6 +477,157 @@ class FuturesAnalyzerApp(App):
         value_label = self.make_label(value, size=12, color=(0.9, 0.93, 0.98, 1), height=dp(52))
         card.add_widget(value_label)
         return card, value_label
+
+    def _start_market_price_refresh(self):
+        """Start one foreground-only, read-only Tabdeal depth poller."""
+        worker = getattr(self, "market_refresh_thread", None)
+        if worker is not None and worker.is_alive():
+            return
+        self.market_refresh_stop_event.clear()
+        self.market_refresh_thread = threading.Thread(
+            target=self._market_price_refresh_worker, daemon=True
+        )
+        self.market_refresh_thread.start()
+
+    def _stop_market_price_refresh(self, timeout=2.0):
+        event = getattr(self, "market_refresh_stop_event", None)
+        if event is not None:
+            event.set()
+        worker = getattr(self, "market_refresh_thread", None)
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=max(0.0, float(timeout)))
+        return worker is None or not worker.is_alive()
+
+    def _publish_market_depth(self, symbol, bids, asks):
+        """Update the market card only with a validated snapshot for the current symbol."""
+        if symbol != str(getattr(self, "current_symbol", "")).upper():
+            return
+        if getattr(self, "check_in_progress", False):
+            return
+        if not bids or not asks:
+            return
+        bid, ask = float(bids[0][0]), float(asks[0][0])
+        if bid <= 0 or ask < bid:
+            return
+        midpoint = bid / 2.0 + ask / 2.0
+        self.latest_market_price = midpoint
+        self.market_price_last_update = time.monotonic()
+        for label, value in (
+            (self.price_value, midpoint),
+            (self.bid_value, bid),
+            (self.ask_value, ask),
+        ):
+            label.text = format_market_value(value)
+            label.font_name = NUMERIC_FONT_NAME
+        for row_buttons, levels in ((self.bid_rows, bids), (self.ask_rows, asks)):
+            for index, row_button in enumerate(row_buttons):
+                if index < len(levels):
+                    level_price, level_qty = levels[index]
+                    row_button.text = "{}       {}".format(
+                        format_market_value(level_price), format_market_value(level_qty)
+                    )
+                    row_button.disabled = False
+                    row_button.background_color = (
+                        (0.10, 0.18, 0.20, 1) if row_buttons is self.bid_rows
+                        else (0.22, 0.13, 0.13, 1)
+                    )
+                else:
+                    row_button.text = "--       --"
+                    row_button.disabled = True
+                    row_button.background_color = (0.10, 0.13, 0.18, 1)
+        self.connection.text = fa("قیمت و دفتر سفارش به‌صورت خودکار تازه شد")
+        self.connection.color = (0.35, 0.9, 0.55, 1)
+
+    def _publish_market_depth_error(self, symbol, detail):
+        if symbol != str(getattr(self, "current_symbol", "")).upper():
+            return
+        last_update = getattr(self, "market_price_last_update", None)
+        if last_update is None or time.monotonic() - last_update > 15.0:
+            self.latest_market_price = None
+            self.price_value.text = fa("داده تازه در دسترس نیست")
+            self.price_value.font_name = FONT_NAME
+            self.connection.text = fa("به‌روزرسانی خودکار قیمت ناموفق است؛ تلاش مجدد ادامه دارد")
+            self.connection.color = (1, 0.68, 0.35, 1)
+            # Do not expose stale book levels as current.
+            self.bid_value.text = "—"
+            self.ask_value.text = "—"
+            for row_button in self.bid_rows + self.ask_rows:
+                row_button.text = "--       --"
+                row_button.disabled = True
+                row_button.background_color = (0.10, 0.13, 0.18, 1)
+
+    def _market_price_refresh_worker(self):
+        """Poll the documented public depth endpoint every five seconds, without orders."""
+        session = requests.Session()
+        mount_tabdeal_tls_compat(session, certifi.where())
+        session.headers.update({
+            "User-Agent": "FuturesAnalyzer-ReadOnly-MarketMonitor/1.0",
+            "Accept": "application/json",
+            "Connection": "close",
+        })
+        verified_symbols = set()
+        try:
+            while not self.market_refresh_stop_event.is_set():
+                symbol = str(self.current_symbol).upper()
+                try:
+                    if not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
+                        raise ValueError("selected futures symbol has an invalid format")
+                    if symbol not in verified_symbols:
+                        info_response = session.get(
+                            FUTURES_API + "/exchangeInfo", timeout=20,
+                            verify=certifi.where(),
+                            headers={"Connection": "close"},
+                        )
+                        info_response.raise_for_status()
+                        try:
+                            info_data = info_response.json()
+                        finally:
+                            info_response.close()
+                        symbols_data = info_data
+                        if isinstance(info_data, dict):
+                            symbols_data = info_data.get("symbols")
+                            if symbols_data is None and isinstance(info_data.get("data"), dict):
+                                symbols_data = info_data["data"].get("symbols")
+                            if symbols_data is None and isinstance(info_data.get("data"), list):
+                                symbols_data = info_data["data"]
+                        active_symbols = list_market_symbols(symbols_data)
+                        if symbol not in active_symbols:
+                            raise ValueError("selected symbol is not an active USDT futures contract")
+                        verified_symbols.add(symbol)
+
+                    response = session.get(
+                        FUTURES_API + "/depth",
+                        params={"symbol": symbol, "limit": 5},
+                        timeout=15, verify=certifi.where(),
+                        headers={"Connection": "close"},
+                    )
+                    response.raise_for_status()
+                    try:
+                        book = response.json()
+                    finally:
+                        response.close()
+                    from orderbook import parse_order_book
+                    bids, asks = parse_order_book(book)
+                    if not bids or not asks or asks[0][0] < bids[0][0]:
+                        raise ValueError("order book failed best-bid/ask validation")
+                    Clock.schedule_once(
+                        lambda dt, sym=symbol, b=list(bids[:5]), a=list(asks[:5]):
+                            self._publish_market_depth(sym, b, a), 0
+                    )
+                except Exception as exc:
+                    detail = "{}: {}".format(type(exc).__name__, str(exc)[:140])
+                    Clock.schedule_once(
+                        lambda dt, sym=symbol, value=detail:
+                            self._publish_market_depth_error(sym, value), 0
+                    )
+                    # Re-check exchangeInfo after symbol or endpoint errors.
+                    if isinstance(exc, (ValueError, requests.exceptions.HTTPError)):
+                        verified_symbols.discard(symbol)
+                # Five seconds between requests; no overlapping requests or timer threads.
+                if self.market_refresh_stop_event.wait(5.0):
+                    break
+        finally:
+            session.close()
 
     def on_symbol_selected(self, spinner, value):
         if value:
@@ -2535,16 +2691,39 @@ class FuturesAnalyzerApp(App):
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
 
+        # Start a separate read-only depth poller even when the paper engine
+        # is halted by a persisted emergency stop. It only updates market display.
+        # Start the read-only market display and the guarded paper runner only
+        # after Kivy's UI is initialized. Keep a single scheduled startup callback.
         # Start the paper-only public market stream automatically after Kivy's
         # UI is initialized. start_auto_paper_trader() repeats every safety gate,
         # restores persisted state, and refuses emergency/loss halts. It never
         # submits exchange orders. Scheduling avoids starting worker/UI updates
         # before the application has completed its startup lifecycle.
-        Clock.schedule_once(
-            lambda _dt: self.start_auto_paper_trader(), 0.5
-        )
+        def start_foreground_services(_dt):
+            self._start_market_price_refresh()
+            self.start_auto_paper_trader()
+
+        Clock.schedule_once(start_foreground_services, 0.5)
+
+    def on_pause(self):
+        # Android may suspend networking in background; stop cleanly and resume on foreground.
+        stop_market_feed = getattr(self, "_stop_market_price_refresh", None)
+        if callable(stop_market_feed):
+            stop_market_feed(timeout=2.0)
+        return True
+
+    def on_resume(self):
+        worker = getattr(self, "market_refresh_thread", None)
+        if worker is not None and worker.is_alive():
+            Clock.schedule_once(lambda _dt: self.on_resume(), 1.0)
+        else:
+            self._start_market_price_refresh()
 
     def on_stop(self):
+        stop_market_feed = getattr(self, "_stop_market_price_refresh", None)
+        if callable(stop_market_feed):
+            stop_market_feed(timeout=2.0)
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
