@@ -1959,8 +1959,10 @@ class FuturesAnalyzerApp(App):
                     raise RuntimeError("یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(engine.position["symbol"]))
                 if engine.halted:
                     raise RuntimeError(
-                        "موتور قبلاً متوقف شده است؛ راه‌اندازی خودکار پس از توقف اضطراری "
-                        "یا سقف زیان مجاز نیست. بازنشانی باید آگاهانه و جداگانه انجام شود."
+                        "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
+                        "راه‌اندازی خودکار پس از توقف اضطراری یا سقف زیان مجاز نیست؛ "
+                        "وضعیت باید آگاهانه بررسی شود."
+                        .format(engine.halt_reason, engine.halt_detail or "جزئیات ثبت نشده")
                     )
             else:
                 engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
