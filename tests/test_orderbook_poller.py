@@ -17,7 +17,7 @@ class OrderBookPollerTests(unittest.TestCase):
         )
         self.assertIn("Clock.schedule_interval(\n                self._schedule_order_book_poll, 2.0", source)
         self.assertIn("self.orderbook_poll_lock.acquire(False)", source)
-        self.assertIn("self.orderbook_poll_stop.set()", source)
+        self.assertIn("poll_stop.set()", source)
         self.assertIn("fetch_order_book_snapshot(", source)
 
     def test_fetches_one_valid_depth_snapshot_and_closes_response(self):
