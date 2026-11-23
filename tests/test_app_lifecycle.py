@@ -236,10 +236,14 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         workers = [threading.Thread(target=persist_many) for _ in range(8)]
         for worker in workers:
             worker.start()
+        # Each persistence operation flushes and fsyncs an atomic snapshot.
+        # On slower shared CI runners, 200 serialized fsyncs can exceed 5s;
+        # use a generous bounded wait so the test checks atomicity, not runner speed.
         for worker in workers:
-            worker.join(timeout=5.0)
+            worker.join(timeout=30.0)
 
-        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        alive = [worker.name for worker in workers if worker.is_alive()]
+        self.assertEqual(alive, [], "persistence workers did not finish: {}".format(alive))
         self.assertEqual(errors, [])
         state_path = os.path.join(self.temp.name, "paper-engine-state.json")
         with open(state_path, "r", encoding="utf-8") as state_file:
