@@ -87,8 +87,13 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         second.on_start()
         self.assertTrue(second.runtime_lock_ready)
         self.assertTrue(second.runtime_guard.held)
-        self.assertIsNone(second.coordinator_session)
+        # Keep the validated session available for guarded diagnostics/re-arm UI,
+        # but the persisted halt must still block the paper runner.
+        self.assertIsNotNone(second.coordinator_session)
+        self.assertTrue(second.coordinator_session.snapshot()["halted"])
         self.assertIn("PaperRunnerGateError", second.coordinator_session_error)
+        with self.assertRaisesRegex(Exception, "persistent emergency stop"):
+            ensure_paper_runner_ready(second.runtime_guard, second.coordinator_session)
         second.on_stop()
         self.assertFalse(second.runtime_guard.held)
 
@@ -274,8 +279,11 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
 
         restarted = LifecycleHarness(self.temp.name)
         restarted.on_start()
-        self.assertIsNone(restarted.coordinator_session)
+        self.assertIsNotNone(restarted.coordinator_session)
+        self.assertTrue(restarted.coordinator_session.snapshot()["halted"])
         self.assertIn("PaperRunnerGateError", restarted.coordinator_session_error)
+        with self.assertRaisesRegex(Exception, "persistent emergency stop"):
+            ensure_paper_runner_ready(restarted.runtime_guard, restarted.coordinator_session)
         restarted.on_stop()
         self.assertFalse(restarted.runtime_guard.held)
 

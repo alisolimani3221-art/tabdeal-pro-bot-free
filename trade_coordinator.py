@@ -44,10 +44,27 @@ class TradeCoordinator:
     def halted(self):
         return self._halted
 
+    def rearm_after_operator_stop(self):
+        """Clear only an explicit operator stop after verifying no intents remain."""
+        with self._lock:
+            if not self._halted:
+                raise RuntimeError("coordinator is not halted")
+            if self._halt_reason != "operator emergency stop":
+                raise RuntimeError("only an explicit operator emergency stop can be re-armed")
+            if self._intents:
+                raise RuntimeError("pending prepared intents must be resolved before re-arming")
+            self._halted = False
+            self._halt_reason = None
+            return {"halted": False, "rearmed": True,
+                    "live_order_submitted": False}
+
     def emergency_stop(self, reason="operator emergency stop"):
         with self._lock:
-            self._halted = True
-            self._halt_reason = str(reason)[:160]
+            # Preserve the first halt reason; a later stop request must not
+            # erase evidence of an ambiguous or otherwise non-rearmable state.
+            if not self._halted:
+                self._halted = True
+                self._halt_reason = str(reason)[:160]
             return {"halted": True, "reason": self._halt_reason,
                     "live_order_submitted": False}
 

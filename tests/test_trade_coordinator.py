@@ -120,6 +120,14 @@ class TradeCoordinatorTests(unittest.TestCase):
         self.assertTrue(result["halted"])
         with self.assertRaisesRegex(RuntimeError, "halted"):
             self.prepare()
+    def test_later_stop_request_does_not_overwrite_original_halt_reason(self):
+        first = self.coordinator.emergency_stop("restart found ambiguous execution state")
+        second = self.coordinator.emergency_stop("operator emergency stop")
+        self.assertEqual(first["reason"], "restart found ambiguous execution state")
+        self.assertEqual(second["reason"], "restart found ambiguous execution state")
+        with self.assertRaisesRegex(RuntimeError, "only an explicit operator"):
+            self.coordinator.rearm_after_operator_stop()
+
 
     def test_prepared_intent_survives_restart_without_enabling_execution(self):
         self.prepare()

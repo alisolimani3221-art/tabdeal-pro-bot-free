@@ -72,6 +72,14 @@ class TradeCoordinatorSession:
         return self._apply(self._release, idempotency_key)
 
     @staticmethod
+    def _rearm(coordinator):
+        return coordinator.rearm_after_operator_stop()
+
+    def rearm_after_operator_stop(self):
+        """Explicitly re-arm only an operator-stopped, empty prepared-only session."""
+        return self._apply(self._rearm)
+
+    @staticmethod
     def _stop(coordinator, reason):
         return coordinator.emergency_stop(reason)
 
