@@ -4,10 +4,33 @@ import time
 import unittest
 
 from trade_stream_probe import (MAX_MESSAGE_BYTES, MAX_TRADE_AGE_MS,
+                                clear_websocket_idle_timeout,
                                 is_trade_timestamp_fresh, parse_trade_message)
 
 
+class FakeWebSocketTransport:
+    def __init__(self):
+        self.timeout = 12.0
+
+    def settimeout(self, value):
+        self.timeout = value
+
+
+class FakeWebSocketApp:
+    def __init__(self, transport):
+        self.sock = transport
+
+
 class TradeStreamProbeTests(unittest.TestCase):
+    def test_clear_websocket_idle_timeout_after_handshake(self):
+        transport = FakeWebSocketTransport()
+        self.assertTrue(clear_websocket_idle_timeout(FakeWebSocketApp(transport)))
+        self.assertIsNone(transport.timeout)
+
+    def test_clear_websocket_idle_timeout_rejects_missing_socket(self):
+        with self.assertRaisesRegex(RuntimeError, "settimeout"):
+            clear_websocket_idle_timeout(object())
+
     def valid_trade(self):
         return {"trade": {"symbol": "AEVO_USDT", "price": "1.25",
                           "quantity": "4", "timestamp": 1700000000}}
