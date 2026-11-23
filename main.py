@@ -1668,7 +1668,7 @@ class FuturesAnalyzerApp(App):
         def worker():
             session = requests.Session()
             try:
-                session.headers.update({"User-Agent": "FuturesAnalyzer/1.22",
+                session.headers.update({"User-Agent": "FuturesAnalyzer/{}".format(APP_VERSION),
                                         "Accept": "application/json",
                                         "Connection": "close"})
                 response = session.get(
@@ -1692,12 +1692,14 @@ class FuturesAnalyzerApp(App):
                             "best_bid": bid, "best_ask": ask,
                             "mid_price": bid / 2.0 + ask / 2.0,
                             "received_monotonic": time.monotonic()}
-                Clock.schedule_once(
-                    lambda dt, data=snapshot: self.show_market_snapshot(data), 0)
+                if not self.market_refresh_stop_event.is_set():
+                    Clock.schedule_once(
+                        lambda dt, data=snapshot: self.show_market_snapshot(data), 0)
             except Exception as exc:
                 message = "{}: {}".format(type(exc).__name__, str(exc)[:120])
-                Clock.schedule_once(
-                    lambda dt, detail=message, sym=symbol: self.market_refresh_failed(sym, detail), 0)
+                if not self.market_refresh_stop_event.is_set():
+                    Clock.schedule_once(
+                        lambda dt, detail=message, sym=symbol: self.market_refresh_failed(sym, detail), 0)
             finally:
                 session.close()
                 self.market_refresh_lock.release()
@@ -1706,7 +1708,8 @@ class FuturesAnalyzerApp(App):
 
     def show_market_snapshot(self, snapshot):
         """Render a fresh order-book estimate without changing candle/trade data."""
-        if snapshot.get("symbol") != self.current_symbol:
+        if (self.market_refresh_stop_event.is_set()
+                or snapshot.get("symbol") != self.current_symbol):
             return
         self.last_market_snapshot = snapshot
         self.latest_orderbook_midpoint = snapshot["mid_price"]
@@ -1729,6 +1732,8 @@ class FuturesAnalyzerApp(App):
         self.connection.color = (0.35, 0.9, 0.55, 1)
 
     def market_refresh_failed(self, symbol, detail):
+        if self.market_refresh_stop_event.is_set():
+            return
         if symbol == self.current_symbol:
             # Keep the last snapshot visible, but explicitly mark it as stale.
             self.connection.text = fa("تازه‌سازی بازار ناموفق بود؛ آخرین داده ممکن است قدیمی باشد")
@@ -1736,8 +1741,8 @@ class FuturesAnalyzerApp(App):
             self.last_market_refresh_error = detail
 
     def _market_refresh_loop(self):
-        """Sequential five-second polling; no overlapping network requests."""
-        while not self.market_refresh_stop_event.wait(5.0):
+        """Sequential two-second polling; no overlapping network requests."""
+        while not self.market_refresh_stop_event.wait(2.0):
             if self.market_refresh_stop_event.is_set():
                 break
             symbol = self.current_symbol
@@ -1755,7 +1760,7 @@ class FuturesAnalyzerApp(App):
         self.runtime_lock_error = self.runtime_guard.error
         self.coordinator_session = None
         self.coordinator_session_error = None
-        # Start with one full symbol/API verification, then refresh depth every 5s.
+        # Start with one full symbol/API verification, then refresh depth every 2s.
         Clock.schedule_once(lambda dt: self.show_status(None), 1.0)
         self.market_refresh_thread = threading.Thread(
             target=self._market_refresh_loop, name="market-refresh-scheduler", daemon=True)
