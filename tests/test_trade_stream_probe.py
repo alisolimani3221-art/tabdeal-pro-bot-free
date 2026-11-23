@@ -3,7 +3,8 @@ import math
 import time
 import unittest
 
-from trade_stream_probe import (MAX_MESSAGE_BYTES, MAX_TRADE_AGE_MS,\n                                is_trade_timestamp_fresh, parse_trade_message)
+from trade_stream_probe import (MAX_MESSAGE_BYTES, MAX_TRADE_AGE_MS,
+                                is_trade_timestamp_fresh, parse_trade_message)
 
 
 class TradeStreamProbeTests(unittest.TestCase):
