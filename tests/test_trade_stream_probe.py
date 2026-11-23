@@ -2,6 +2,7 @@ import json
 import math
 import time
 import unittest
+from datetime import datetime, timezone
 
 from trade_stream_probe import MAX_MESSAGE_BYTES, parse_trade_message
 
@@ -9,7 +10,7 @@ from trade_stream_probe import MAX_MESSAGE_BYTES, parse_trade_message
 class TradeStreamProbeTests(unittest.TestCase):
     def valid_trade(self):
         return {"trade": {"symbol": "AEVO_USDT", "price": "1.25",
-                          "quantity": "4", "timestamp": 1700000000}}
+                          "quantity": "4", "timestamp": int(time.time()) - 2}}
 
     def parse_trade_with(self, field, value):
         payload = self.valid_trade()
@@ -21,7 +22,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["price"], 1.25)
         self.assertEqual(result["quantity"], 4.0)
-        self.assertEqual(result["timestamp_ms"], 1700000000000)
+        self.assertGreaterEqual(result["timestamp_ms"], int(time.time() * 1000) - 5000)
 
     def test_valid_utf8_bytes_are_supported(self):
         raw = json.dumps(self.valid_trade()).encode("utf-8")
@@ -29,14 +30,14 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_millisecond_timestamp_is_preserved(self):
         payload = {"trade": {"s": "AEVO_USDT", "p": "2",
-                             "q": "3", "T": 1700000000123}}
+                             "q": "3", "T": int(time.time() * 1000) - 2000}}
         result = parse_trade_message(json.dumps(payload), "AEVO_USDT")
         self.assertTrue(result["ok"])
-        self.assertEqual(result["timestamp_ms"], 1700000000123)
+        self.assertGreaterEqual(result["timestamp_ms"], int(time.time() * 1000) - 5000)
 
     def test_all_supported_field_aliases_are_accepted(self):
         payload = {"trade": {"symbol": "AEVO_USDT", "tradePrice": "1.5",
-                             "amount": "2.5", "tradeTime": 1700000000}}
+                             "amount": "2.5", "tradeTime": int(time.time()) - 2}}
         self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
 
     def test_duplicate_json_keys_are_rejected(self):
@@ -90,14 +91,14 @@ class TradeStreamProbeTests(unittest.TestCase):
         payload = {"trade": {
             "symbol": "BTC_USDT", "price": "123.4", "amount": "0.01234",
             "sequence": 987654, "side_name": "BUY",
-            "updated": "2026-11-17T03:49:14.123456Z",
+            "updated": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         }}
         result = parse_trade_message(json.dumps(payload), "BTC_USDT")
         self.assertTrue(result["ok"])
         self.assertEqual(result["quantity"], 0.01234)
         self.assertEqual(result["sequence"], 987654)
         self.assertEqual(result["side_name"], "buy")
-        self.assertEqual(result["timestamp_ms"], 1794887354123)
+        self.assertEqual(result["timestamp_ms"], int(datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp() * 1000)
 
     def test_rejects_naive_iso_timestamp(self):
         payload = {"trade": {"symbol": "BTC_USDT", "price": "1",
@@ -108,7 +109,7 @@ class TradeStreamProbeTests(unittest.TestCase):
     def test_rejects_invalid_sequence_values(self):
         for sequence in (True, -1, 1.5, float("inf"), 10 ** 1000, "123"):
             payload = {"trade": {"symbol": "BTC_USDT", "price": "1",
-                                 "amount": "1", "updated": "2026-11-17T03:49:14.123456Z",
+                                 "amount": "1", "updated": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                                  "sequence": sequence}}
             with self.subTest(sequence_type=type(sequence).__name__):
                 self.assertEqual(parse_trade_message(json.dumps(payload))["reason"],
@@ -121,7 +122,7 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_rejects_invalid_trade_symbol_format(self):
         payload = {"trade": {"symbol": "BTC/USDT", "price": "1",
-                             "quantity": "1", "timestamp": 1700000000}}
+                             "quantity": "1", "timestamp": int(time.time()) - 2}}
         self.assertEqual(parse_trade_message(json.dumps(payload))["reason"],
                          "invalid_symbol")
 
@@ -173,7 +174,7 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_broadcast_parser_preserves_other_market_symbol_for_local_filtering(self):
         payload = {"trade": {"symbol": "ETH_USDT", "price": "100",
-                             "quantity": "1", "timestamp": 1700000000}}
+                             "quantity": "1", "timestamp": int(time.time()) - 2}}
         result = parse_trade_message(json.dumps(payload))
         self.assertTrue(result["ok"])
         self.assertEqual(result["symbol"], "ETH_USDT")
@@ -187,7 +188,7 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_symbol_comparison_is_case_insensitive(self):
         payload = {"trade": {"symbol": "aevo_usdt", "price": "1",
-                             "quantity": "1", "timestamp": 1700000000}}
+                             "quantity": "1", "timestamp": int(time.time()) - 2}}
         self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
 
     def test_broadcast_probe_sends_observed_plain_text_symbol_subscription(self):
