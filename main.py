@@ -315,7 +315,7 @@ class FuturesAnalyzerApp(App):
 
         content.add_widget(self.section_title("اطلاعات بازار"))
         cards = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(142))
-        card, self.price_value = self.info_card("قیمت میانی دفتر سفارش", "هنوز دریافت نشده")
+        card, self.price_value = self.info_card("آخرین قیمت معامله زنده", "در انتظار داده معتبر")
         cards.add_widget(card)
         card, self.bid_value = self.info_card("بهترین قیمت خرید", "-")
         cards.add_widget(card)
@@ -2165,6 +2165,17 @@ class FuturesAnalyzerApp(App):
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
+                if parsed.get("symbol") == symbol:
+                    # The main market card previously showed only a manually
+                    # refreshed order-book midpoint. Publish the independently
+                    # validated, fresh last-trade price to the UI on every
+                    # selected-symbol broadcast event; never use stale/replayed
+                    # messages and never mix this value into the order-book rows.
+                    live_price = float(parsed["price"])
+                    self.latest_market_price = live_price
+                    Clock.schedule_once(
+                        lambda dt, value=live_price: self._publish_live_trade_price(value), 0
+                    )
                 if parsed.get("symbol") != symbol:
                     now = time.monotonic()
                     if now - last_status_update >= 10:
@@ -2484,6 +2495,16 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(
             lambda dt, value=final_status: self.update_auto_status(value), 0
         )
+
+    def _publish_live_trade_price(self, price):
+        """Display only a validated, fresh last trade; order-book snapshots stay separate."""
+        if not isinstance(price, (int, float)) or not (price > 0):
+            return
+        self.latest_market_price = float(price)
+        label = getattr(self, "price_value", None)
+        if label is not None:
+            label.text = format_market_value(price)
+            label.font_name = NUMERIC_FONT_NAME
 
     def update_technical_labels(self, technical):
         """Publish verified closed-candle indicators to the main analysis panel."""
