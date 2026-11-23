@@ -314,6 +314,21 @@ class PaperTradingEngine:
                     raise ValueError("paper-engine long protection is invalid")
             elif not position["target"] < position["entry"] < position["stop"]:
                 raise ValueError("paper-engine short protection is invalid")
+            # Cross-check persisted accounting fields instead of trusting
+            # individually finite numbers that may describe an impossible position.
+            expected_notional = position["entry"] * position["quantity"]
+            tolerance = max(1e-9, abs(expected_notional) * 1e-8)
+            if abs(position["notional"] - expected_notional) > tolerance:
+                raise ValueError("paper-engine position notional is inconsistent")
+            expected_entry_fee = position["notional"] * engine.fee_rate
+            if abs(position["fees_entry"] - expected_entry_fee) > max(
+                    1e-9, abs(expected_entry_fee) * 1e-8):
+                raise ValueError("paper-engine entry fee is inconsistent")
+            if position["notional"] / leverage > engine.cash + tolerance:
+                raise ValueError("paper-engine position exceeds available margin")
+            if position["risk_budget"] > position["risk_limit"] + max(
+                    1e-9, abs(position["risk_limit"]) * 1e-8):
+                raise ValueError("paper-engine position exceeds its risk budget")
             engine.position = dict(position)
 
         trades = state["closed_trades"]
