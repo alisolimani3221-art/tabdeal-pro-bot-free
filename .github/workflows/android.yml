@@ -1,5 +1,5 @@
 name: Tabdeal Futures CI and signed APK build (v1.49)
-# v1.49 release: CI validates the source and builds a signed paper-only APK on explicit manual approval; live order placement remains disabled.
+# v1.49: validate every change; build the signed paper-only APK on explicit approval or a push to the isolated fix branch. Live order placement remains disabled.
 
 on:
   workflow_dispatch:
@@ -23,6 +23,7 @@ on:
   push:
     branches:
       - release/v1.49
+      - fix/v1.49-safe-paper-rearm
     paths:
       - 'main.py'
       - 'android_tls.py'
@@ -56,6 +57,7 @@ on:
       - 'Dockerfile.paper'
       - 'docker-compose.paper.yml'
       - '.env.paper.example'
+      - '.github/workflows/android.yml'
       - 'README.md'
       - 'SERVER_PAPER_TRADING.md'
       - 'tests/**'
@@ -310,7 +312,7 @@ jobs:
 
 
       - name: Install Buildozer and Android Python packaging tools
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install buildozer==1.5.0 cython==0.29.36
@@ -318,7 +320,7 @@ jobs:
           python -m pip install fonttools
 
       - name: Restore v1.15 unified Arabic and Latin runtime font
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         run: |
           python - <<'PY'
           import os
@@ -335,7 +337,7 @@ jobs:
           PY
 
       - name: Verify bundled fonts and RTL runtime dependencies
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         run: |
           test -s NotoSansArabic-Regular.ttf
           test -s NotoNaskhArabic-Regular.ttf
@@ -377,7 +379,7 @@ jobs:
           python -m compileall -q .
 
       - name: Configure persistent Android signing (required)
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         id: signing
         shell: bash
         env:
@@ -403,7 +405,7 @@ jobs:
           echo "Persistent release keystore validated."
 
       - name: Build signed release APK (paper-only)
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
         run: |
@@ -416,7 +418,7 @@ jobs:
           buildozer -v android release
 
       - name: Verify persistent APK signing certificate
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -435,7 +437,7 @@ jobs:
           echo "APK signature verified against the established release certificate."
 
       - name: Verify APK output and packaged Persian fonts
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         run: |
           set -eu
           APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
@@ -451,7 +453,7 @@ jobs:
           sha256sum "$APK"
 
       - name: Upload installable APK
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.49-safe-paper-rearm')) }}
         uses: actions/upload-artifact@v4
         with:
           name: Futures-Analyzer-APK
