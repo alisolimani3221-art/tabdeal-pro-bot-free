@@ -328,6 +328,23 @@ class PaperTraderTests(unittest.TestCase):
             with self.subTest(state=state), self.assertRaises(ValueError):
                 PaperTradingEngine.restore_state(state)
 
+    def test_restore_rejects_inconsistent_position_financial_relationships(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        valid = engine.export_state()
+        mutations = (
+            ("notional", valid["position"]["notional"] * 1.1),
+            ("fees_entry", valid["position"]["fees_entry"] * 1.1),
+            ("risk_budget", valid["position"]["risk_limit"] * 1.1 + 1e-9),
+            ("quantity", valid["position"]["quantity"] * 1.1),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field):
+                state = engine.export_state()
+                state["position"][field] = value
+                with self.assertRaises(ValueError):
+                    PaperTradingEngine.restore_state(state)
+
     def test_max_loss_setting_rejects_boolean_and_out_of_range_values(self):
         for value in (True, False, 0, float("nan"), 25.1):
             with self.subTest(value=value), self.assertRaises(ValueError):
