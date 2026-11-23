@@ -1477,6 +1477,34 @@ class FuturesAnalyzerApp(App):
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
+        coordinator = getattr(self, "coordinator_session", None)
+        coordinator_error = getattr(self, "coordinator_session_error", None)
+        if coordinator is not None:
+            try:
+                state = coordinator.snapshot()
+                halted = state.get("halted") is True
+                lines_state = [
+                    "وضعیت توقف اضطراری: " + ("ACTIVE" if halted else "NOT ACTIVE")
+                ]
+                if halted:
+                    reason = state.get("halt_reason")
+                    if isinstance(reason, str) and reason.strip():
+                        safe_reason = " ".join(reason.split())[:180]
+                        lines_state.append("علت توقف ذخیره‌شده: " + safe_reason)
+                intents = state.get("intents")
+                if isinstance(intents, dict):
+                    lines_state.append("تعداد درخواست‌های معلق: " + str(len(intents)))
+                elif isinstance(intents, (list, tuple)):
+                    lines_state.append("تعداد درخواست‌های معلق: " + str(len(intents)))
+                lines.extend(lines_state)
+            except Exception as state_exc:
+                lines.append("خواندن فقط‌خواندنی وضعیت توقف: ERROR " + type(state_exc).__name__)
+        elif coordinator_error:
+            lines.append("وضعیت نشست هماهنگ‌کننده: UNAVAILABLE")
+            lines.append("خطای نشست هماهنگ‌کننده: " + str(coordinator_error)[:220])
+        else:
+            lines.append("وضعیت نشست هماهنگ‌کننده: NOT INITIALIZED")
+
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
                     "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
