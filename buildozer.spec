@@ -19,7 +19,7 @@ android.permissions = INTERNET
 android.api = 35
 android.minapi = 23
 android.archs = arm64-v8a
-android.numeric_version = 149
+android.numeric_version = 150
 android.allow_backup = False
 android.release_artifact = apk
 
