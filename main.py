@@ -8,7 +8,7 @@ import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
-APP_VERSION = "1.50"
+APP_VERSION = "1.51"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -2425,12 +2425,14 @@ class FuturesAnalyzerApp(App):
             )
             watchdog_thread.start()
             try:
-                # Bound the WebSocket handshake; otherwise the worker can block
-                # before on_open and leave the UI on the retry message indefinitely.
+                # Do not set run_forever(timeout=...): websocket-client applies it to the
+                # live socket receive timeout, not just the handshake. The old 12s timeout
+                # was shorter than the 20s ping interval and could tear down a healthy,
+                # temporarily quiet market stream. Ping/pong and the validated-trade
+                # watchdog manage genuine stream silence.
                 app.run_forever(
                     ping_interval=20,
                     ping_timeout=10,
-                    timeout=12,
                     reconnect=0,
                 )
             except Exception as stream_exc:
