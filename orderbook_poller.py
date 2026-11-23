@@ -29,7 +29,7 @@ def fetch_order_book_snapshot(session, base_url, symbol, verify_path,
     try:
         status = int(response.status_code)
         if status != 200:
-            detail = str(getattr(response, "text", ""))[:240].replace("\\n", " ")
+            detail = str(getattr(response, "text", ""))[:240].replace("\n", " ")
             raise RuntimeError("depth HTTP {}: {}".format(status, detail))
         try:
             payload = response.json()
