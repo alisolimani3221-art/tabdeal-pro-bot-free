@@ -1745,11 +1745,10 @@ class FuturesAnalyzerApp(App):
                 if engine.position is not None and engine.position["symbol"] != symbol:
                     raise RuntimeError("یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(engine.position["symbol"]))
                 if engine.halted:
-                    if engine.halt_reason == "EMERGENCY_STOP" and engine.position is None:
-                        engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
-                                                    max_leverage=3, max_loss_percent=3.0)
-                    else:
-                        raise RuntimeError("موتور به‌علت عبور از سقف زیان متوقف است؛ شروع خودکار مجاز نیست.")
+                    raise RuntimeError(
+                        "موتور قبلاً متوقف شده است؛ راه‌اندازی خودکار پس از توقف اضطراری "
+                        "یا سقف زیان مجاز نیست. بازنشانی باید آگاهانه و جداگانه انجام شود."
+                    )
             else:
                 engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
                                             max_leverage=3, max_loss_percent=3.0)
@@ -1801,15 +1800,33 @@ class FuturesAnalyzerApp(App):
         # simulated-position close conditional on the worker's join timeout:
         # emergency_close() serializes with process_scan() using the engine lock.
         worker_stopped = self._stop_auto_worker(timeout=0.0)
+        # Persist the emergency halt in the cross-process coordinator first.
+        # A paper-engine snapshot alone is insufficient: startup checks this
+        # durable coordinator state before allowing the runner to start.
+        coordinator_session = getattr(self, "coordinator_session", None)
+        close_error = None
+        if coordinator_session is None:
+            close_error = "persistent coordinator session is unavailable"
+        else:
+            try:
+                coordinator_session.emergency_stop("operator emergency stop")
+            except Exception as exc:
+                close_error = "coordinator halt: {}: {}".format(
+                    type(exc).__name__, str(exc)[:100]
+                )
+
         engine = getattr(self, "auto_engine", None)
         close_result = None
-        close_error = None
         if engine is not None:
             try:
                 close_result = engine.emergency_close()
                 self._persist_paper_engine_state(engine)
             except Exception as exc:
-                close_error = "{}: {}".format(type(exc).__name__, str(exc)[:120])
+                engine_error = "paper state: {}: {}".format(
+                    type(exc).__name__, str(exc)[:100]
+                )
+                close_error = (close_error + "; " + engine_error
+                               if close_error else engine_error)
 
         # Give the worker a bounded opportunity to exit after the engine is
         # halted. A slow worker must never prevent closing/persisting the paper
