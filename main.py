@@ -1885,7 +1885,7 @@ class FuturesAnalyzerApp(App):
                 # This socket is a market-wide broadcast. Parse each event's
                 # own symbol first: activity in any market proves the socket is
                 # alive, even when the selected low-volume symbol has no trade.
-                parsed = parse_trade_message(message)
+                parsed = parse_trade_message(message, max_age_ms=120_000)
                 if self.auto_stop_event.is_set():
                     return
                 if not parsed.get("ok"):
