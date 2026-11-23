@@ -174,6 +174,10 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         paper_engine = PaperTradingEngine(capital=8)
         paper_engine.emergency_close("test paper-engine stop")
         app._persist_paper_engine_state(paper_engine)
+        persisted_path = os.path.join(self.temp.name, "paper-engine-state.json")
+        self.assertTrue(os.path.isfile(persisted_path))
+        with open(persisted_path, "r", encoding="utf-8") as persisted_file:
+            self.assertEqual(json.load(persisted_file)["halt_reason"], "EMERGENCY_STOP")
 
         def make_button(**kwargs):
             button = FakeButton(**kwargs)
