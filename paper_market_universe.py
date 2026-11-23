@@ -127,7 +127,8 @@ class PaperMarketUniverse:
             price = self._latest_prices.get(symbol)
             if technical is None or received_at is None or price is None:
                 return None
-            if now - received_at > max_age:
+            age = now - received_at
+            if age < 0 or age > max_age:
                 return None
             return prepare_live_market_snapshot(technical, price)
 
