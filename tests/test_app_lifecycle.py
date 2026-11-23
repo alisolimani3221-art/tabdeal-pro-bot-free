@@ -195,9 +195,10 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         }
         with patch.dict(LIFECYCLE_GLOBALS, globals_patch):
             app.request_rearm_paper_runner()
-            self.assertEqual(len(buttons), 2)
+            self.assertEqual(len(buttons), 2, "rearm dialog was not opened; status={}".format(app.update_auto_status.call_args_list))
             # The callback resolves module globals when pressed, so keep the
             # injected readiness/UI dependencies patched for the full action.
+            self.assertTrue(buttons, "rearm dialog was not opened; status={}".format(app.update_auto_status.call_args_list))
             buttons[0].press()
 
         session.rearm_after_operator_stop.assert_not_called()
