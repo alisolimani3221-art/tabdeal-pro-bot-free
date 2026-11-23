@@ -12,7 +12,7 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 - The paper simulator remains limited to the currently selected symbol. It builds one-minute OHLCV candles from the empirically observed public trade stream, requires 20 closed one-minute candles plus the current forming candle before analysis (about 20 minutes of continuous stream data on a cold start), and resets warm-up after a data gap. It is foreground-only and paper-only.
 - The WebSocket trade payload schema is an empirical observation only; it is not treated as an official contract. See `TRADE_STREAM_SCHEMA.md`.
 
-## Version 1.47 — Groq conversational assistant
+## Version 1.49 — Groq conversational assistant
 - The in-app multi-turn assistant uses the Groq OpenAI-compatible chat completions API and the `qwen/qwen3.8-27b` model.
 - The API key is entered for the current app session only and is not persisted by the app.
 - Only a bounded, allow-listed, read-only diagnostics and public-market snapshot is sent; account credentials, balances, positions, and order controls are excluded.
