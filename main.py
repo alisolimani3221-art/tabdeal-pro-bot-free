@@ -1176,7 +1176,7 @@ class FuturesAnalyzerApp(App):
         add_field("slippage", "لغزش هر سمت (درصد)", "0.02")
 
         result_box = BoxLayout(orientation="vertical", spacing=dp(5),
-                               size_hint_y=None, height=dp(10 * 38 + 56))
+                               size_hint_y=None, height=dp(10 * 38 + 68 + 10 * 5))
         result_rows = {}
 
         def add_result_row(key, label):
