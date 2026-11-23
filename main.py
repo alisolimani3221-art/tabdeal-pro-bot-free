@@ -891,6 +891,10 @@ class FuturesAnalyzerApp(App):
             return
 
         self.orderbook_last_error = str(error or "unknown error")[:220]
+        diagnostic = dict(getattr(self, "last_diagnostic_results", {}) or {})
+        diagnostic["orderbook_poll_error"] = self.orderbook_last_error
+        diagnostic["orderbook_poll_updates"] = self.orderbook_update_count
+        self.last_diagnostic_results = diagnostic
         last_time = self.orderbook_last_success_at
         if last_time:
             last_clock = last_time.split("T")[-1]
