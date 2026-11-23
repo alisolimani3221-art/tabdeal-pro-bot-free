@@ -295,12 +295,35 @@ class PaperTradingEngine:
             if not math.isclose(position["fees_entry"], expected_entry_fee,
                                 rel_tol=1e-9, abs_tol=1e-12):
                 raise ValueError("paper-engine entry fee is inconsistent")
-            if position["risk_budget"] > position["risk_limit"] + max(
-                    1e-12, abs(position["risk_limit"]) * 1e-9):
+            tolerance = lambda value: max(1e-12, abs(value) * 1e-9)
+            if position["risk_budget"] > position["risk_limit"] + tolerance(position["risk_limit"]):
                 raise ValueError("paper-engine position exceeds its risk limit")
-            if position["notional"] / leverage > engine.cash + max(
-                    1e-12, abs(engine.cash) * 1e-9):
+            # Recompute the configured fractional-risk budget from pre-entry
+            # cash (entry fee was deducted immediately after sizing).
+            expected_risk_limit = (
+                engine.cash + position["fees_entry"]
+            ) * engine.risk_percent / 100.0
+            if not math.isclose(position["risk_limit"], expected_risk_limit,
+                                rel_tol=1e-9, abs_tol=1e-12):
+                raise ValueError("paper-engine risk limit is inconsistent")
+            stop_distance = abs(position["entry"] - position["stop"])
+            if position["side"] == "BULLISH":
+                stop_fill = (position["entry"] - stop_distance) * (1 - engine.slippage_rate)
+            else:
+                stop_fill = (position["entry"] + stop_distance) * (1 + engine.slippage_rate)
+            expected_risk_budget = position["quantity"] * (
+                abs(position["entry"] - stop_fill)
+                + (position["entry"] + stop_fill) * engine.fee_rate
+            )
+            if not math.isclose(position["risk_budget"], expected_risk_budget,
+                                rel_tol=1e-9, abs_tol=1e-12):
+                raise ValueError("paper-engine risk budget is inconsistent")
+            if position["notional"] / leverage > engine.cash + tolerance(engine.cash):
                 raise ValueError("paper-engine restored margin exceeds available cash")
+            if position["notional"] / leverage > (
+                    engine.cash + position["fees_entry"]
+            ) * 0.25 + tolerance(engine.cash):
+                raise ValueError("paper-engine restored margin exceeds its 25 percent cap")
             if position["side"] == "BULLISH":
                 if not position["stop"] < position["entry"] < position["target"]:
                     raise ValueError("paper-engine long protection is invalid")
