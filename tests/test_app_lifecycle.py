@@ -261,5 +261,24 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertFalse(recovered.halted)
         self.assertFalse(os.path.exists(state_path + ".tmp"))
 
+    def test_ui_emergency_stop_persists_coordinator_halt_across_app_restart(self):
+        first = LifecycleHarness(self.temp.name)
+        first.on_start()
+        self.assertIsNotNone(first.coordinator_session)
+        self.assertFalse(first.coordinator_session.snapshot()["halted"])
+
+        first.stop_auto_paper_trader()
+        self.assertTrue(first.coordinator_session.snapshot()["halted"])
+        first.on_stop()
+        self.assertFalse(first.runtime_guard.held)
+
+        restarted = LifecycleHarness(self.temp.name)
+        restarted.on_start()
+        self.assertIsNone(restarted.coordinator_session)
+        self.assertIn("PaperRunnerGateError", restarted.coordinator_session_error)
+        restarted.on_stop()
+        self.assertFalse(restarted.runtime_guard.held)
+
+
 if __name__ == "__main__":
     unittest.main()
