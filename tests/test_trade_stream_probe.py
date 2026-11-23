@@ -220,7 +220,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         from unittest.mock import patch
         from trade_stream_probe import probe_broadcast
 
-        observed = {"sent": [], "trades": []}
+        observed = {"sent": [], "trades": [], "run_kwargs": {}}
 
         class FakeWebSocketApp:
             def __init__(self, url, **callbacks):
@@ -233,6 +233,7 @@ class TradeStreamProbeTests(unittest.TestCase):
                 return None
 
             def run_forever(self, **kwargs):
+                observed["run_kwargs"] = dict(kwargs)
                 self.callbacks["on_open"](self)
                 message = json.dumps({
                     "trade": {
@@ -267,6 +268,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(result["market_symbols_seen"], ["BTC_USDT", "ETH_USDT"])
         self.assertEqual(observed["sent"], ["BTC_USDT"])
         self.assertEqual(len(observed["trades"]), 1)
+        self.assertNotIn("timeout", observed["run_kwargs"])
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
         from trade_stream_probe import probe_broadcast
