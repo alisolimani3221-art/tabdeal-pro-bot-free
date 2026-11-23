@@ -288,6 +288,20 @@ class PaperTraderTests(unittest.TestCase):
         restored_one = PaperTradingEngine.restore_state(version_one)
         self.assertIsNone(restored_one.halt_detail)
 
+        # Legacy halted files must migrate to schema v3 without losing
+        # their original reason or becoming unrestorable on the next launch.
+        for legacy in (version_one, version_two):
+            legacy_halted = dict(legacy)
+            legacy_halted["halted"] = True
+            legacy_halted["halt_reason"] = "EMERGENCY_STOP"
+            migrated = PaperTradingEngine.restore_state(legacy_halted)
+            self.assertIn("EMERGENCY_STOP", migrated.halt_detail)
+            upgraded_snapshot = migrated.export_state()
+            self.assertEqual(upgraded_snapshot["schema_version"], 3)
+            restored_again = PaperTradingEngine.restore_state(upgraded_snapshot)
+            self.assertEqual(restored_again.halt_reason, "EMERGENCY_STOP")
+            self.assertIn("EMERGENCY_STOP", restored_again.halt_detail)
+
 
     def test_emergency_stop_permanently_blocks_later_entries(self):
         engine = PaperTradingEngine(capital=8)
