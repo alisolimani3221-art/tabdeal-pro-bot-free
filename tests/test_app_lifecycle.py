@@ -203,7 +203,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         session.emergency_stop.assert_not_called()
         readiness.assert_called_once_with(guard, session)
         app._schedule_rearmed_paper_runner.assert_called_once_with()
-        self.assertTrue(app.auto_engine.halted is False)
+        self.assertFalse(app.auto_engine.halted)
 
     def test_failed_rearm_readiness_rolls_back_halt_and_never_starts(self):
         buttons = []
@@ -219,6 +219,9 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         app.coordinator_session = session
         app.auto_trader_thread = None
         app._schedule_rearmed_paper_runner = Mock()
+        paper_engine = PaperTradingEngine(capital=8)
+        paper_engine.emergency_close("test paper-engine stop")
+        app._persist_paper_engine_state(paper_engine)
 
         def make_button(**kwargs):
             button = FakeButton(**kwargs)
