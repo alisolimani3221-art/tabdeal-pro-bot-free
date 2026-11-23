@@ -181,7 +181,7 @@ def parse_trade_message(message, expected_symbol=None):
 
 
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
-    """Observe the public broadcast without a symbol subscription payload."""
+    """Subscribe to the public broadcast with the observed plain-text symbol."""
     if (not isinstance(symbol, str) or len(symbol) > 32
             or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
         raise ValueError("symbol must be an ASCII USDT futures symbol such as AEVO_USDT")
@@ -204,10 +204,11 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     symbols_seen = set()
 
     def on_open(ws):
-        # The official Tabdeal FutureBroadcastWebsocketClient opens the
-        # broadcast endpoint without a symbol payload or stream subscription.
-        # Keep this socket read-only and observe the market-wide envelope.
+        # Live endpoint verification shows that the socket opens without a
+        # subscription but emits no market messages until the plain-text
+        # futures symbol is sent. This selects the public read-only feed.
         result["connected"] = True
+        ws.send(symbol)
 
     def on_message(ws, message):
         result["messages"] += 1
