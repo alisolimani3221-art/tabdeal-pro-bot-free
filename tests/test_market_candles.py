@@ -91,6 +91,27 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertTrue(builder.is_ready)
         self.assertEqual(len(builder.closed), retained + 1)
 
+    def test_reconnect_rejects_replayed_older_tick_before_resuming_same_minute(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 122):
+            builder.add_trade(self.trade(minute))
+        self.assertTrue(builder.is_ready)
+        last_timestamp = builder.last_timestamp_ms
+        forming_minute = builder.current["open_time"] // 60_000
+
+        builder.reset_after_reconnect()
+        replay = builder.add_trade(self.trade(forming_minute, second=0))
+        self.assertFalse(replay["accepted"])
+        self.assertEqual(replay["reason"], "out_of_order")
+        self.assertEqual(builder._resume_bucket, forming_minute * 60_000)
+        self.assertEqual(builder.last_timestamp_ms, None)
+
+        fresh = builder.add_trade(self.trade(forming_minute, second=2))
+        self.assertTrue(fresh["accepted"])
+        self.assertFalse(fresh["gap_detected"])
+        self.assertGreater(builder.last_timestamp_ms, last_timestamp)
+        self.assertFalse(builder.is_ready)
+
     def test_reconnect_after_minute_boundary_invalidates_retained_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 122):
