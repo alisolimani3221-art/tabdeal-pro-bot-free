@@ -9,7 +9,8 @@ APP_DIAGNOSTIC_KEYS = (
     "depth_content_type", "market_symbol", "symbol_verified", "depth_diagnostic",
     "market_error", "market_info_error", "analysis_error", "summary_error",
     "ping_error", "bids", "asks", "best_bid", "best_ask", "mid_price",
-    "market_price_source", "symbol_count",
+    "market_price_source", "symbol_count", "orderbook_poll_last_success",
+    "orderbook_poll_updates", "orderbook_poll_error",
 )
 MARKET_KEYS = (
     "symbol", "snapshot_time", "best_bid", "best_ask", "midpoint_estimate",
