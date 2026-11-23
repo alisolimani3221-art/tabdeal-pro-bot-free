@@ -2559,10 +2559,16 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_close(ws, close_status_code, close_message):
-                self._update_engine_health(worker_phase="reconnecting",
-                                           websocket_connected=False)
+                detail = "websocket_closed: code={}; message={}".format(
+                    close_status_code, str(close_message or "no close reason")[:100]
+                )
+                self._update_engine_health(
+                    worker_phase="reconnecting",
+                    websocket_connected=False,
+                    last_stream_error=detail,
+                )
                 if not self.auto_stop_event.is_set():
-                    detail = "کد={}; پیام={}".format(
+                    status_detail = "کد={}; پیام={}".format(
                         close_status_code, str(close_message or "بدون توضیح")[:100]
                     )
                     Clock.schedule_once(
