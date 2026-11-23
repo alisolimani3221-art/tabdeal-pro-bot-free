@@ -691,7 +691,7 @@ class FuturesAnalyzerApp(App):
                 # Preserve a short, credential-free public depth payload sample
                 # so Android diagnostics can distinguish schema mismatch from
                 # an empty/crossed book or a real HTTP/network failure.
-                payload_preview = raw_text[:360].replace("\\r", " ").replace("\\n", " ")
+                payload_preview = raw_text[:360].replace("\r", " ").replace("\n", " ")
                 results["depth_diagnostic"] = (
                     "HTTP {}; JSON received; order-book parser rejected payload: {}; body={}"
                     .format(depth.status_code, str(parse_exc)[:180], payload_preview)
