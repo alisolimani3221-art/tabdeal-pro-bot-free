@@ -36,6 +36,8 @@ class WebSocketTimeoutConfigTests(unittest.TestCase):
         self.assertEqual(ast.literal_eval(kwargs["ping_interval"]), 20)
         self.assertEqual(ast.literal_eval(kwargs["ping_timeout"]), 10)
         self.assertEqual(ast.literal_eval(kwargs["reconnect"]), 0)
+        self.assertIn("sslopt", kwargs)
+        self.assertIn("tabdeal_websocket_ssl_options", ast.unparse(kwargs["sslopt"]))
 
 
 if __name__ == "__main__":
