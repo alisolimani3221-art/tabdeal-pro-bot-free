@@ -8,6 +8,7 @@ class AIDiagnosticContextTests(unittest.TestCase):
     def test_context_is_allow_listed_and_excludes_account_data(self):
         app = SimpleNamespace(
             current_symbol="BTC_USDT",
+            app_version="1.49",
             last_diagnostic_results={
                 "market_ping": "OK",
                 "depth_http": 200,
@@ -35,6 +36,7 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertEqual(context["market_snapshot"]["best_bid"], 100)
         self.assertEqual(context["technical_analysis"]["rsi14"], 52)
         self.assertEqual(context["access_mode"], "read_only")
+        self.assertEqual(context["app_version"], "1.49")
         self.assertNotIn("MUST_NOT_LEAK", rendered)
         self.assertNotIn("api_secret", rendered)
         self.assertNotIn("account_summary", rendered)
