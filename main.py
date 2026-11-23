@@ -429,6 +429,9 @@ class FuturesAnalyzerApp(App):
         self.auto_stop_event = threading.Event()
         self.auto_trader_thread = None
         self.auto_engine = None
+        # The WebSocket callback and periodic scan worker may persist the same
+        # engine concurrently. Serialize snapshot creation and atomic replace.
+        self._paper_state_lock = threading.RLock()
         self.auto_status_label = None
         self.latest_market_price = None
 
@@ -1693,15 +1696,18 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
     def _persist_paper_engine_state(self, engine):
-        """Atomically persist the paper-only engine snapshot in app-private storage."""
-        state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
-        temporary_path = state_path + ".tmp"
-        with open(temporary_path, "w", encoding="utf-8") as state_file:
-            json.dump(engine.export_state(), state_file, ensure_ascii=False,
-                      allow_nan=False, separators=(",", ":"))
-            state_file.flush()
-            os.fsync(state_file.fileno())
-        os.replace(temporary_path, state_path)
+        """Atomically persist the latest paper-only snapshot under one writer lock."""
+        # Snapshot creation must happen inside the same lock as the file write.
+        # Otherwise an older snapshot could overwrite a newer concurrent update.
+        with self._paper_state_lock:
+            state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            temporary_path = state_path + ".tmp"
+            with open(temporary_path, "w", encoding="utf-8") as state_file:
+                json.dump(engine.export_state(), state_file, ensure_ascii=False,
+                          allow_nan=False, separators=(",", ":"))
+                state_file.flush()
+                os.fsync(state_file.fileno())
+            os.replace(temporary_path, state_path)
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
