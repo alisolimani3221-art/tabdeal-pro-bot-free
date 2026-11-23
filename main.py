@@ -1743,6 +1743,9 @@ class FuturesAnalyzerApp(App):
             symbol = self.current_symbol
             if symbol in self.verified_market_symbols:
                 self.refresh_market_once(symbol)
+            elif not self.check_in_progress:
+                # Retry initial public-symbol verification automatically after transient failures.
+                Clock.schedule_once(lambda dt: self.show_status(None), 0)
 
     def on_start(self):
         # Kivy user_data_dir is the app-private writable storage on Android.
