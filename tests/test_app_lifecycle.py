@@ -22,7 +22,7 @@ APP_CLASS = next(
     if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
 )
 METHOD_NAMES = {
-    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader",
+    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader", "_schedule_rearmed_paper_runner",
     "_persist_paper_engine_state"
 }
 METHOD_NODES = [
@@ -53,6 +53,7 @@ class LifecycleHarness:
     _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
     stop_auto_paper_trader = LIFECYCLE_GLOBALS["stop_auto_paper_trader"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
+    _schedule_rearmed_paper_runner = LIFECYCLE_GLOBALS["_schedule_rearmed_paper_runner"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
 
     def __init__(self, user_data_dir):
@@ -112,6 +113,20 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         callback(0)
         app.start_auto_paper_trader.assert_called_once_with()
         app.on_stop()
+
+    def test_confirmed_rearm_schedules_paper_runner_automatically(self):
+        clock = Mock()
+        with patch.dict(LIFECYCLE_GLOBALS, {"Clock": clock}):
+            app = LifecycleHarness(self.temp.name)
+            app.start_auto_paper_trader = Mock()
+            app._schedule_rearmed_paper_runner()
+
+        clock.schedule_once.assert_called_once()
+        callback, delay = clock.schedule_once.call_args.args
+        self.assertEqual(delay, 0.5)
+        app.start_auto_paper_trader.assert_not_called()
+        callback(0)
+        app.start_auto_paper_trader.assert_called_once_with()
 
     def test_runtime_lock_failure_prevents_session_initialization(self):
         guard = Mock()
