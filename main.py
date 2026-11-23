@@ -557,7 +557,7 @@ class FuturesAnalyzerApp(App):
                 row_button.background_color = (0.10, 0.13, 0.18, 1)
 
     def _market_price_refresh_worker(self):
-        """Poll the documented public depth endpoint every five seconds, without orders."""
+        """Poll the public depth endpoint every two seconds, without overlapping requests or orders."""
         session = requests.Session()
         mount_tabdeal_tls_compat(session, certifi.where())
         session.headers.update({
@@ -623,8 +623,8 @@ class FuturesAnalyzerApp(App):
                     # Re-check exchangeInfo after symbol or endpoint errors.
                     if isinstance(exc, (ValueError, requests.exceptions.HTTPError)):
                         verified_symbols.discard(symbol)
-                # Five seconds between requests; no overlapping requests or timer threads.
-                if self.market_refresh_stop_event.wait(5.0):
+                # Two seconds after each completed request; no overlapping requests or timer threads.
+                if self.market_refresh_stop_event.wait(2.0):
                     break
         finally:
             session.close()
