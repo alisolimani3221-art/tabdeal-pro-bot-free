@@ -1722,7 +1722,8 @@ class FuturesAnalyzerApp(App):
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
-        lines.extend(build_engine_health_report_lines(self))\n        for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
+        lines.extend(build_engine_health_report_lines(self))
+        for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
                     "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
             if key in results:
