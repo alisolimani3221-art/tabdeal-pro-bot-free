@@ -336,6 +336,15 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertEqual(blocked["events"], [])
         self.assertIsNone(blocked["open_position"])
 
+    def test_websocket_close_callback_records_close_reason_for_diagnostics(self):
+        source = MAIN_SOURCE.read_text(encoding="utf-8")
+        start = source.index("            def on_close(ws, close_status_code, close_message):")
+        end = source.index("\n            scan_stop = threading.Event()", start)
+        close_callback = source[start:end]
+        self.assertIn("close_status_code", close_callback)
+        self.assertIn("last_stream_error=detail", close_callback)
+        self.assertIn("websocket_closed:", close_callback)
+
     def test_repeated_start_does_not_reset_health_of_running_worker(self):
         app = LifecycleHarness(self.temp.name)
         worker = Mock()
