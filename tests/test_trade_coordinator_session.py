@@ -79,7 +79,10 @@ class TradeCoordinatorSessionTests(unittest.TestCase):
         result = session.emergency_stop("integration test stop")
         self.assertTrue(result["halted"])
         restarted = TradeCoordinatorSession(self.path)
-        self.assertTrue(restarted.snapshot()["halted"])
+        recovered = restarted.snapshot()
+        self.assertTrue(recovered["halted"])
+        self.assertEqual(recovered["halt_reason"], "integration test stop")
+        self.assertEqual(recovered["intents"], {})
         with self.assertRaisesRegex(RuntimeError, "halted"):
             self.prepare(restarted)
 
