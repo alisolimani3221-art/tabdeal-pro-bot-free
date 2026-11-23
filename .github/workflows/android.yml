@@ -153,14 +153,20 @@ jobs:
           from pathlib import Path
           app = Path("main.py").read_text(encoding="utf-8")
           spec = Path("buildozer.spec").read_text(encoding="utf-8")
+          diagnostics = Path("ai_diagnostics.py").read_text(encoding="utf-8")
           app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
+          diagnostics_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', diagnostics, re.M)
           package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
           numeric_version = re.search(r'^android\.numeric_version\s*=\s*(\d+)', spec, re.M)
           if not app_version or not package_version or app_version.group(1) != package_version.group(1):
               raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
+          if not diagnostics_version or diagnostics_version.group(1) != app_version.group(1):
+              raise SystemExit("APP_VERSION in ai_diagnostics.py must match the app version")
           if not numeric_version or int(numeric_version.group(1)) < 125:
               raise SystemExit("android.numeric_version must be set and monotonically increased")
-          print("App/APK versions match:", app_version.group(1), "versionCode:", numeric_version.group(1))
+          if int(numeric_version.group(1)) != int(app_version.group(1).replace(".", "")):
+              raise SystemExit("android.numeric_version must match the dotted app version")
+          print("App/APK/diagnostics versions match:", app_version.group(1), "versionCode:", numeric_version.group(1))
           PY
 
       - name: Smoke test live Tabdeal Futures API
