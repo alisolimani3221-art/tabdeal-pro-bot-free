@@ -1779,7 +1779,7 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(lambda _dt: self.start_auto_paper_trader(), 0.5)
 
     def request_rearm_paper_runner(self):
-        """Offer a confirmed reset only for an explicit operator stop with no pending intents."""
+        """Offer confirmed recovery for eligible emergency halts; preserve all risk stops."""
         guard = getattr(self, "runtime_guard", None)
         session = getattr(self, "coordinator_session", None)
         worker = getattr(self, "auto_trader_thread", None)
