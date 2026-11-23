@@ -2,8 +2,8 @@
 
 Android APK build and Tabdeal USDT-margined futures market analyzer.
 
-## Current development status (1.47)
-- Current development branch: `feature/v1.47-groq-free-ai`; app version and Buildozer package version are 1.47 (versionCode 147). This branch is not yet a released or device-verified APK.
+## Current development status (1.49)
+- Current release candidate branch: `release/v1.49`; app version and Buildozer package version are 1.49 (versionCode 149). This branch must pass its current CI run and device acceptance before its APK is described as released or device-verified.
 - The v1.26 development branch defines a persistent release-signing workflow. A signed APK is not considered released until the build, certificate fingerprint, packaged fonts, and uploaded artifact are all verified.
 - The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
 - Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
