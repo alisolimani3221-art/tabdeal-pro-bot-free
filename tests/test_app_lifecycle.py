@@ -170,6 +170,9 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         app.coordinator_session = session
         app.auto_trader_thread = None
         app._schedule_rearmed_paper_runner = Mock()
+        paper_engine = PaperTradingEngine(capital=8)
+        paper_engine.emergency_close("test paper-engine stop")
+        app._persist_paper_engine_state(paper_engine)
 
         def make_button(**kwargs):
             button = FakeButton(**kwargs)
@@ -196,9 +199,11 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             # injected readiness/UI dependencies patched for the full action.
             buttons[0].press()
 
-        session.rearm_after_operator_stop.assert_called_once_with()
+        session.rearm_after_operator_stop.assert_not_called()
+        session.emergency_stop.assert_not_called()
         readiness.assert_called_once_with(guard, session)
         app._schedule_rearmed_paper_runner.assert_called_once_with()
+        self.assertTrue(app.auto_engine.halted is False)
 
     def test_failed_rearm_readiness_rolls_back_halt_and_never_starts(self):
         buttons = []
@@ -237,10 +242,15 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             app.request_rearm_paper_runner()
             buttons[0].press()
 
-        session.rearm_after_operator_stop.assert_called_once_with()
+        session.rearm_after_operator_stop.assert_not_called()
         readiness.assert_called_once_with(guard, session)
-        session.emergency_stop.assert_called_once_with("operator emergency stop")
+        session.emergency_stop.assert_not_called()
         app._schedule_rearmed_paper_runner.assert_not_called()
+        state_path = os.path.join(self.temp.name, "paper-engine-state.json")
+        with open(state_path, "r", encoding="utf-8") as state_file:
+            rolled_back = PaperTradingEngine.restore_state(json.load(state_file))
+        self.assertTrue(rolled_back.halted)
+        self.assertEqual(rolled_back.halt_reason, "EMERGENCY_STOP")
         self.assertIn("بازآماده‌سازی انجام نشد", app.update_auto_status.call_args.args[0])
 
     def test_runtime_lock_failure_prevents_session_initialization(self):
