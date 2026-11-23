@@ -1,5 +1,5 @@
 name: Tabdeal Futures CI and signed APK build (v1.49)
-# v1.49 release: CI validates the source and builds a signed paper-only APK on explicit manual approval; live order placement remains disabled.
+# v1.49: every relevant push to the audit or release branch runs CI and builds a signed paper-only APK automatically; live order placement remains disabled.
 
 on:
   workflow_dispatch:
@@ -22,6 +22,7 @@ on:
       - fix/v1.45-ai-integrated
   push:
     branches:
+      - audit/v1.49-preserve-halt-diagnostics
       - release/v1.49
     paths:
       - 'main.py'
@@ -310,7 +311,7 @@ jobs:
 
 
       - name: Install Buildozer and Android Python packaging tools
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install buildozer==1.5.0 cython==0.29.36
@@ -318,7 +319,7 @@ jobs:
           python -m pip install fonttools
 
       - name: Restore v1.15 unified Arabic and Latin runtime font
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         run: |
           python - <<'PY'
           import os
@@ -335,7 +336,7 @@ jobs:
           PY
 
       - name: Verify bundled fonts and RTL runtime dependencies
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         run: |
           test -s NotoSansArabic-Regular.ttf
           test -s NotoNaskhArabic-Regular.ttf
@@ -377,7 +378,7 @@ jobs:
           python -m compileall -q .
 
       - name: Configure persistent Android signing (required)
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         id: signing
         shell: bash
         env:
@@ -403,7 +404,7 @@ jobs:
           echo "Persistent release keystore validated."
 
       - name: Build signed release APK (paper-only)
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
         run: |
@@ -416,7 +417,7 @@ jobs:
           buildozer -v android release
 
       - name: Verify persistent APK signing certificate
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -435,7 +436,7 @@ jobs:
           echo "APK signature verified against the established release certificate."
 
       - name: Verify APK output and packaged Persian fonts
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         run: |
           set -eu
           APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
@@ -451,7 +452,7 @@ jobs:
           sha256sum "$APK"
 
       - name: Upload installable APK
-        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && github.ref == 'refs/heads/release/v1.49') }}
+        if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
         uses: actions/upload-artifact@v4
         with:
           name: Futures-Analyzer-APK
