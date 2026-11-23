@@ -355,6 +355,10 @@ class PaperTradingEngine:
                 raise RuntimeError("only an explicit operator emergency stop can be re-armed")
             if self.position is not None:
                 raise RuntimeError("open paper position must be closed before re-arming")
+            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+            if self.cash <= loss_floor:
+                self.halt_reason = "MAX_LOSS"
+                raise RuntimeError("maximum cumulative paper loss limit remains active")
             self.halted = False
             self.halt_reason = None
             return {"halted": False, "rearmed": True,
