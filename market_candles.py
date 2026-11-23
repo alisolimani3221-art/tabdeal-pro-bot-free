@@ -29,6 +29,7 @@ class TradeCandleBuilder:
         self.discard_next_close = True
         # Reuse closed candles only when the stream resumes in the same minute.
         self._resume_bucket = None
+        self._resume_last_timestamp_ms = None
         self._reconnect_warmup_pending = False
 
     @staticmethod
@@ -78,12 +79,20 @@ class TradeCandleBuilder:
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
         if self._resume_bucket is not None:
+            # A reconnect may replay an older event from the same minute.
+            # Do not let it rewind the stream or trigger a paper exit at an
+            # obsolete price. Keep the resume check pending until a newer tick.
+            if (self._resume_last_timestamp_ms is not None
+                    and timestamp < self._resume_last_timestamp_ms):
+                self.rejected += 1
+                return {"accepted": False, "reason": "out_of_order"}
             if bucket != self._resume_bucket:
                 self.closed.clear()
                 self.gaps += 1
                 gap_detected = True
                 self._reconnect_warmup_pending = False
             self._resume_bucket = None
+            self._resume_last_timestamp_ms = None
         if self.current is None:
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
@@ -120,6 +129,7 @@ class TradeCandleBuilder:
     def reset_after_reconnect(self):
         """Retain closed candles only when the stream resumes in the same minute."""
         self._resume_bucket = self.current["open_time"] if self.current is not None else None
+        self._resume_last_timestamp_ms = self.last_timestamp_ms
         self._reconnect_warmup_pending = self._resume_bucket is not None
         if self._resume_bucket is None:
             self.closed.clear()
@@ -135,6 +145,7 @@ class TradeCandleBuilder:
         self.last_timestamp_ms = None
         self.last_sequence = None
         self._resume_bucket = None
+        self._resume_last_timestamp_ms = None
         self._reconnect_warmup_pending = False
         self.gaps += 1
         self.discard_next_close = True
