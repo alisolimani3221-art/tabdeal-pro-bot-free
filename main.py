@@ -517,35 +517,70 @@ class FuturesAnalyzerApp(App):
         results = {}
 
         def get_response(path, params=None, timeout=22):
-            # Mobile TLS connections can occasionally end before the server
-            # sends headers (SSLEOFError). Retry transient transport failures
-            # with a fresh connection; certificate verification stays enabled.
+            # Safe GET retry policy: transient transport failures, HTTP 429,
+            # and HTTP 5xx are retried. Permanent 4xx errors fail immediately.
+            # TLS certificate verification remains enabled on every attempt.
             url = FUTURES_API + path
             last_error = None
+            last_http_error = None
             for attempt in range(3):
+                response = None
                 try:
                     response = session.get(
                         url, params=params, timeout=timeout,
                         verify=certifi.where(), headers={"Connection": "close"}
                     )
-                    results[path.strip("/").replace("/", "_") + "_status"] = response.status_code
+                    status_code = response.status_code
+                    results[path.strip("/").replace("/", "_") + "_status"] = status_code
+                    if status_code == 429 or status_code >= 500:
+                        detail = response.text[:500].replace("\\n", " ")
+                        if path == "/depth":
+                            results["depth_diagnostic"] = "HTTP {} {} body={}".format(
+                                status_code, response.url, detail
+                            )
+                        retry_after = response.headers.get("Retry-After", "")
+                        try:
+                            delay = min(8.0, max(0.5, float(retry_after)))
+                        except (TypeError, ValueError, OverflowError):
+                            delay = min(4.0, 1.0 * (attempt + 1))
+                        last_http_error = RuntimeError(
+                            "{} returned temporary HTTP {}: {}".format(path, status_code, detail)
+                        )
+                        response.close()
+                        response = None
+                        if attempt < 2:
+                            time.sleep(delay)
+                            continue
+                        raise last_http_error
                     if not response.ok:
                         detail = response.text[:500].replace("\\n", " ")
                         if path == "/depth":
                             results["depth_diagnostic"] = "HTTP {} {} body={}".format(
-                                response.status_code, response.url, detail
+                                status_code, response.url, detail
                             )
                         response.close()
-                        raise RuntimeError("{} returned HTTP {}: {}".format(path, response.status_code, detail))
-                    return response
+                        response = None
+                        raise RuntimeError("{} returned HTTP {}: {}".format(
+                            path, status_code, detail
+                        ))
+                    successful_response = response
+                    response = None  # caller owns and closes the successful response
+                    return successful_response
                 except (requests.exceptions.ConnectionError,
                         requests.exceptions.SSLError,
                         requests.exceptions.Timeout) as exc:
                     last_error = exc
                     if attempt < 2:
                         time.sleep(1.0 * (attempt + 1))
-            raise RuntimeError("{}: ارتباط امن برقرار نشد پس از 3 تلاش: {}".format(
-                path, "{}: {}".format(type(last_error).__name__, str(last_error)[:220])
+                finally:
+                    if response is not None:
+                        response.close()
+            if last_error is not None:
+                raise RuntimeError("{}: ارتباط امن برقرار نشد پس از 3 تلاش: {}".format(
+                    path, "{}: {}".format(type(last_error).__name__, str(last_error)[:220])
+                ))
+            raise RuntimeError("{}: درخواست پس از 3 تلاش ناموفق بود: {}".format(
+                path, str(last_http_error or "unknown HTTP error")[:220]
             ))
 
         try:
