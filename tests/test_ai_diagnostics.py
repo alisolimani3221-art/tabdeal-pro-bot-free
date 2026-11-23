@@ -125,6 +125,16 @@ class AIDiagnosticContextTests(unittest.TestCase):
             "ACTIVE",
         )
 
+    def test_safety_gate_block_is_not_misreported_as_worker_crash(self):
+        app = SimpleNamespace(
+            auto_trader_thread=None,
+            auto_health={"worker_phase": "blocked_by_safety",
+                         "last_stream_error": "PaperRunnerGateError"},
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["health_state"], "BLOCKED_BY_SAFETY")
+        self.assertEqual(health["last_stream_error"], "PaperRunnerGateError")
+
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
         worker.is_alive.return_value = False
