@@ -41,6 +41,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from live_market_feed import LiveMarketPriceFeed
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
@@ -306,7 +307,7 @@ class FuturesAnalyzerApp(App):
 
         content.add_widget(self.section_title("اطلاعات بازار"))
         cards = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(142))
-        card, self.price_value = self.info_card("قیمت میانی دفتر سفارش", "هنوز دریافت نشده")
+        card, self.price_value = self.info_card("آخرین معامله زنده", "در انتظار قیمت زنده")
         cards.add_widget(card)
         card, self.bid_value = self.info_card("بهترین قیمت خرید", "-")
         cards.add_widget(card)
@@ -314,6 +315,8 @@ class FuturesAnalyzerApp(App):
         cards.add_widget(card)
         cards.add_widget(self.info_card("نوع داده", "تصویر دفتر سفارش")[0])
         content.add_widget(cards)
+        self.live_price_status = self.make_label("جریان قیمت زنده: در انتظار اتصال", size=11, height=dp(32))
+        content.add_widget(self.live_price_status)
 
         # Tappable order-book header refreshes live data. Each level is also
         # a real button so the user can inspect that exact bid/ask price and size.
@@ -414,6 +417,9 @@ class FuturesAnalyzerApp(App):
         self.auto_engine = None
         self.auto_status_label = None
         self.latest_market_price = None
+        self.latest_live_price_at = None
+        self.live_price_feed = None
+        self.live_price_watch_event = None
 
         content.add_widget(self.section_title("نتیجه بررسی"))
         self.analysis = self.make_label(
@@ -454,6 +460,17 @@ class FuturesAnalyzerApp(App):
     def on_symbol_selected(self, spinner, value):
         if value:
             self.current_symbol = str(value)
+            self.latest_market_price = None
+            self.latest_live_price_at = None
+            if getattr(self, "price_value", None) is not None:
+                self.price_value.text = fa("در انتظار قیمت زنده")
+                self.price_value.font_name = FONT_NAME
+            feed = getattr(self, "live_price_feed", None)
+            if feed is not None:
+                try:
+                    feed.set_symbol(self.current_symbol)
+                except Exception as exc:
+                    self._on_live_price_status("خطای تغییر نماد: " + type(exc).__name__)
 
     def update_symbol_options(self, symbols):
         if not symbols:
@@ -966,7 +983,8 @@ class FuturesAnalyzerApp(App):
         # Keep all technical signals disabled until a verified trade-stream
         # candle builder is implemented and tested.
         self.latest_technical_analysis = None
-        self.latest_market_price = results.get("mid_price") if market_ok else None
+        # REST depth is a snapshot, not a last-trade stream. Keep it separate
+        # from the live last-trade price used by the UI and paper preflight.
         self.analysis_signal.text = fa(
             "تحلیل تکنیکال غیرفعال است؛ API عمومی مستندشده تبدیل کندل ارائه نمی‌کند."
         )
@@ -976,14 +994,18 @@ class FuturesAnalyzerApp(App):
             # Switch to Roboto only for actual ASCII numeric values.
             for value_label in (self.price_value, self.bid_value, self.ask_value):
                 value_label.font_name = NUMERIC_FONT_NAME
-            self.price_value.text = format_market_value(results["mid_price"])
+            if self.latest_market_price is None:
+                self.price_value.text = fa("در انتظار معامله زنده")
+            else:
+                self.price_value.text = format_market_value(self.latest_market_price)
             self.bid_value.text = format_market_value(results["best_bid"])
             self.ask_value.text = format_market_value(results["best_ask"])
         else:
             # Persian failure/placeholder text must never be rendered with Roboto.
             for value_label in (self.price_value, self.bid_value, self.ask_value):
                 value_label.font_name = FONT_NAME
-            self.price_value.text = fa("دریافت نشد")
+            if self.latest_market_price is None:
+                self.price_value.text = fa("دریافت نشد")
             self.bid_value.text = "—"
             self.ask_value.text = "—"
 
@@ -1626,6 +1648,61 @@ class FuturesAnalyzerApp(App):
             0,
         )
 
+    def _start_live_price_feed(self):
+        """Start a separate read-only price stream for the selected market."""
+        try:
+            if self.live_price_feed is None:
+                self.live_price_feed = LiveMarketPriceFeed(
+                    self.current_symbol, self._on_live_trade_price,
+                    on_status=self._on_live_price_status, reconnect_delay=3.0,
+                )
+            else:
+                self.live_price_feed.set_symbol(self.current_symbol)
+            self.live_price_feed.start()
+            if self.live_price_watch_event is None:
+                self.live_price_watch_event = Clock.schedule_interval(
+                    self._check_live_price_freshness, 5.0
+                )
+        except Exception as exc:
+            self._on_live_price_status("راه‌اندازی جریان قیمت ناموفق: " + type(exc).__name__)
+
+    def _on_live_trade_price(self, symbol, price, timestamp_ms):
+        Clock.schedule_once(
+            lambda dt, s=symbol, p=price, ts=timestamp_ms: self._apply_live_trade_price(s, p, ts),
+            0,
+        )
+
+    def _apply_live_trade_price(self, symbol, price, timestamp_ms):
+        if symbol != getattr(self, "current_symbol", None):
+            return
+        self.latest_market_price = float(price)
+        self.latest_live_price_at = time.monotonic()
+        self.price_value.text = format_market_value(self.latest_market_price)
+        self.price_value.font_name = NUMERIC_FONT_NAME
+        self.live_price_status.text = fa(
+            "قیمت آخرین معامله زنده دریافت شد؛ نماد: " + symbol
+        )
+
+    def _on_live_price_status(self, message):
+        Clock.schedule_once(
+            lambda dt, value=str(message): self._apply_live_price_status(value), 0
+        )
+
+    def _apply_live_price_status(self, message):
+        if getattr(self, "live_price_status", None) is not None:
+            self.live_price_status.text = fa("جریان قیمت زنده: " + message)
+
+    def _check_live_price_freshness(self, _dt):
+        received = getattr(self, "latest_live_price_at", None)
+        if received is not None and time.monotonic() - received > 30:
+            self.latest_market_price = None
+            self.latest_live_price_at = None
+            self.price_value.text = fa("قیمت زنده کهنه است؛ منتظر داده تازه")
+            self.price_value.font_name = FONT_NAME
+            self.live_price_status.text = fa(
+                "داده تازه بیش از ۳۰ ثانیه نرسیده؛ قیمت برای تحلیل معتبر نیست."
+            )
+
     def update_technical_labels(self, technical):
         """Publish verified closed-candle indicators to the main analysis panel."""
         self.latest_technical_analysis = dict(technical)
@@ -1669,8 +1746,20 @@ class FuturesAnalyzerApp(App):
                 self.coordinator_session_error = (
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
+        # Start the public read-only last-trade stream independently of the
+        # paper simulator; manual REST connectivity checks are not a price feed.
+        self._start_live_price_feed()
 
     def on_stop(self):
+        feed = getattr(self, "live_price_feed", None)
+        if feed is not None:
+            try:
+                feed.stop(timeout=3.0)
+            except Exception:
+                pass
+        event = getattr(self, "live_price_watch_event", None)
+        if event is not None:
+            event.cancel()
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
