@@ -2219,8 +2219,9 @@ class FuturesAnalyzerApp(App):
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
-                # Never process a tick that exposed a time gap. The candle builder
-                # has invalidated its history; ignore this price for position exits too.
+                # A validated, fresh trade after a candle gap must still be
+                # checked against an existing position's stop/target. The gap
+                # blocks indicator analysis and new entries, not risk exits.
                 if update.get("gap_detected"):
                     last_processed_bucket = None
                     status = builder.status()
@@ -2231,8 +2232,8 @@ class FuturesAnalyzerApp(App):
                     Clock.schedule_once(
                         lambda dt, value=gap_message: self.update_auto_status(value), 0
                     )
-                    return
-                # Reconcile restored paper positions only against continuous validated ticks.
+                # Every accepted, fresh trade may manage an open paper position,
+                # including the first tick that reveals a candle-history gap.
                 try:
                     tick_event = engine.process_tick(symbol, parsed["price"])
                     if tick_event:
@@ -2260,6 +2261,10 @@ class FuturesAnalyzerApp(App):
                         pass
                     Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
+                    return
+                # A gap invalidates indicators; after protective position handling,
+                # stop here so no new entry can use discontinuous candle history.
+                if update.get("gap_detected"):
                     return
                 # Build a fresh immutable scan snapshot on the websocket thread.
                 # The independent scheduler below consumes fresh snapshots every 5 seconds.
