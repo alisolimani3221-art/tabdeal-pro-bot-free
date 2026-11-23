@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from ai_diagnostics import APP_VERSION, build_ai_diagnostic_context
 
