@@ -454,5 +454,49 @@ class PaperTraderTests(unittest.TestCase):
             engine.process_tick("AAA_USDT", float("nan"))
         self.assertIsNotNone(engine.position)
 
+    def test_restore_rejects_inconsistent_position_accounting(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        snapshot = engine.export_state()
+        self.assertIsNotNone(snapshot["position"])
+        for field, mutate in (
+            ("notional", lambda p: p.__setitem__("notional", p["notional"] * 2)),
+            ("fees_entry", lambda p: p.__setitem__("fees_entry", p["fees_entry"] + 1)),
+            ("risk_budget", lambda p: p.__setitem__("risk_budget", p["risk_limit"] + 1)),
+        ):
+            with self.subTest(field=field):
+                corrupted = engine.export_state()
+                mutate(corrupted["position"])
+                with self.assertRaises(ValueError):
+                    PaperTradingEngine.restore_state(corrupted)
+
+    def test_equity_includes_adverse_exit_slippage_for_long_and_short(self):
+        for signal in ("BULLISH", "BEARISH"):
+            with self.subTest(signal=signal):
+                engine = PaperTradingEngine(
+                    capital=8, fee_rate=0.001, slippage_rate=0.002
+                )
+                engine.process_scan([setup(signal=signal)])
+                position = engine.position
+                mark = position["last_price"]
+                adverse_exit = mark * (
+                    1 - engine.slippage_rate if signal == "BULLISH"
+                    else 1 + engine.slippage_rate
+                )
+                direction = 1 if signal == "BULLISH" else -1
+                expected = (
+                    engine.cash
+                    + (adverse_exit - position["entry"])
+                    * position["quantity"] * direction
+                    - adverse_exit * position["quantity"] * engine.fee_rate
+                )
+                self.assertAlmostEqual(engine.equity, expected)
+                optimistic = (
+                    engine.cash
+                    + (mark - position["entry"]) * position["quantity"] * direction
+                    - mark * position["quantity"] * engine.fee_rate
+                )
+                self.assertLessEqual(engine.equity, optimistic + 1e-12)
+
 if __name__ == "__main__":
     unittest.main()

@@ -314,6 +314,21 @@ class PaperTradingEngine:
                     raise ValueError("paper-engine long protection is invalid")
             elif not position["target"] < position["entry"] < position["stop"]:
                 raise ValueError("paper-engine short protection is invalid")
+            # Cross-check persisted accounting fields instead of trusting
+            # individually finite numbers that may describe an impossible position.
+            expected_notional = position["entry"] * position["quantity"]
+            tolerance = max(1e-9, abs(expected_notional) * 1e-8)
+            if abs(position["notional"] - expected_notional) > tolerance:
+                raise ValueError("paper-engine position notional is inconsistent")
+            expected_entry_fee = position["notional"] * engine.fee_rate
+            if abs(position["fees_entry"] - expected_entry_fee) > max(
+                    1e-9, abs(expected_entry_fee) * 1e-8):
+                raise ValueError("paper-engine entry fee is inconsistent")
+            if position["notional"] / leverage > engine.cash + tolerance:
+                raise ValueError("paper-engine position exceeds available margin")
+            if position["risk_budget"] > position["risk_limit"] + max(
+                    1e-9, abs(position["risk_limit"]) * 1e-8):
+                raise ValueError("paper-engine position exceeds its risk budget")
             engine.position = dict(position)
 
         trades = state["closed_trades"]
@@ -341,10 +356,13 @@ class PaperTradingEngine:
             return self.cash
         p = self.position
         mark = p["last_price"]
-        raw = (mark - p["entry"]) * p["quantity"]
-        if p["side"] == "BEARISH":
-            raw = -raw
-        exit_fee = mark * p["quantity"] * self.fee_rate
+        # Equity estimates liquidation at the same adverse slippage used by
+        # _close(), so open-position drawdown is never understated.
+        exit_price = mark * (1 - self.slippage_rate if p["side"] == "BULLISH"
+                             else 1 + self.slippage_rate)
+        raw = ((exit_price - p["entry"]) * p["quantity"] *
+               (1 if p["side"] == "BULLISH" else -1))
+        exit_fee = exit_price * p["quantity"] * self.fee_rate
         return self.cash + raw - exit_fee
 
     def _close(self, price, reason):
