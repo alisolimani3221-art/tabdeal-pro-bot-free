@@ -1,0 +1,59 @@
+name: Multi-market paper-feed validation
+
+on:
+  push:
+    branches:
+      - fix/v1.49-multi-market-paper-engine
+  pull_request:
+    branches:
+      - release/v1.49
+
+permissions:
+  contents: read
+
+jobs:
+  validate-market-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install WebSocket client
+        run: python -m pip install websocket-client==1.8.0
+      - name: Test per-market candle universe
+        run: python -m unittest discover -s tests -p "test_paper_market_universe.py" -v
+      - name: Test strict public trade parsing and broadcast probe
+        run: python -m unittest discover -s tests -p "test_trade_stream_probe.py" -v
+      - name: Observe the public broadcast for 60 seconds
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_stream_probe import probe_broadcast
+
+          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=60)
+          Path("market-coverage-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(report, sort_keys=True))
+          if not report["connected"] or report["messages"] == 0 or report["valid_market_trades"] == 0:
+              raise SystemExit("Public trade broadcast did not produce validated market trades")
+          if len(report["market_symbols_seen"]) < 2:
+              raise SystemExit(
+                  "Multi-market integration remains blocked: only {} symbol(s) observed: {}".format(
+                      len(report["market_symbols_seen"]), report["market_symbols_seen"]
+                  )
+              )
+          PY
+      - name: Upload market coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-market-coverage-report
+          path: market-coverage-report.json
+          if-no-files-found: warn
+          retention-days: 7
