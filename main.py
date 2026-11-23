@@ -538,7 +538,7 @@ class FuturesAnalyzerApp(App):
                     status_code = response.status_code
                     results[path.strip("/").replace("/", "_") + "_status"] = status_code
                     if status_code == 429 or status_code >= 500:
-                        detail = response.text[:500].replace("\\n", " ")
+                        detail = response.text[:500].replace("\n", " ")
                         if path == "/depth":
                             results["depth_diagnostic"] = "HTTP {} {} body={}".format(
                                 status_code, response.url, detail
@@ -558,7 +558,7 @@ class FuturesAnalyzerApp(App):
                             continue
                         raise last_http_error
                     if not response.ok:
-                        detail = response.text[:500].replace("\\n", " ")
+                        detail = response.text[:500].replace("\n", " ")
                         if path == "/depth":
                             results["depth_diagnostic"] = "HTTP {} {} body={}".format(
                                 status_code, response.url, detail
@@ -677,7 +677,7 @@ class FuturesAnalyzerApp(App):
                     results["depth_diagnostic"] = (
                         "HTTP {}; non-JSON response; content-type={}; body={}".format(
                             depth.status_code, results["depth_content_type"],
-                            raw_text.replace("\\n", " ")
+                            raw_text.replace("\n", " ")
                         )
                     )
                     raise RuntimeError("depth endpoint returned non-JSON data")
@@ -1348,9 +1348,9 @@ class FuturesAnalyzerApp(App):
             self.connection.text = fa("اتصال API بازار و دریافت دفتر سفارش برقرار است")
             self.connection.color = (0.35, 0.9, 0.55, 1)
             message = (
-                "وضعیت سایت: {}\\nپینگ بازار: {}\\nاطلاعات بازار: {}\\n"
-                "دفتر سفارش: کد {}\\nنماد معاملاتی: {}\\n"
-                "بهترین خرید: {}\\nبهترین فروش: {}\\n"
+                "وضعیت سایت: {}\nپینگ بازار: {}\nاطلاعات بازار: {}\n"
+                "دفتر سفارش: کد {}\nنماد معاملاتی: {}\n"
+                "بهترین خرید: {}\nبهترین فروش: {}\n"
                 "قیمت میانی تقریبی: {}"
             ).format(website_status, results.get("market_ping", "ناموفق؛ غیرمسدودکننده"),
                      results.get("market_info", "ناموفق؛ نماد انتخاب‌شده استفاده شد"),
@@ -1823,9 +1823,9 @@ class FuturesAnalyzerApp(App):
 
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
         explanation = (
-            "این کار فقط توقف قابل‌بازیابیِ موتور آزمایشی را پس از بررسی دوباره وضعیت ایمنی بازآماده می‌کند.\\n"
-            "توقف سقف زیان، موقعیت باز، درخواست معلق یا توقف مبهم قابل بازنشانی نیست.\\n"
-            "سرمایه مجازی و تاریخچه حفظ می‌شوند؛ هیچ سفارش واقعی ارسال یا فعال نمی‌شود.\\n"
+            "این کار فقط توقف قابل‌بازیابیِ موتور آزمایشی را پس از بررسی دوباره وضعیت ایمنی بازآماده می‌کند.\n"
+            "توقف سقف زیان، موقعیت باز، درخواست معلق یا توقف مبهم قابل بازنشانی نیست.\n"
+            "سرمایه مجازی و تاریخچه حفظ می‌شوند؛ هیچ سفارش واقعی ارسال یا فعال نمی‌شود.\n"
             "پس از تأیید، شبیه‌ساز آزمایشی به‌صورت خودکار راه‌اندازی می‌شود."
         )
         label = Label(
@@ -2368,9 +2368,9 @@ class FuturesAnalyzerApp(App):
                             except Exception:
                                 pass
                         message_text = (
-                            "شبیه‌ساز فعال | {}\\nسیگنال آخر: {} | قیمت: {:.8g}\\n"
-                            "آخرین داده: {:.0f} ثانیه قبل | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\\n"
-                            "وضعیت ورود: {}\\nحداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\\n{}"
+                            "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت: {:.8g}\n"
+                            "آخرین داده: {:.0f} ثانیه قبل | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
+                            "وضعیت ورود: {}\nحداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
                         ).format(symbol, technical["signal"], technical["price"], age,
                                  result["equity"], result["closed_trades"],
                                  diagnose_signal(technical), event_text)
