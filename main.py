@@ -2718,12 +2718,12 @@ class FuturesAnalyzerApp(App):
                 target=monitor_stream_silence, daemon=True
             )
             watchdog_thread.start()
-            previous_socket_timeout = websocket.getdefaulttimeout()
-            websocket.setdefaulttimeout(12.0)
             try:
-                # websocket-client 1.8.0 has no run_forever(timeout=...) argument.
-                # Its documented default socket timeout bounds the handshake
-                # without turning an otherwise quiet, connected feed into a failure.
+                # Do not change socket.setdefaulttimeout globally here. A short
+                # process-wide default can also become the live WebSocket read
+                # timeout and close an otherwise healthy, quiet market stream.
+                # websocket-client 1.8.0 has no run_forever(timeout=...) argument;
+                # ping/pong plus the validated-trade watchdog provide liveness.
                 app.run_forever(
                     ping_interval=20,
                     ping_timeout=10,
@@ -2745,7 +2745,6 @@ class FuturesAnalyzerApp(App):
                     websocket_connected=False,
                     worker_phase=("stopping" if self.auto_stop_event.is_set() else "reconnecting"),
                 )
-                websocket.setdefaulttimeout(previous_socket_timeout)
                 scan_stop.set()
                 scan_thread.join(timeout=2.0)
                 watchdog_stop.set()
