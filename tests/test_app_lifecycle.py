@@ -57,6 +57,14 @@ class LifecycleHarness:
     request_rearm_paper_runner = LIFECYCLE_GLOBALS["request_rearm_paper_runner"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
 
+    # Market-price refresh is covered by its dedicated worker tests; keep this
+    # lifecycle harness focused on startup/shutdown without launching a thread.
+    def _start_market_price_refresh(self):
+        return None
+
+    def _stop_market_price_refresh(self, timeout=2.0):
+        return None
+
     def __init__(self, user_data_dir):
         self.user_data_dir = user_data_dir
         self.auto_stop_event = threading.Event()
