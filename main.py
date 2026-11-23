@@ -1799,6 +1799,7 @@ class FuturesAnalyzerApp(App):
                 popup.dismiss()
                 return
             rearmed = False
+            paper_rearmed = False
             try:
                 # Validate the process lock immediately before changing the
                 # persisted halt. The snapshot checks above already proved
@@ -1814,6 +1815,7 @@ class FuturesAnalyzerApp(App):
                     paper_engine.rearm_after_operator_stop()
                     self._persist_paper_engine_state(paper_engine)
                     self.auto_engine = paper_engine
+                    paper_rearmed = True
                 ensure_paper_runner_ready(guard, session)
                 self.update_auto_status(
                     "قفل توقف دستی با تأیید شما بازآماده شد. شبیه‌ساز هنوز اجرا نشده است؛ "
@@ -1824,6 +1826,12 @@ class FuturesAnalyzerApp(App):
                 # persistent emergency stop before reporting failure. Never
                 # leave a cleared halt behind after an unsuccessful re-arm.
                 rollback_error = None
+                if paper_rearmed:
+                    try:
+                        paper_engine.emergency_close()
+                        self._persist_paper_engine_state(paper_engine)
+                    except Exception as paper_rollback_exc:
+                        rollback_error = paper_rollback_exc
                 if rearmed:
                     try:
                         session.emergency_stop("operator emergency stop")
