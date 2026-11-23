@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 BROADCAST_URL = "wss://api1.tabdeal.org/special_margin/broadcast/"
 DEFAULT_SYMBOL = "AEVO_USDT"
 MAX_MESSAGE_BYTES = 65536
+# Reject delayed/replayed trades before they can contaminate candles or paper exits.
+MAX_TRADE_AGE_MS = 120_000
 
 ALIASES = {
     "price": ("price", "p", "tradePrice", "dealPrice"),
@@ -66,7 +68,8 @@ def _parse_timestamp_ms(value):
 
     now_ms = int(time.time() * 1000)
     if (timestamp_ms <= 0 or timestamp_ms >= 10_000_000_000_000
-            or timestamp_ms > now_ms + 5 * 60 * 1000):
+            or timestamp_ms > now_ms + 5 * 60 * 1000
+            or now_ms - timestamp_ms > MAX_TRADE_AGE_MS):
         return None
     return timestamp_ms
 
