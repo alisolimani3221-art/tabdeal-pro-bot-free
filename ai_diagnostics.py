@@ -1,5 +1,7 @@
 """Privacy-safe, read-only diagnostics context for the in-app Groq assistant."""
 
+APP_VERSION = "1.49"
+
 APP_DIAGNOSTIC_KEYS = (
     "website", "market_ping", "market_info", "depth_status", "depth_http",
     "depth_content_type", "market_symbol", "symbol_verified", "depth_diagnostic",
@@ -81,13 +83,10 @@ def build_ai_diagnostic_context(app):
     runtime_ready = bool(getattr(app, "runtime_lock_ready", False))
     bids = diagnostics.get("bids", [])
     asks = diagnostics.get("asks", [])
-    book_status = (
-        "parsed" if bids and asks else
-        "not_available"
-    )
+    book_status = "parsed" if bids and asks else "not_available"
 
     return {
-        "app_version": "1.47",
+        "app_version": APP_VERSION,
         "selected_symbol": _safe_status(getattr(app, "current_symbol", "unknown"), 40),
         "diagnostics": diagnostics,
         "order_book": {
