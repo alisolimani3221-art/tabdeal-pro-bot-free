@@ -260,6 +260,34 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(engine.emergency_close(), {"event": "STOPPED", "trade": None})
         self.assertEqual(engine.emergency_close(), {"event": "STOPPED", "trade": None})
 
+    def test_emergency_stop_detail_survives_restart_and_clears_on_rearm(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.emergency_close("periodic scan failure: RuntimeError")
+        saved = engine.export_state()
+        self.assertEqual(saved["schema_version"], 3)
+        restored = PaperTradingEngine.restore_state(saved)
+        self.assertEqual(
+            restored.halt_detail, "periodic scan failure: RuntimeError"
+        )
+        restored.rearm_after_operator_stop()
+        self.assertIsNone(restored.halt_detail)
+        self.assertFalse(restored.halted)
+
+    def test_restore_remains_compatible_with_schema_v1_and_v2(self):
+        engine = PaperTradingEngine(capital=8)
+        current = engine.export_state()
+        version_two = dict(current)
+        version_two["schema_version"] = 2
+        version_two.pop("halt_detail")
+        restored_two = PaperTradingEngine.restore_state(version_two)
+        self.assertIsNone(restored_two.halt_detail)
+
+        version_one = dict(version_two)
+        version_one["schema_version"] = 1
+        version_one.pop("last_entry_candle")
+        restored_one = PaperTradingEngine.restore_state(version_one)
+        self.assertIsNone(restored_one.halt_detail)
+
 
     def test_emergency_stop_permanently_blocks_later_entries(self):
         engine = PaperTradingEngine(capital=8)
@@ -327,6 +355,9 @@ class PaperTraderTests(unittest.TestCase):
         ])
         self.assertTrue(result["halted"])
         self.assertEqual(result["halt_reason"], "MAX_LOSS")
+        self.assertEqual(
+            engine.halt_detail, "cumulative paper loss limit reached during scan"
+        )
         self.assertEqual(result["events"][-1]["trade"]["reason"], "STOP")
         blocked = engine.process_scan([setup("BBB_USDT")])
         self.assertTrue(blocked["halted"])
