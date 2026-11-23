@@ -37,6 +37,7 @@ LIFECYCLE_GLOBALS = {
     "AppRuntimeGuard": AppRuntimeGuard,
     "TradeCoordinatorSession": TradeCoordinatorSession,
     "ensure_paper_runner_ready": ensure_paper_runner_ready,
+    "Clock": Mock(),
 }
 exec(
     compile(ast.Module(body=METHOD_NODES, type_ignores=[]), str(MAIN_SOURCE), "exec"),
@@ -96,6 +97,21 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             ensure_paper_runner_ready(second.runtime_guard, second.coordinator_session)
         second.on_stop()
         self.assertFalse(second.runtime_guard.held)
+
+    def test_on_start_schedules_automatic_paper_runner_after_safety_initialization(self):
+        clock = Mock()
+        with patch.dict(LIFECYCLE_GLOBALS, {"Clock": clock}):
+            app = LifecycleHarness(self.temp.name)
+            app.start_auto_paper_trader = Mock()
+            app.on_start()
+
+        clock.schedule_once.assert_called_once()
+        callback, delay = clock.schedule_once.call_args.args
+        self.assertEqual(delay, 0.5)
+        app.start_auto_paper_trader.assert_not_called()
+        callback(0)
+        app.start_auto_paper_trader.assert_called_once_with()
+        app.on_stop()
 
     def test_runtime_lock_failure_prevents_session_initialization(self):
         guard = Mock()
