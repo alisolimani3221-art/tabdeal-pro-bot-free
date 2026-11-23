@@ -685,7 +685,18 @@ class FuturesAnalyzerApp(App):
                 depth.close()
 
             from orderbook import parse_order_book
-            bids, asks = parse_order_book(book)
+            try:
+                bids, asks = parse_order_book(book)
+            except Exception as parse_exc:
+                # Preserve a short, credential-free public depth payload sample
+                # so Android diagnostics can distinguish schema mismatch from
+                # an empty/crossed book or a real HTTP/network failure.
+                payload_preview = raw_text[:360].replace("\r", " ").replace("\n", " ")
+                results["depth_diagnostic"] = (
+                    "HTTP {}; JSON received; order-book parser rejected payload: {}; body={}"
+                    .format(depth.status_code, str(parse_exc)[:180], payload_preview)
+                )
+                raise
             bid, ask = bids[0][0], asks[0][0]
             if bid <= 0 or ask <= 0 or ask < bid:
                 results["depth_diagnostic"] = "HTTP 200; invalid best prices; bid={} ask={}".format(bid, ask)
