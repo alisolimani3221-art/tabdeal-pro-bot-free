@@ -14,6 +14,24 @@ from datetime import datetime, timezone
 BROADCAST_URL = "wss://api1.tabdeal.org/special_margin/broadcast/"
 DEFAULT_SYMBOL = "AEVO_USDT"
 MAX_MESSAGE_BYTES = 65536
+# Old broadcast events must never refresh the live-market watchdog or paper marks.
+MAX_TRADE_AGE_MS = 30_000
+
+
+def is_trade_timestamp_fresh(timestamp_ms, now_ms=None, max_age_ms=MAX_TRADE_AGE_MS):
+    """Return True only for a recent, non-future epoch-millisecond trade timestamp."""
+    if (isinstance(timestamp_ms, bool) or not isinstance(timestamp_ms, int)
+            or timestamp_ms <= 0):
+        return False
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms <= 0:
+        return False
+    if isinstance(max_age_ms, bool) or not isinstance(max_age_ms, int) or max_age_ms < 0:
+        return False
+    age_ms = now_ms - timestamp_ms
+    return 0 <= age_ms <= max_age_ms
+
 
 ALIASES = {
     "price": ("price", "p", "tradePrice", "dealPrice"),
@@ -195,10 +213,12 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         result["messages"] += 1
         parsed = parse_trade_message(message, expected_symbol=symbol)
         result["last_diagnostic"] = parsed.get("reason", "ok")
-        if parsed.get("ok"):
+        if parsed.get("ok") and is_trade_timestamp_fresh(parsed["timestamp_ms"]):
             result["valid_trades"] += 1
             if on_trade:
                 on_trade(parsed)
+        elif parsed.get("ok"):
+            result["last_diagnostic"] = "stale_trade_timestamp"
         if result["messages"] >= 100:
             ws.close()
 
