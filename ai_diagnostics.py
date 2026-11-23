@@ -96,7 +96,10 @@ def _engine_health(app, worker_alive):
 
     selected_age = result["selected_symbol_trade_age_seconds"]
     scan_age = result["last_scan_age_seconds"]
-    if not worker_alive:
+    phase = result.get("worker_phase")
+    if phase in ("blocked_by_safety", "blocked_by_persisted_state"):
+        state = "BLOCKED_BY_SAFETY"
+    elif not worker_alive:
         state = "WORKER_STOPPED"
     elif not result.get("websocket_connected"):
         state = "CONNECTING_OR_DISCONNECTED"
