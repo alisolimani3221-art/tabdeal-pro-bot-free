@@ -238,8 +238,9 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     timeout.daemon = True
     timeout.start()
     try:
-        app.run_forever(ping_interval=20, ping_timeout=10,
-                        timeout=min(12.0, timeout_value), reconnect=0)
+        # websocket-client 1.8.0 does not support a timeout keyword on
+        # WebSocketApp.run_forever(); the Timer above bounds the whole probe.
+        app.run_forever(ping_interval=20, ping_timeout=10, reconnect=0)
     finally:
         timeout.cancel()
     result["elapsed_seconds"] = round(time.monotonic() - started, 2)
