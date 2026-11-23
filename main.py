@@ -1999,20 +1999,9 @@ class FuturesAnalyzerApp(App):
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
-                # Never process a tick that exposed a time gap. The candle builder
-                # has invalidated its history; ignore this price for position exits too.
-                if update.get("gap_detected"):
-                    last_processed_bucket = None
-                    status = builder.status()
-                    gap_message = (
-                        "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
-                        "کندل معتبر: {}/۲۰ | تعداد شکاف‌ها: {} | داده ردشده: {}"
-                    ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
-                    Clock.schedule_once(
-                        lambda dt, value=gap_message: self.update_auto_status(value), 0
-                    )
-                    return
-                # Reconcile restored paper positions only against continuous validated ticks.
+                # A validated current trade remains useful for protecting an
+                # already-open paper position even when candle continuity is broken.
+                # Reconcile exits first, but never feed a gap tick into indicators.
                 try:
                     tick_event = engine.process_tick(symbol, parsed["price"])
                     if tick_event:
@@ -2040,6 +2029,21 @@ class FuturesAnalyzerApp(App):
                         pass
                     Clock.schedule_once(lambda dt, value=type(persist_exc).__name__: self.update_auto_status(
                         "خطای مدیریت موقعیت؛ موتور برای ایمنی متوقف شد: " + value), 0)
+                    return
+
+                # A gap invalidates candle history and blocks new analysis/entries,
+                # but the current validated price above has already checked any
+                # restored/open paper position for stop or target execution.
+                if update.get("gap_detected"):
+                    last_processed_bucket = None
+                    status = builder.status()
+                    gap_message = (
+                        "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
+                        "کندل معتبر: {}/۲۰ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                    ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
+                    Clock.schedule_once(
+                        lambda dt, value=gap_message: self.update_auto_status(value), 0
+                    )
                     return
                 # Build a fresh immutable scan snapshot on the websocket thread.
                 # The independent scheduler below consumes fresh snapshots every 5 seconds.
