@@ -1,4 +1,4 @@
-name: Tabdeal Futures CI and signed APK build (v1.49)
+name: Tabdeal Futures CI and signed APK build (v1.50)
 # v1.49: validate every change; build the signed paper-only APK on explicit approval, the isolated fix-branch PR, or a release-branch push. Live order placement remains disabled.
 
 on:
@@ -24,6 +24,7 @@ on:
     branches:
       - release/v1.49
       - fix/v1.49-safe-paper-rearm
+      - fix/v1.50-orderbook-2s
     paths:
       - 'main.py'
       - 'android_tls.py'
@@ -41,6 +42,7 @@ on:
       - 'buildozer.spec'
       - 'multi_bot.py'
       - 'orderbook.py'
+      - 'orderbook_poller.py'
       - 'market_symbols.py'
       - 'multi_market_scan.py'
       - 'risk_analysis.py'
