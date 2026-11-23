@@ -1709,6 +1709,14 @@ class FuturesAnalyzerApp(App):
         if not getattr(self, "runtime_lock_ready", False):
             detail = getattr(self, "runtime_lock_error", None) or "قفل اجرا برقرار نیست."
             self.update_auto_status("شروع شبیه‌ساز مسدود شد؛ قفل ایمنی حافظه داخلی برقرار نشد. " + detail)
+        elif (getattr(self, "auto_trader_thread", None) is not None
+              and self.auto_trader_thread.is_alive()):
+            # Preserve the actual startup/stream phase instead of replacing it
+            # with a generic lock-ready message when the operator opens the panel.
+            self.update_auto_status(getattr(
+                self, "auto_worker_status",
+                "شبیه‌ساز آزمایشی در حال اجراست؛ سفارش واقعی ارسال نمی‌شود."
+            ))
         else:
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
@@ -2448,6 +2456,15 @@ class FuturesAnalyzerApp(App):
                 self.coordinator_session_error = (
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
+
+        # Start the paper-only public market stream automatically after Kivy's
+        # UI is initialized. start_auto_paper_trader() repeats every safety gate,
+        # restores persisted state, and refuses emergency/loss halts. It never
+        # submits exchange orders. Scheduling avoids starting worker/UI updates
+        # before the application has completed its startup lifecycle.
+        Clock.schedule_once(
+            lambda _dt: self.start_auto_paper_trader(), 0.5
+        )
 
     def on_stop(self):
         worker_stopped = True
