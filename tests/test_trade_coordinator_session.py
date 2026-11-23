@@ -83,6 +83,30 @@ class TradeCoordinatorSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "halted"):
             self.prepare(restarted)
 
+    def test_operator_stop_can_be_rearmed_only_with_no_pending_intents(self):
+        session = TradeCoordinatorSession(self.path)
+        session.emergency_stop("operator emergency stop")
+        result = session.rearm_after_operator_stop()
+        self.assertEqual(result, {
+            "halted": False, "rearmed": True, "live_order_submitted": False
+        })
+        self.assertFalse(session.snapshot()["halted"])
+
+    def test_rearm_rejects_pending_intents(self):
+        session = TradeCoordinatorSession(self.path)
+        self.prepare(session)
+        session.emergency_stop("operator emergency stop")
+        with self.assertRaisesRegex(RuntimeError, "pending prepared intents"):
+            session.rearm_after_operator_stop()
+        self.assertTrue(session.snapshot()["halted"])
+
+    def test_rearm_rejects_non_operator_safety_halts(self):
+        session = TradeCoordinatorSession(self.path)
+        session.emergency_stop("restart found ambiguous execution state")
+        with self.assertRaisesRegex(RuntimeError, "only an explicit operator"):
+            session.rearm_after_operator_stop()
+        self.assertTrue(session.snapshot()["halted"])
+
     def test_persistence_failure_latches_session_closed(self):
         session = TradeCoordinatorSession(self.path)
         with patch.object(session.store, "save", side_effect=StateStoreError("disk failure")):
