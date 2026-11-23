@@ -261,6 +261,10 @@ class PaperTradingEngine:
             raise ValueError("paper-engine halt metadata is inconsistent")
         engine.halt_reason = reason
         detail = state.get("halt_detail") if version >= 3 else None
+        if (version >= 3 and engine.halted and (
+                not isinstance(detail, str) or not detail.strip()
+        )):
+            raise ValueError("paper-engine halt detail is missing")
         if (detail is not None and (
                 not engine.halted or not isinstance(detail, str)
                 or len(detail) > 240 or not detail.strip()
@@ -374,6 +378,7 @@ class PaperTradingEngine:
             loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
             if self.cash <= loss_floor:
                 self.halt_reason = "MAX_LOSS"
+                self.halt_detail = "cumulative paper loss limit remains active"
                 raise RuntimeError("maximum cumulative paper loss limit remains active")
             self.halted = False
             self.halt_reason = None
@@ -388,7 +393,7 @@ class PaperTradingEngine:
             self.halt_reason = "EMERGENCY_STOP"
             if detail is None:
                 detail = "operator requested emergency stop"
-            self.halt_detail = " ".join(str(detail).split())[:240]
+            self.halt_detail = " ".join(str(detail).split())[:240] or "unspecified emergency stop"
             if self.position is None:
                 return {"event": "STOPPED", "trade": None}
             return self._close(self.position["last_price"], "EMERGENCY_STOP")
