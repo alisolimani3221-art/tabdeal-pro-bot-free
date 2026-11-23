@@ -2038,6 +2038,13 @@ class FuturesAnalyzerApp(App):
         received_messages = 0
         valid_messages = 0
         selected_symbol_trades = 0
+        self._record_auto_stream_diagnostic(
+            state="starting", attempt=0,
+            received_messages=0, valid_messages=0,
+            selected_symbol_trades=0, last_error="",
+            close_code="", close_message="",
+            last_message_at="", last_valid_trade_at="",
+        )
         connected_once = False
         retry_attempt = 0
         while not self.auto_stop_event.is_set():
