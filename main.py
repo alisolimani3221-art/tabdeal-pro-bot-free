@@ -1926,18 +1926,36 @@ class FuturesAnalyzerApp(App):
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
+        # Do not reset live telemetry when the operator taps Start again
+        # while the existing worker is still running.
+        if self.auto_trader_thread is not None and self.auto_trader_thread.is_alive():
+            self.update_auto_status("شبیه‌ساز در حال اجراست؛ برای توقف از توقف اضطراری استفاده کنید.")
+            return
+
+        self.auto_health_lock = threading.RLock()
+        self.auto_health = {
+            "worker_phase": "starting", "websocket_connected": False,
+            "connected_at": None, "retry_attempt": 0,
+            "received_messages": 0, "valid_market_trades": 0,
+            "selected_symbol_trade_count": 0,
+            "last_any_market_trade_at": None,
+            "last_selected_symbol_trade_at": None,
+            "candle_count": 0, "builder_ready": False,
+            "last_scan_at": None, "last_stream_error": "",
+        }
         guard = getattr(self, "runtime_guard", None)
         coordinator_session = getattr(self, "coordinator_session", None)
         try:
             ensure_paper_runner_ready(guard, coordinator_session)
         except Exception as exc:
+            self._update_engine_health(
+                worker_phase="blocked_by_safety",
+                last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:120]),
+            )
             self.update_auto_status(
                 "شروع شبیه‌ساز مسدود شد؛ کنترل ایمنی وضعیت پایدار تأیید نشد: "
                 + type(exc).__name__ + ": " + str(exc)[:120]
             )
-            return
-        if self.auto_trader_thread is not None and self.auto_trader_thread.is_alive():
-            self.update_auto_status("شبیه‌ساز در حال اجراست؛ برای توقف از توقف اضطراری استفاده کنید.")
             return
         symbol = str(self.current_symbol).upper()
         if not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
@@ -1969,6 +1987,10 @@ class FuturesAnalyzerApp(App):
                                             max_leverage=3, max_loss_percent=3.0)
             self._persist_paper_engine_state(engine)
         except Exception as exc:
+            self._update_engine_health(
+                worker_phase="blocked_by_persisted_state",
+                last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:160]),
+            )
             self.update_auto_status("راه‌اندازی موتور مسدود شد؛ وضعیت ذخیره‌شده معتبر یا قابل‌بازیابی نیست: "
                                     + type(exc).__name__ + ": " + str(exc)[:160])
             return
@@ -2070,6 +2092,15 @@ class FuturesAnalyzerApp(App):
             message += " خروج رشته پس‌زمینه هنوز کامل نشده؛ موتور قفل و متوقف باقی می‌ماند."
         self.update_auto_status(message)
 
+    def _update_engine_health(self, **values):
+        """Publish worker telemetry; thread liveness alone is not engine health."""
+        lock = getattr(self, "auto_health_lock", None)
+        health = getattr(self, "auto_health", None)
+        if lock is None or not isinstance(health, dict):
+            return
+        with lock:
+            health.update(values)
+
     def _paper_stream_worker(self, symbol, builder, engine):
         """Reconnect public trade stream and simulate only after gap-free warm-up."""
         try:
@@ -2092,6 +2123,9 @@ class FuturesAnalyzerApp(App):
         retry_attempt = 0
         while not self.auto_stop_event.is_set():
             retry_attempt += 1
+            self._update_engine_health(worker_phase="connecting",
+                                       websocket_connected=False,
+                                       retry_attempt=retry_attempt)
             attempt_delay = min(15, 2 + retry_attempt * 2)
             Clock.schedule_once(
                 lambda dt, number=retry_attempt: self.update_auto_status(
@@ -2106,6 +2140,11 @@ class FuturesAnalyzerApp(App):
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
                 stream_watchdog.connected()
+                self._update_engine_health(
+                    worker_phase="connected_waiting_for_trade",
+                    websocket_connected=True, connected_at=time.monotonic(),
+                    last_stream_error="",
+                )
                 if connected_once:
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
@@ -2125,6 +2164,7 @@ class FuturesAnalyzerApp(App):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
                 received_messages += 1
+                self._update_engine_health(received_messages=received_messages)
                 # This socket is a market-wide broadcast. Parse each event's
                 # own symbol first: activity in any market proves the socket is
                 # alive, even when the selected low-volume symbol has no trade.
@@ -2161,6 +2201,10 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 valid_messages += 1
+                self._update_engine_health(
+                    valid_market_trades=valid_messages,
+                    last_any_market_trade_at=time.monotonic(),
+                )
                 # Only a fresh, fully validated broadcast trade refreshes liveness.
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
@@ -2178,6 +2222,10 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 update = builder.add_trade(parsed)
+                self._update_engine_health(
+                    candle_count=int(builder.status().get("closed_candles", 0)),
+                    builder_ready=bool(builder.is_ready),
+                )
                 if not update.get("accepted"):
                     now = time.monotonic()
                     if now - last_status_update >= 10:
@@ -2191,6 +2239,12 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                self._update_engine_health(
+                    selected_symbol_trade_count=int(
+                        getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
+                    ) + 1,
+                    last_selected_symbol_trade_at=time.monotonic(),
+                )
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
                 if not update.get("ready"):
@@ -2290,6 +2344,9 @@ class FuturesAnalyzerApp(App):
 
             def on_error(ws, error):
                 detail = "{}: {}".format(type(error).__name__, str(error)[:140])
+                self._update_engine_health(worker_phase="reconnecting",
+                                           websocket_connected=False,
+                                           last_stream_error=detail)
                 Clock.schedule_once(
                     lambda dt, value=detail: self.update_auto_status(
                         "خطای جریان معاملات؛ تلاش برای اتصال مجدد. علت: " + value
@@ -2297,6 +2354,8 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_close(ws, close_status_code, close_message):
+                self._update_engine_health(worker_phase="reconnecting",
+                                           websocket_connected=False)
                 if not self.auto_stop_event.is_set():
                     detail = "کد={}; پیام={}".format(
                         close_status_code, str(close_message or "بدون توضیح")[:100]
@@ -2352,6 +2411,11 @@ class FuturesAnalyzerApp(App):
                         result = engine.process_scan([technical])
                         self._persist_paper_engine_state(engine)
                         last_scan = time.monotonic()
+                        self._update_engine_health(
+                            worker_phase="scanning", last_scan_at=last_scan,
+                            candle_count=int(builder.status().get("closed_candles", 0)),
+                            builder_ready=bool(builder.is_ready),
+                        )
                         events = result.get("events", [])
                         event_text = ""
                         if events:
@@ -2455,12 +2519,20 @@ class FuturesAnalyzerApp(App):
                 )
             except Exception as stream_exc:
                 detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:140])
+                self._update_engine_health(
+                    worker_phase="reconnecting", websocket_connected=False,
+                    last_stream_error=detail,
+                )
                 Clock.schedule_once(
                     lambda dt, value=detail: self.update_auto_status(
                         "خطای اجرای جریان معاملات؛ تلاش مجدد. علت: " + value
                     ), 0
                 )
             finally:
+                self._update_engine_health(
+                    websocket_connected=False,
+                    worker_phase=("stopping" if self.auto_stop_event.is_set() else "reconnecting"),
+                )
                 websocket.setdefaulttimeout(previous_socket_timeout)
                 scan_stop.set()
                 scan_thread.join(timeout=2.0)
@@ -2477,6 +2549,7 @@ class FuturesAnalyzerApp(App):
                 )
                 self.auto_stop_event.wait(attempt_delay)
 
+        self._update_engine_health(worker_phase="stopped", websocket_connected=False)
         final_status = (
             "شبیه‌ساز متوقف شد. هیچ سفارش واقعی ارسال نشده است. "
             "برای جزئیات، پیام آخر وضعیت موتور را بررسی کنید."

@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from ai_diagnostics import APP_VERSION, build_ai_diagnostic_context
 
@@ -56,6 +57,93 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertEqual(len(context["market_snapshot"]["bids"]), 10)
         self.assertEqual(context["market_snapshot"]["bids"][0], [100, 2])
 
+
+    def test_thread_alive_without_socket_is_not_healthy(self):
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(auto_trader_thread=worker, auto_health={})
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertTrue(health["thread_alive"])
+        self.assertEqual(health["health_state"], "CONNECTING_OR_DISCONNECTED")
+
+    def test_connected_but_no_selected_symbol_trade_is_waiting(self):
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={"websocket_connected": True, "worker_phase": "connected_waiting_for_trade",
+                         "valid_market_trades": 8},
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["health_state"], "WAITING_FOR_SELECTED_SYMBOL_TRADE")
+
+    def test_selected_symbol_stale_data_is_not_active(self):
+        import time
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={"websocket_connected": True,
+                         "last_selected_symbol_trade_at": time.monotonic() - 40,
+                         "builder_ready": True, "last_scan_at": time.monotonic()},
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["health_state"], "SELECTED_SYMBOL_STALE")
+
+    def test_builder_warmup_and_first_scan_are_distinguished(self):
+        import time
+        worker = Mock()
+        worker.is_alive.return_value = True
+        now = time.monotonic()
+        base = {"websocket_connected": True, "last_selected_symbol_trade_at": now}
+        warming = SimpleNamespace(auto_trader_thread=worker,
+                                  auto_health=dict(base, builder_ready=False))
+        self.assertEqual(
+            build_ai_diagnostic_context(warming)["engine"]["health"]["health_state"],
+            "WARMING_UP",
+        )
+        ready = SimpleNamespace(auto_trader_thread=worker,
+                                auto_health=dict(base, builder_ready=True))
+        self.assertEqual(
+            build_ai_diagnostic_context(ready)["engine"]["health"]["health_state"],
+            "WAITING_FOR_FIRST_SCAN",
+        )
+
+    def test_active_requires_fresh_symbol_trade_builder_and_scan(self):
+        import time
+        worker = Mock()
+        worker.is_alive.return_value = True
+        now = time.monotonic()
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={"websocket_connected": True,
+                         "last_selected_symbol_trade_at": now,
+                         "builder_ready": True, "last_scan_at": now},
+        )
+        self.assertEqual(
+            build_ai_diagnostic_context(app)["engine"]["health"]["health_state"],
+            "ACTIVE",
+        )
+
+    def test_safety_gate_block_is_not_misreported_as_worker_crash(self):
+        app = SimpleNamespace(
+            auto_trader_thread=None,
+            auto_health={"worker_phase": "blocked_by_safety",
+                         "last_stream_error": "PaperRunnerGateError"},
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["health_state"], "BLOCKED_BY_SAFETY")
+        self.assertEqual(health["last_stream_error"], "PaperRunnerGateError")
+
+    def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
+        worker = Mock()
+        worker.is_alive.return_value = False
+        app = SimpleNamespace(auto_trader_thread=worker,
+                              auto_health={"websocket_connected": True})
+        self.assertEqual(
+            build_ai_diagnostic_context(app)["engine"]["health"]["health_state"],
+            "WORKER_STOPPED",
+        )
 
 if __name__ == "__main__":
     unittest.main()

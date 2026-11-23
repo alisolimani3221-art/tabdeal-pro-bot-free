@@ -47,6 +47,18 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertNotIn("/klines", source)
         self.assertNotIn("fapi.binance.com", source)
 
+    def test_paper_worker_publishes_transport_and_selected_symbol_health(self):
+        source = self.read("main.py")
+        diagnostics = self.read("ai_diagnostics.py")
+        self.assertIn("websocket_connected=True", source)
+        self.assertIn("last_any_market_trade_at=time.monotonic()", source)
+        self.assertIn("last_selected_symbol_trade_at=time.monotonic()", source)
+        self.assertIn("builder_ready=bool(builder.is_ready)", source)
+        self.assertIn("last_scan_at=last_scan", source)
+        self.assertIn('"health": _engine_health(app, worker_alive)', diagnostics)
+        self.assertIn("WAITING_FOR_SELECTED_SYMBOL_TRADE", diagnostics)
+        self.assertIn("SELECTED_SYMBOL_STALE", diagnostics)
+
     def test_observed_trade_schema_and_candle_safety_are_documented(self):
         doc = self.read("TRADE_STREAM_SCHEMA.md")
         source = self.read("main.py")

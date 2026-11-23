@@ -22,7 +22,7 @@ APP_CLASS = next(
     if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
 )
 METHOD_NAMES = {
-    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader", "_schedule_rearmed_paper_runner", "request_rearm_paper_runner",
+    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader", "_update_engine_health", "_schedule_rearmed_paper_runner", "request_rearm_paper_runner",
     "_persist_paper_engine_state"
 }
 METHOD_NODES = [
@@ -53,6 +53,7 @@ class LifecycleHarness:
     _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
     stop_auto_paper_trader = LIFECYCLE_GLOBALS["stop_auto_paper_trader"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
+    _update_engine_health = LIFECYCLE_GLOBALS["_update_engine_health"]
     _schedule_rearmed_paper_runner = LIFECYCLE_GLOBALS["_schedule_rearmed_paper_runner"]
     request_rearm_paper_runner = LIFECYCLE_GLOBALS["request_rearm_paper_runner"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
@@ -334,6 +335,19 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertEqual(blocked["halt_reason"], "EMERGENCY_STOP")
         self.assertEqual(blocked["events"], [])
         self.assertIsNone(blocked["open_position"])
+
+    def test_repeated_start_does_not_reset_health_of_running_worker(self):
+        app = LifecycleHarness(self.temp.name)
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app.auto_trader_thread = worker
+        app.auto_health = {"health_state": "ACTIVE", "selected_symbol_trade_count": 7}
+
+        app.start_auto_paper_trader()
+
+        self.assertEqual(app.auto_health["health_state"], "ACTIVE")
+        self.assertEqual(app.auto_health["selected_symbol_trade_count"], 7)
+        app.update_auto_status.assert_called_once()
 
     def test_start_gate_blocks_worker_when_runtime_lock_is_not_held(self):
         app = LifecycleHarness(self.temp.name)

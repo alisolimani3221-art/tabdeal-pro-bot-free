@@ -1,5 +1,7 @@
 """Privacy-safe, read-only diagnostics context for the in-app Groq assistant."""
 
+import time
+
 APP_VERSION = "1.49"
 
 APP_DIAGNOSTIC_KEYS = (
@@ -17,6 +19,11 @@ MARKET_KEYS = (
 TECHNICAL_KEYS = (
     "symbol", "sma10", "sma20", "sma50", "rsi14", "atr14", "signal",
     "trend", "support", "resistance", "data_kind", "candle_count",
+)
+HEALTH_KEYS = (
+    "worker_phase", "websocket_connected", "retry_attempt",
+    "received_messages", "valid_market_trades", "selected_symbol_trade_count",
+    "candle_count", "builder_ready", "last_stream_error",
 )
 NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
@@ -61,6 +68,56 @@ def _safe_status(value, limit=240):
     if value is None:
         return ""
     return str(value)[:limit]
+
+
+def _engine_health(app, worker_alive):
+    """Classify the engine from socket, selected-symbol, warm-up and scan evidence."""
+    lock = getattr(app, "auto_health_lock", None)
+    source = getattr(app, "auto_health", {})
+    if lock is not None:
+        with lock:
+            source = dict(source) if isinstance(source, dict) else {}
+    else:
+        source = dict(source) if isinstance(source, dict) else {}
+    result = _bounded_mapping(source, HEALTH_KEYS)
+    now = time.monotonic()
+    for source_key, output_key in (
+        ("last_any_market_trade_at", "last_any_market_trade_age_seconds"),
+        ("last_selected_symbol_trade_at", "selected_symbol_trade_age_seconds"),
+        ("last_scan_at", "last_scan_age_seconds"),
+        ("connected_at", "connected_age_seconds"),
+    ):
+        stamp = source.get(source_key)
+        if isinstance(stamp, (int, float)) and not isinstance(stamp, bool):
+            age = now - float(stamp)
+            result[output_key] = round(max(0.0, age), 1) if age >= 0 else None
+        else:
+            result[output_key] = None
+
+    selected_age = result["selected_symbol_trade_age_seconds"]
+    scan_age = result["last_scan_age_seconds"]
+    phase = result.get("worker_phase")
+    if phase in ("blocked_by_safety", "blocked_by_persisted_state"):
+        state = "BLOCKED_BY_SAFETY"
+    elif not worker_alive:
+        state = "WORKER_STOPPED"
+    elif not result.get("websocket_connected"):
+        state = "CONNECTING_OR_DISCONNECTED"
+    elif selected_age is None:
+        state = "WAITING_FOR_SELECTED_SYMBOL_TRADE"
+    elif selected_age > 30:
+        state = "SELECTED_SYMBOL_STALE"
+    elif not result.get("builder_ready"):
+        state = "WARMING_UP"
+    elif scan_age is None:
+        state = "WAITING_FOR_FIRST_SCAN"
+    elif scan_age > 30:
+        state = "SCAN_STALE"
+    else:
+        state = "ACTIVE"
+    result["health_state"] = state
+    result["thread_alive"] = bool(worker_alive)
+    return result
 
 
 def build_ai_diagnostic_context(app):
@@ -109,6 +166,7 @@ def build_ai_diagnostic_context(app):
             "worker_status_time": _safe_status(
                 getattr(app, "auto_worker_status_time", ""), 80
             ),
+            "health": _engine_health(app, worker_alive),
             "runtime_guard_ready": runtime_ready,
             "runtime_guard_error": _safe_status(
                 getattr(app, "runtime_lock_error", "")
