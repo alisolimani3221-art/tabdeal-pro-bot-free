@@ -232,9 +232,12 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     timeout = threading.Timer(max(1, int(timeout_value)), app.close)
     timeout.daemon = True
     timeout.start()
+    previous_socket_timeout = websocket.getdefaulttimeout()
+    websocket.setdefaulttimeout(min(12.0, timeout_value))
     try:
-        app.run_forever(ping_interval=20, ping_timeout=10)
+        app.run_forever(ping_interval=20, ping_timeout=10, reconnect=0)
     finally:
+        websocket.setdefaulttimeout(previous_socket_timeout)
         timeout.cancel()
     result["elapsed_seconds"] = round(time.monotonic() - started, 2)
     return result
