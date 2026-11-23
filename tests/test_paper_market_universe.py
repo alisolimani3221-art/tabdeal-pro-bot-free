@@ -51,7 +51,7 @@ class PaperMarketUniverseTests(unittest.TestCase):
             "ok": True, "symbol": "ETH_USDT", "price": 105.0,
             "quantity": 1.0, "timestamp_ms": BASE_TIME + 22 * 60_000 + 1_000,
         }, now=23.0)
-        candidates = universe.candidates(now=60.0, max_age_seconds=30.0)
+        candidates = universe.candidates(now=53.0, max_age_seconds=30.0)
         self.assertEqual([item["symbol"] for item in candidates], ["ETH_USDT"])
 
     def test_gap_invalidates_only_the_affected_market(self):
