@@ -261,6 +261,10 @@ class PaperTradingEngine:
             raise ValueError("paper-engine halt metadata is inconsistent")
         engine.halt_reason = reason
         detail = state.get("halt_detail") if version >= 3 else None
+        if version < 3 and engine.halted:
+            # Upgrade legacy halted snapshots without discarding their original
+            # halt reason; schema v3 requires a durable diagnostic detail.
+            detail = "legacy persisted halt; original reason: {}".format(reason)
         if (version >= 3 and engine.halted and (
                 not isinstance(detail, str) or not detail.strip()
         )):
