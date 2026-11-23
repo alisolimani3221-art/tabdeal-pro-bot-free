@@ -883,7 +883,7 @@ class FuturesAnalyzerApp(App):
             })
             self.last_diagnostic_results = diagnostic
             self.orderbook_freshness.text = fa(
-                "آخرین ثبت موفق: {} | دوره: ۲ ثانیه | ثبت‌های موفق: {}".format(
+                "آخرین ثبت موفق: {} | هدف به‌روزرسانی: ۲ ثانیه | ثبت‌های موفق: {}".format(
                     snapshot["received_at"].split("T")[-1],
                     self.orderbook_update_count
                 )
@@ -1707,7 +1707,7 @@ class FuturesAnalyzerApp(App):
             "آزمایش راست‌به‌چپ: " + rtl_runtime_status(),
             "نماد انتخاب‌شده: " + str(self.current_symbol),
             "دفتر سفارش: " + depth_status,
-            "زمان‌بندی دفتر سفارش: هر ۲ ثانیه پس از دریافت اولیه",
+            "هدف به‌روزرسانی دفتر سفارش: هر ۲ ثانیه؛ درخواست هم‌زمان تکراری اجرا نمی‌شود",
             "ثبت‌های موفق خودکار دفتر سفارش: " + str(getattr(self, "orderbook_update_count", 0)),
             "نمونه‌های نگهداری‌شده قیمت: " + str(len(getattr(self, "orderbook_price_history", []))),
             "آخرین ثبت موفق دفتر سفارش: " + str(getattr(self, "orderbook_last_success_at", "هنوز ثبت نشده")),
