@@ -1942,6 +1942,10 @@ class FuturesAnalyzerApp(App):
         try:
             ensure_paper_runner_ready(guard, coordinator_session)
         except Exception as exc:
+            self._update_engine_health(
+                worker_phase="blocked_by_safety",
+                last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:120]),
+            )
             self.update_auto_status(
                 "شروع شبیه‌ساز مسدود شد؛ کنترل ایمنی وضعیت پایدار تأیید نشد: "
                 + type(exc).__name__ + ": " + str(exc)[:120]
@@ -1980,6 +1984,10 @@ class FuturesAnalyzerApp(App):
                                             max_leverage=3, max_loss_percent=3.0)
             self._persist_paper_engine_state(engine)
         except Exception as exc:
+            self._update_engine_health(
+                worker_phase="blocked_by_persisted_state",
+                last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:160]),
+            )
             self.update_auto_status("راه‌اندازی موتور مسدود شد؛ وضعیت ذخیره‌شده معتبر یا قابل‌بازیابی نیست: "
                                     + type(exc).__name__ + ": " + str(exc)[:160])
             return
@@ -2508,6 +2516,10 @@ class FuturesAnalyzerApp(App):
                 )
             except Exception as stream_exc:
                 detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:140])
+                self._update_engine_health(
+                    worker_phase="reconnecting", websocket_connected=False,
+                    last_stream_error=detail,
+                )
                 Clock.schedule_once(
                     lambda dt, value=detail: self.update_auto_status(
                         "خطای اجرای جریان معاملات؛ تلاش مجدد. علت: " + value
