@@ -181,7 +181,7 @@ def parse_trade_message(message, expected_symbol=None):
 
 
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
-    """Connect once, send plain-text symbol on open, and observe public trades."""
+    """Observe the public broadcast without a symbol subscription payload."""
     if (not isinstance(symbol, str) or len(symbol) > 32
             or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
         raise ValueError("symbol must be an ASCII USDT futures symbol such as AEVO_USDT")
@@ -237,7 +237,8 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     timeout.daemon = True
     timeout.start()
     try:
-        app.run_forever(ping_interval=20, ping_timeout=10)
+        app.run_forever(ping_interval=20, ping_timeout=10,
+                        timeout=min(12.0, timeout_value), reconnect=0)
     finally:
         timeout.cancel()
     result["elapsed_seconds"] = round(time.monotonic() - started, 2)
