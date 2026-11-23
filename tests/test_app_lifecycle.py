@@ -22,7 +22,7 @@ APP_CLASS = next(
     if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
 )
 METHOD_NAMES = {
-    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader", "_schedule_rearmed_paper_runner", "request_rearm_paper_runner",
+    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader", "_update_engine_health", "_schedule_rearmed_paper_runner", "request_rearm_paper_runner",
     "_persist_paper_engine_state"
 }
 METHOD_NODES = [
@@ -53,6 +53,7 @@ class LifecycleHarness:
     _stop_auto_worker = LIFECYCLE_GLOBALS["_stop_auto_worker"]
     stop_auto_paper_trader = LIFECYCLE_GLOBALS["stop_auto_paper_trader"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
+    _update_engine_health = LIFECYCLE_GLOBALS["_update_engine_health"]
     _schedule_rearmed_paper_runner = LIFECYCLE_GLOBALS["_schedule_rearmed_paper_runner"]
     request_rearm_paper_runner = LIFECYCLE_GLOBALS["request_rearm_paper_runner"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
