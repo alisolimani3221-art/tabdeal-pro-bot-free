@@ -199,7 +199,9 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         raise RuntimeError("websocket-client is not installed") from exc
 
     result = {"connected": False, "messages": 0, "valid_trades": 0,
+              "valid_market_trades": 0, "market_symbols_seen": [],
               "last_diagnostic": "no_message", "symbol": symbol}
+    symbols_seen = set()
 
     def on_open(ws):
         # Historical successful Tabdeal probe runs subscribed by sending the
@@ -211,12 +213,16 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
 
     def on_message(ws, message):
         result["messages"] += 1
-        parsed = parse_trade_message(message, expected_symbol=symbol)
+        parsed = parse_trade_message(message)
         result["last_diagnostic"] = parsed.get("reason", "ok")
         if parsed.get("ok") and is_trade_timestamp_fresh(parsed["timestamp_ms"]):
-            result["valid_trades"] += 1
-            if on_trade:
-                on_trade(parsed)
+            result["valid_market_trades"] += 1
+            symbols_seen.add(parsed["symbol"])
+            result["market_symbols_seen"] = sorted(symbols_seen)
+            if parsed["symbol"] == symbol:
+                result["valid_trades"] += 1
+                if on_trade:
+                    on_trade(parsed)
         elif parsed.get("ok"):
             result["last_diagnostic"] = "stale_trade_timestamp"
         if result["messages"] >= 100:
