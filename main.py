@@ -43,7 +43,9 @@ from market_candles import TradeCandleBuilder
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           PAPER_SCAN_INTERVAL_SECONDS)
-from trade_stream_probe import BROADCAST_URL, parse_trade_message
+from trade_stream_probe import (
+    BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
+)
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import build_ai_diagnostic_context
 from trade_stream_watchdog import TradeStreamWatchdog
@@ -1911,9 +1913,24 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                # A structurally valid but old replay is not live market data.
+                # Do not refresh the watchdog, tick-level exits, or scan freshness
+                # from events more than 30 seconds behind the device clock.
+                if not is_trade_timestamp_fresh(parsed.get("timestamp_ms")):
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "پیام بازار دریافت شد، اما زمان آن بیش از ۳۰ ثانیه کهنه است؛ "
+                            "برای جلوگیری از قیمت‌گذاری اشتباه نادیده گرفته شد."
+                        )
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
+                    return
                 valid_messages += 1
-                # Any fully validated broadcast trade refreshes transport
-                # liveness. Only the selected symbol may enter its candle builder.
+                # Only a fresh, fully validated broadcast trade refreshes liveness.
+                # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
                 if parsed.get("symbol") != symbol:
