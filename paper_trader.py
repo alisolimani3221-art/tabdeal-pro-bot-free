@@ -341,10 +341,13 @@ class PaperTradingEngine:
             return self.cash
         p = self.position
         mark = p["last_price"]
-        raw = (mark - p["entry"]) * p["quantity"]
-        if p["side"] == "BEARISH":
-            raw = -raw
-        exit_fee = mark * p["quantity"] * self.fee_rate
+        # Equity estimates liquidation at the same adverse slippage used by
+        # _close(), so open-position drawdown is never understated.
+        exit_price = mark * (1 - self.slippage_rate if p["side"] == "BULLISH"
+                             else 1 + self.slippage_rate)
+        raw = ((exit_price - p["entry"]) * p["quantity"] *
+               (1 if p["side"] == "BULLISH" else -1))
+        exit_fee = exit_price * p["quantity"] * self.fee_rate
         return self.cash + raw - exit_fee
 
     def _close(self, price, reason):
