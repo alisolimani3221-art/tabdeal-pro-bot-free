@@ -48,7 +48,8 @@ from trade_stream_probe import (
     BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
 )
 from openai_assistant import analyze_with_openai
-from ai_diagnostics import (build_ai_diagnostic_context,\n                             build_engine_health_report_lines)
+from ai_diagnostics import (build_ai_diagnostic_context,
+                             build_engine_health_report_lines)
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
