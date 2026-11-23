@@ -72,7 +72,7 @@ class TabdealApiContractTests(unittest.TestCase):
         source = self.read("main.py")
         probe = self.read("trade_stream_probe.py")
         run_block = source[source.index("app.run_forever("):source.index("except Exception as stream_exc:")]
-        self.assertNotRegex(run_block, r"(?<![A-Za-z0-9_])timeout\\s*=")
+        self.assertNotRegex(run_block, r"(?<![A-Za-z0-9_])timeout\s*=")
         self.assertIn("websocket.setdefaulttimeout(12.0)", source)
         self.assertIn("websocket.setdefaulttimeout(previous_socket_timeout)", source)
         self.assertIn("websocket.setdefaulttimeout(min(12.0, timeout_value))", probe)
