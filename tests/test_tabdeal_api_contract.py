@@ -39,7 +39,9 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn('if update.get("gap_detected"):', source)
         gap_guard = source.index('if update.get("gap_detected"):')
         tick_processing = source.index("engine.process_tick(symbol, parsed[\"price\"])")
-        self.assertLess(gap_guard, tick_processing)
+        # A validated tick must protect an existing paper position before a
+        # candle gap returns; gap data still cannot reach indicator scans.
+        self.assertLess(tick_processing, gap_guard)
         self.assertNotIn("builder.reset_after_gap()", source)
         self.assertIn("risk_percent=0.5", source)
         self.assertIn("max_leverage=3", source)
