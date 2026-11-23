@@ -87,7 +87,7 @@ def build_ai_diagnostic_context(app):
     )
 
     return {
-        "app_version": "1.47",
+        "app_version": _safe_status(getattr(app, "app_version", "unknown"), 40),
         "selected_symbol": _safe_status(getattr(app, "current_symbol", "unknown"), 40),
         "diagnostics": diagnostics,
         "order_book": {
