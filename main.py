@@ -1926,6 +1926,12 @@ class FuturesAnalyzerApp(App):
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
+        # Do not reset live telemetry when the operator taps Start again
+        # while the existing worker is still running.
+        if self.auto_trader_thread is not None and self.auto_trader_thread.is_alive():
+            self.update_auto_status("شبیه‌ساز در حال اجراست؛ برای توقف از توقف اضطراری استفاده کنید.")
+            return
+
         self.auto_health_lock = threading.RLock()
         self.auto_health = {
             "worker_phase": "starting", "websocket_connected": False,
@@ -1950,9 +1956,6 @@ class FuturesAnalyzerApp(App):
                 "شروع شبیه‌ساز مسدود شد؛ کنترل ایمنی وضعیت پایدار تأیید نشد: "
                 + type(exc).__name__ + ": " + str(exc)[:120]
             )
-            return
-        if self.auto_trader_thread is not None and self.auto_trader_thread.is_alive():
-            self.update_auto_status("شبیه‌ساز در حال اجراست؛ برای توقف از توقف اضطراری استفاده کنید.")
             return
         symbol = str(self.current_symbol).upper()
         if not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
