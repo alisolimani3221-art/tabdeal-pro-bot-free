@@ -119,6 +119,25 @@ class TradeStreamProbeTests(unittest.TestCase):
         self.assertEqual(self.parse_trade_with("timestamp", future_seconds)["reason"],
                          "invalid_timestamp")
 
+    def test_optional_freshness_gate_rejects_stale_but_accepts_recent_trade(self):
+        from unittest.mock import patch
+        now = 2_000_000_000.0
+        recent = {"trade": {"symbol": "BTC_USDT", "price": "1",
+                            "quantity": "1", "timestamp": now - 119}}
+        stale = {"trade": {"symbol": "BTC_USDT", "price": "1",
+                           "quantity": "1", "timestamp": now - 121}}
+        with patch("trade_stream_probe.time.time", return_value=now):
+            self.assertTrue(parse_trade_message(
+                json.dumps(recent), max_age_ms=120_000)["ok"])
+            self.assertEqual(parse_trade_message(
+                json.dumps(stale), max_age_ms=120_000)["reason"], "stale_timestamp")
+
+    def test_freshness_gate_rejects_invalid_limits(self):
+        for limit in (True, 0, -1, 1.5, "120000"):
+            with self.subTest(limit=limit):
+                self.assertEqual(parse_trade_message(
+                    "{}", max_age_ms=limit)["reason"], "invalid_max_age")
+
     def test_rejects_invalid_trade_symbol_format(self):
         payload = {"trade": {"symbol": "BTC/USDT", "price": "1",
                              "quantity": "1", "timestamp": 1700000000}}
