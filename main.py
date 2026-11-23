@@ -306,6 +306,7 @@ class FuturesAnalyzerApp(App):
         self.orderbook_last_success_at = None
         self.orderbook_last_error = None
         self.orderbook_update_count = 0
+        self.orderbook_price_history = []
         self.symbol_spinner = Spinner(
             text=self.current_symbol,
             values=(self.current_symbol,),
@@ -812,6 +813,17 @@ class FuturesAnalyzerApp(App):
             self.orderbook_last_error = None
             self.latest_market_price = snapshot["mid_price"]
             self.orderbook_update_count += 1
+            self.orderbook_price_history.append({
+                "timestamp": snapshot["received_at"],
+                "symbol": snapshot["symbol"],
+                "bid": snapshot["best_bid"],
+                "ask": snapshot["best_ask"],
+                "mid": snapshot["mid_price"],
+            })
+            # Keep a bounded ten-minute rolling sample; never write every tick
+            # to flash storage or let market polling grow memory without limit.
+            if len(self.orderbook_price_history) > 300:
+                del self.orderbook_price_history[:-300]
             for label, value in (
                 (self.price_value, snapshot["mid_price"]),
                 (self.bid_value, snapshot["best_bid"]),
@@ -1676,6 +1688,7 @@ class FuturesAnalyzerApp(App):
             "دفتر سفارش: " + depth_status,
             "زمان‌بندی دفتر سفارش: هر ۲ ثانیه پس از دریافت اولیه",
             "ثبت‌های موفق خودکار دفتر سفارش: " + str(getattr(self, "orderbook_update_count", 0)),
+            "نمونه‌های نگهداری‌شده قیمت: " + str(len(getattr(self, "orderbook_price_history", []))),
             "آخرین ثبت موفق دفتر سفارش: " + str(getattr(self, "orderbook_last_success_at", "هنوز ثبت نشده")),
             "آخرین خطای دریافت خودکار دفتر سفارش: " + str(getattr(self, "orderbook_last_error", "") or "ندارد")[:180],
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
