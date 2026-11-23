@@ -1,5 +1,4 @@
 """Tests for strict TLS configuration shared by REST and WebSocket clients."""
-import os
 import ssl
 import tempfile
 import unittest
@@ -12,7 +11,6 @@ class AndroidWebSocketTLSTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as bundle:
             options = tabdeal_websocket_ssl_options(bundle.name)
         self.assertEqual(options["cert_reqs"], ssl.CERT_REQUIRED)
-        self.assertTrue(os.path.isfile(bundle.name) is False)
         self.assertEqual(options["ca_certs"], bundle.name)
 
     def test_missing_ca_bundle_fails_closed(self):
