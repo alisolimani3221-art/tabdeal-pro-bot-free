@@ -22,7 +22,7 @@ APP_CLASS = next(
     if isinstance(node, ast.ClassDef) and node.name == "FuturesAnalyzerApp"
 )
 METHOD_NAMES = {
-    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader", "_schedule_rearmed_paper_runner",
+    "on_start", "on_stop", "_stop_auto_worker", "stop_auto_paper_trader", "start_auto_paper_trader", "_schedule_rearmed_paper_runner", "request_rearm_paper_runner",
     "_persist_paper_engine_state"
 }
 METHOD_NODES = [
@@ -54,6 +54,7 @@ class LifecycleHarness:
     stop_auto_paper_trader = LIFECYCLE_GLOBALS["stop_auto_paper_trader"]
     start_auto_paper_trader = LIFECYCLE_GLOBALS["start_auto_paper_trader"]
     _schedule_rearmed_paper_runner = LIFECYCLE_GLOBALS["_schedule_rearmed_paper_runner"]
+    request_rearm_paper_runner = LIFECYCLE_GLOBALS["request_rearm_paper_runner"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
 
     def __init__(self, user_data_dir):
@@ -64,6 +65,31 @@ class LifecycleHarness:
         self.auto_engine = None
         self._paper_state_lock = threading.RLock()
         self.update_auto_status = Mock()
+
+
+class FakeButton:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.handlers = {}
+
+    def bind(self, **kwargs):
+        self.handlers.update(kwargs)
+
+    def press(self):
+        self.handlers["on_press"](self)
+
+
+class FakePopup:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.dismissed = False
+        self.opened = False
+
+    def dismiss(self):
+        self.dismissed = True
+
+    def open(self):
+        self.opened = True
 
 
 class AppLifecycleIntegrationTests(unittest.TestCase):
@@ -127,6 +153,90 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         app.start_auto_paper_trader.assert_not_called()
         callback(0)
         app.start_auto_paper_trader.assert_called_once_with()
+
+    def test_confirmed_rearm_callback_rearms_and_schedules_runner(self):
+        buttons = []
+        session = Mock()
+        session.snapshot.return_value = {
+            "halted": True,
+            "halt_reason": "operator emergency stop",
+            "intents": {},
+        }
+        guard = Mock(held=True)
+        app = LifecycleHarness(self.temp.name)
+        app.runtime_guard = guard
+        app.coordinator_session = session
+        app.auto_trader_thread = None
+        app._schedule_rearmed_paper_runner = Mock()
+
+        def make_button(**kwargs):
+            button = FakeButton(**kwargs)
+            buttons.append(button)
+            return button
+
+        readiness = Mock()
+        globals_patch = {
+            "BoxLayout": Mock(return_value=Mock()),
+            "Label": Mock(),
+            "Button": make_button,
+            "Popup": FakePopup,
+            "dp": lambda value: value,
+            "FONT_NAME": "test-font",
+            "assistant_rtl_text": lambda value: value,
+            "fa": lambda value: value,
+            "fa_plain": lambda value: value,
+            "ensure_paper_runner_ready": readiness,
+        }
+        with patch.dict(LIFECYCLE_GLOBALS, globals_patch):
+            app.request_rearm_paper_runner()
+
+        self.assertEqual(len(buttons), 2)
+        buttons[0].press()
+        session.rearm_after_operator_stop.assert_called_once_with()
+        readiness.assert_called_once_with(guard, session)
+        app._schedule_rearmed_paper_runner.assert_called_once_with()
+
+    def test_failed_rearm_readiness_rolls_back_halt_and_never_starts(self):
+        buttons = []
+        session = Mock()
+        session.snapshot.return_value = {
+            "halted": True,
+            "halt_reason": "operator emergency stop",
+            "intents": {},
+        }
+        guard = Mock(held=True)
+        app = LifecycleHarness(self.temp.name)
+        app.runtime_guard = guard
+        app.coordinator_session = session
+        app.auto_trader_thread = None
+        app._schedule_rearmed_paper_runner = Mock()
+
+        def make_button(**kwargs):
+            button = FakeButton(**kwargs)
+            buttons.append(button)
+            return button
+
+        readiness = Mock(side_effect=RuntimeError("readiness rejected"))
+        globals_patch = {
+            "BoxLayout": Mock(return_value=Mock()),
+            "Label": Mock(),
+            "Button": make_button,
+            "Popup": FakePopup,
+            "dp": lambda value: value,
+            "FONT_NAME": "test-font",
+            "assistant_rtl_text": lambda value: value,
+            "fa": lambda value: value,
+            "fa_plain": lambda value: value,
+            "ensure_paper_runner_ready": readiness,
+        }
+        with patch.dict(LIFECYCLE_GLOBALS, globals_patch):
+            app.request_rearm_paper_runner()
+
+        buttons[0].press()
+        session.rearm_after_operator_stop.assert_called_once_with()
+        session.emergency_stop.assert_called_once_with("operator emergency stop")
+        app._schedule_rearmed_paper_runner.assert_not_called()
+        self.assertIn("بازآماده‌سازی انجام نشد", app.update_auto_status.call_args.args[0])
 
     def test_runtime_lock_failure_prevents_session_initialization(self):
         guard = Mock()
