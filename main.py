@@ -1474,9 +1474,9 @@ class FuturesAnalyzerApp(App):
                 with open(paper_path, "r", encoding="utf-8") as paper_file:
                     paper_state = json.load(paper_file)
                 if isinstance(paper_state, dict):
-                    paper_state_status = "halted={}; reason={!r}; has_position={}; closed_trades={}".format(
+                    paper_state_status = "halted={}; reason={!r}; detail={!r}; has_position={}; closed_trades={}".format(
                         paper_state.get("halted"), paper_state.get("halt_reason"),
-                        paper_state.get("position") is not None,
+                        paper_state.get("halt_detail"), paper_state.get("position") is not None,
                         len(paper_state.get("closed_trades", []))
                         if isinstance(paper_state.get("closed_trades"), list) else "INVALID"
                     )
@@ -2247,7 +2247,7 @@ class FuturesAnalyzerApp(App):
                             return
                 except Exception as persist_exc:
                     try:
-                        engine.emergency_close()
+                        engine.emergency_close("tick persistence failure: {}".format(type(persist_exc).__name__))
                         self._persist_paper_engine_state(engine)
                     except Exception:
                         pass
@@ -2379,7 +2379,7 @@ class FuturesAnalyzerApp(App):
                         )
                     except Exception as scan_exc:
                         try:
-                            engine.emergency_close()
+                            engine.emergency_close("periodic scan failure: {}".format(type(scan_exc).__name__))
                             self._persist_paper_engine_state(engine)
                         except Exception:
                             pass
