@@ -196,3 +196,33 @@ def build_ai_diagnostic_context(app):
             "no file-system browsing",
         ],
     }
+
+
+def build_engine_health_report_lines(app):
+    """Return bounded, privacy-safe engine telemetry for the on-device report."""
+    health = build_ai_diagnostic_context(app)["engine"]["health"]
+
+    def value(key, default="not recorded"):
+        item = health.get(key)
+        return default if item is None or item == "" else str(item)
+
+    def age(key):
+        item = health.get(key)
+        return "not recorded" if item is None else "{:.1f}".format(float(item))
+
+    return [
+        "سلامت جریان معاملات: " + value("health_state", "UNKNOWN"),
+        "مرحله کاری موتور: " + value("worker_phase"),
+        "اتصال WebSocket: " + value("websocket_connected", "false"),
+        "رشته معامله‌گر زنده: " + value("thread_alive", "false"),
+        "تلاش اتصال مجدد: " + value("retry_attempt", "0"),
+        "پیام‌های دریافتی: " + value("received_messages", "0"),
+        "معاملات معتبر همه نمادها: " + value("valid_market_trades", "0"),
+        "معاملات معتبر نماد انتخابی: " + value("selected_symbol_trade_count", "0"),
+        "عمر آخرین معامله نماد انتخابی (ثانیه): " + age("selected_symbol_trade_age_seconds"),
+        "کندل‌های بسته: " + value("candle_count", "0"),
+        "آماده‌بودن کندل‌ساز: " + value("builder_ready", "false"),
+        "عمر آخرین اسکن موتور (ثانیه): " + age("last_scan_age_seconds"),
+        "عمر اتصال WebSocket (ثانیه): " + age("connected_age_seconds"),
+        "آخرین خطای جریان: " + value("last_stream_error", "ندارد")[:240],
+    ]
