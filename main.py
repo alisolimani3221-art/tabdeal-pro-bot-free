@@ -865,6 +865,22 @@ class FuturesAnalyzerApp(App):
                 "data_kind": "order_book_snapshot",
             })
             self.last_market_snapshot = current
+            diagnostic = dict(getattr(self, "last_diagnostic_results", {}) or {})
+            diagnostic.update({
+                "market_symbol": snapshot["symbol"],
+                "symbol_verified": True,
+                "depth_status": 200,
+                "depth_http": 200,
+                "best_bid": snapshot["best_bid"],
+                "best_ask": snapshot["best_ask"],
+                "mid_price": snapshot["mid_price"],
+                "bids": snapshot["bids"],
+                "asks": snapshot["asks"],
+                "orderbook_poll_last_success": snapshot["received_at"],
+                "orderbook_poll_updates": self.orderbook_update_count,
+                "orderbook_poll_error": None,
+            })
+            self.last_diagnostic_results = diagnostic
             self.orderbook_freshness.text = fa(
                 "آخرین ثبت موفق: {} | دوره: ۲ ثانیه | ثبت‌های موفق: {}".format(
                     snapshot["received_at"].split("T")[-1],
