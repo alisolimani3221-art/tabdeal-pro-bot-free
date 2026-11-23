@@ -2210,12 +2210,6 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
-                self._update_engine_health(
-                    selected_symbol_trade_count=int(
-                        getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
-                    ) + 1,
-                    last_selected_symbol_trade_at=time.monotonic(),
-                )
                 update = builder.add_trade(parsed)
                 self._update_engine_health(
                     candle_count=int(builder.status().get("closed_candles", 0)),
@@ -2234,6 +2228,12 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                self._update_engine_health(
+                    selected_symbol_trade_count=int(
+                        getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
+                    ) + 1,
+                    last_selected_symbol_trade_at=time.monotonic(),
+                )
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
                 if not update.get("ready"):
