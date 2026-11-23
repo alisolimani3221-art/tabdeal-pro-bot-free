@@ -346,6 +346,20 @@ class PaperTradingEngine:
         with self._lock:
             return self._process_scan(candidates)
 
+    def rearm_after_operator_stop(self):
+        """Re-arm only a manually stopped engine after its simulated position is closed."""
+        with self._lock:
+            if not self.halted:
+                raise RuntimeError("paper engine is not halted")
+            if self.halt_reason != "EMERGENCY_STOP":
+                raise RuntimeError("only an explicit operator emergency stop can be re-armed")
+            if self.position is not None:
+                raise RuntimeError("open paper position must be closed before re-arming")
+            self.halted = False
+            self.halt_reason = None
+            return {"halted": False, "rearmed": True,
+                    "live_order_submitted": False}
+
     def emergency_close(self):
         """Close any simulated position at its latest mark and permanently stop this engine."""
         with self._lock:
