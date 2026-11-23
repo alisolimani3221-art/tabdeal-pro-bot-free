@@ -201,7 +201,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
 
     def on_message(ws, message):
         result["messages"] += 1
-        parsed = parse_trade_message(message, expected_symbol=symbol)
+        parsed = parse_trade_message(message, expected_symbol=symbol, max_age_ms=120_000)
         result["last_diagnostic"] = parsed.get("reason", "ok")
         if parsed.get("ok"):
             result["valid_trades"] += 1
