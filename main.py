@@ -413,7 +413,7 @@ class FuturesAnalyzerApp(App):
         self.auto_trader_thread = None
         self.auto_engine = None
         self.auto_status_label = None
-        self.latest_market_price = None
+        self.latest_orderbook_midpoint = None
         self.verified_market_symbols = set()
         self.market_refresh_stop_event = threading.Event()
         self.market_refresh_thread = None
@@ -853,7 +853,7 @@ class FuturesAnalyzerApp(App):
 
         # Keep field labels Persian-only; avoid mixed RTL/LTR unit strings.
         add_field("capital", "سرمایه به تتر", "{:.2f}".format(self.capital_usdt))
-        add_field("entry", "قیمت ورود (تخمین دفتر سفارش)", format_market_value(self.latest_market_price) if self.latest_market_price else "")
+        add_field("entry", "قیمت ورود (تخمین دفتر سفارش)", format_market_value(self.latest_orderbook_midpoint) if self.latest_orderbook_midpoint else "")
         add_field("risk", "ریسک هر معامله", "1")
         add_field("stop", "فاصله حد ضرر", "1")
         add_field("leverage", "اهرم (حداکثر 3)", "3")
@@ -975,7 +975,7 @@ class FuturesAnalyzerApp(App):
         # Keep all technical signals disabled until a verified trade-stream
         # candle builder is implemented and tested.
         self.latest_technical_analysis = None
-        self.latest_market_price = results.get("mid_price") if market_ok else None
+        self.latest_orderbook_midpoint = results.get("mid_price") if market_ok else None
         self.analysis_signal.text = fa(
             "تحلیل تکنیکال غیرفعال است؛ API عمومی مستندشده تبدیل کندل ارائه نمی‌کند."
         )
@@ -1709,7 +1709,7 @@ class FuturesAnalyzerApp(App):
         if snapshot.get("symbol") != self.current_symbol:
             return
         self.last_market_snapshot = snapshot
-        self.latest_market_price = snapshot["mid_price"]
+        self.latest_orderbook_midpoint = snapshot["mid_price"]
         for label, value in ((self.price_value, snapshot["mid_price"]),
                              (self.bid_value, snapshot["best_bid"]),
                              (self.ask_value, snapshot["best_ask"])):
