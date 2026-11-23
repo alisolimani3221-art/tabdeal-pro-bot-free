@@ -243,6 +243,15 @@ class TradeStreamProbeTests(unittest.TestCase):
                     }
                 })
                 self.callbacks["on_message"](self, message)
+                other_market = json.dumps({
+                    "trade": {
+                        "symbol": "ETH_USDT",
+                        "price": "3000",
+                        "quantity": "0.02",
+                        "timestamp": time.time(),
+                    }
+                })
+                self.callbacks["on_message"](self, other_market)
 
         fake_module = types.SimpleNamespace(WebSocketApp=FakeWebSocketApp)
         with patch.dict(sys.modules, {"websocket": fake_module}):
@@ -254,6 +263,8 @@ class TradeStreamProbeTests(unittest.TestCase):
 
         self.assertTrue(result["connected"])
         self.assertEqual(result["valid_trades"], 1)
+        self.assertEqual(result["valid_market_trades"], 2)
+        self.assertEqual(result["market_symbols_seen"], ["BTC_USDT", "ETH_USDT"])
         self.assertEqual(observed["sent"], ["BTC_USDT"])
         self.assertEqual(len(observed["trades"]), 1)
 
