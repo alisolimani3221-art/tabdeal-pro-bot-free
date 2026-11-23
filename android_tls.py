@@ -1,4 +1,5 @@
 """TLS compatibility helpers for the Android Tabdeal REST client."""
+import os
 import ssl
 
 from requests.adapters import HTTPAdapter
@@ -25,3 +26,10 @@ def mount_tabdeal_tls_compat(session, cafile=None):
         VerifiedTLS12Adapter(cafile=cafile),
     )
     return session
+
+
+def tabdeal_websocket_ssl_options(cafile):
+    """Return websocket-client TLS options using an explicit, verified CA bundle."""
+    if not isinstance(cafile, str) or not cafile or not os.path.isfile(cafile):
+        raise FileNotFoundError("A valid certifi CA bundle is required for WebSocket TLS")
+    return {"cert_reqs": ssl.CERT_REQUIRED, "ca_certs": cafile}
