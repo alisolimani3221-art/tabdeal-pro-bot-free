@@ -36,6 +36,7 @@ LIFECYCLE_GLOBALS = {
     "threading": threading,
     "AppRuntimeGuard": AppRuntimeGuard,
     "TradeCoordinatorSession": TradeCoordinatorSession,
+    "PaperTradingEngine": PaperTradingEngine,
     "ensure_paper_runner_ready": ensure_paper_runner_ready,
     "Clock": Mock(),
 }
