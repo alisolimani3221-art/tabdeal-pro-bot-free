@@ -116,14 +116,22 @@ def analyze_klines(candles):
 
 
 def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
-                            leverage=1.0, reward_risk=2.0):
-    """Return a risk-capped linear-USDT position estimate (fees excluded)."""
+                            leverage=1.0, reward_risk=2.0,
+                            fee_rate=0.0, slippage_rate=0.0):
+    """Return a conservative linear-USDT risk estimate including both-side costs.
+
+    fee_rate and slippage_rate are decimal rates per side (0.0005 = 0.05%).
+    Funding, liquidation fees and tier-specific exchange commissions are not
+    included; callers must supply an appropriate fee assumption.
+    """
     capital = _finite(capital, "capital")
     risk_percent = _finite(risk_percent, "risk_percent")
     entry_price = _finite(entry_price, "entry_price")
     stop_percent = _finite(stop_percent, "stop_percent")
     leverage = _finite(leverage, "leverage")
     reward_risk = _finite(reward_risk, "reward_risk")
+    fee_rate = _finite(fee_rate, "fee_rate")
+    slippage_rate = _finite(slippage_rate, "slippage_rate")
 
     if capital <= 0 or entry_price <= 0:
         raise ValueError("capital and entry price must be positive")
@@ -135,41 +143,80 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
         raise ValueError("leverage must be an integer between 1 and 3")
     if not 0 < reward_risk <= 10:
         raise ValueError("reward/risk must be greater than 0 and at most 10")
+    if not 0 <= fee_rate <= 0.05:
+        raise ValueError("fee rate must be between 0 and 5 percent per side")
+    if not 0 <= slippage_rate <= 0.01:
+        raise ValueError("slippage rate must be between 0 and 1 percent per side")
 
     risk_limit = capital * risk_percent / 100.0
     stop_distance = entry_price * stop_percent / 100.0
-    max_notional = capital * leverage
-    if not all(math.isfinite(value) and value > 0 for value in
-               (risk_limit, stop_distance, max_notional)):
-        raise ValueError("risk inputs exceed the supported numeric range")
-    # First size from the risk budget, then cap notional to available
-    # collateral times leverage. Recompute actual risk after the cap.
-    desired_quantity = risk_limit / stop_distance
-    desired_notional = desired_quantity * entry_price
-    notional = min(desired_notional, max_notional)
-    quantity = notional / entry_price
-    risk_amount = quantity * stop_distance
-    margin_estimate = notional / leverage
+    stop_price_long = entry_price - stop_distance
+    stop_price_short = entry_price + stop_distance
     target_distance = stop_distance * reward_risk
+    target_price_long = entry_price + target_distance
     target_price_short = entry_price - target_distance
-    computed = (desired_quantity, desired_notional, notional, quantity,
-                risk_amount, margin_estimate, target_distance, target_price_short)
+
+    # Conservative market execution assumptions on both entry and stop exit.
+    entry_fill_long = entry_price * (1.0 + slippage_rate)
+    entry_fill_short = entry_price * (1.0 - slippage_rate)
+    stop_fill_long = stop_price_long * (1.0 - slippage_rate)
+    stop_fill_short = stop_price_short * (1.0 + slippage_rate)
+    if min(stop_price_long, target_price_short, stop_fill_long) <= 0:
+        raise ValueError("stop and target prices must remain positive")
+
+    risk_per_unit_long = (
+        abs(entry_fill_long - stop_fill_long)
+        + (entry_fill_long + stop_fill_long) * fee_rate
+    )
+    risk_per_unit_short = (
+        abs(entry_fill_short - stop_fill_short)
+        + (entry_fill_short + stop_fill_short) * fee_rate
+    )
+    risk_per_unit = max(risk_per_unit_long, risk_per_unit_short)
+    if not math.isfinite(risk_per_unit) or risk_per_unit <= 0:
+        raise ValueError("risk per unit is outside the supported numeric range")
+
+    desired_quantity = risk_limit / risk_per_unit
+    # Entry margin and entry commission must both fit inside available capital.
+    entry_fill = max(entry_fill_long, entry_fill_short)
+    collateral_per_unit = entry_fill * (1.0 / leverage + fee_rate)
+    max_quantity_by_collateral = capital / collateral_per_unit
+    quantity = min(desired_quantity, max_quantity_by_collateral)
+    notional = quantity * entry_fill
+    risk_amount = quantity * risk_per_unit
+    margin_estimate = notional / leverage
+    fees_entry_estimate = notional * fee_rate
+    fees_exit_estimate = quantity * max(stop_fill_long, stop_fill_short) * fee_rate
+    slippage_estimate = quantity * (
+        max(abs(entry_fill_long - entry_price), abs(entry_fill_short - entry_price))
+        + max(abs(stop_fill_long - stop_price_long),
+              abs(stop_fill_short - stop_price_short))
+    )
+    computed = (risk_limit, stop_distance, target_distance, desired_quantity,
+                quantity, notional, risk_amount, margin_estimate,
+                fees_entry_estimate, fees_exit_estimate, slippage_estimate)
     if not all(math.isfinite(value) for value in computed):
         raise ValueError("risk calculation exceeds the supported numeric range")
-    if (quantity <= 0 or notional <= 0 or margin_estimate <= 0
-            or entry_price - stop_distance <= 0 or target_price_short <= 0):
-        raise ValueError("stop and target prices must remain positive")
+    if quantity <= 0 or notional <= 0 or margin_estimate <= 0:
+        raise ValueError("position size or collateral estimate is not positive")
+    if margin_estimate + fees_entry_estimate > capital + 1e-10:
+        raise ValueError("position margin and entry fee exceed available capital")
 
     return {
         "risk_amount": risk_amount,
         "risk_limit": risk_limit,
-        "stop_price_long": entry_price - stop_distance,
-        "stop_price_short": entry_price + stop_distance,
-        "target_price_long": entry_price + target_distance,
+        "risk_per_unit": risk_per_unit,
+        "stop_price_long": stop_price_long,
+        "stop_price_short": stop_price_short,
+        "target_price_long": target_price_long,
         "target_price_short": target_price_short,
         "quantity": quantity,
         "notional": notional,
         "margin_estimate": margin_estimate,
+        "fees_entry_estimate": fees_entry_estimate,
+        "fees_exit_estimate": fees_exit_estimate,
+        "fees_round_trip_estimate": fees_entry_estimate + fees_exit_estimate,
+        "slippage_estimate": slippage_estimate,
         "leverage": leverage,
         "liquidation_warning": leverage >= 3,
     }
