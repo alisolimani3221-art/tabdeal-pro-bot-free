@@ -1682,6 +1682,12 @@ class FuturesAnalyzerApp(App):
         status_scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
         status_scroll.add_widget(self.auto_status_label)
         body.add_widget(status_scroll)
+        rearm_button = Button(
+            markup=True, text=fa("بازآماده‌سازی قفل آزمایش"),
+            font_name=FONT_NAME, size_hint_y=None, height=dp(42),
+        )
+        rearm_button.bind(on_press=lambda _button: self.request_rearm_paper_runner())
+        body.add_widget(rearm_button)
         controls = BoxLayout(orientation="horizontal", spacing=dp(7),
                              size_hint_y=None, height=dp(48))
         start_button = Button(markup=True, text=fa("شروع آزمایش"), font_name=FONT_NAME)
@@ -1719,6 +1725,81 @@ class FuturesAnalyzerApp(App):
                 state_file.flush()
                 os.fsync(state_file.fileno())
             os.replace(temporary_path, state_path)
+
+    def request_rearm_paper_runner(self):
+        """Offer a confirmed reset only for an explicit operator stop with no pending intents."""
+        guard = getattr(self, "runtime_guard", None)
+        session = getattr(self, "coordinator_session", None)
+        worker = getattr(self, "auto_trader_thread", None)
+        if worker is not None and worker.is_alive():
+            self.update_auto_status("بازآماده‌سازی رد شد؛ ابتدا باید رشته شبیه‌ساز کاملاً متوقف شود.")
+            return
+        if guard is None or not guard.held or session is None:
+            self.update_auto_status("بازآماده‌سازی ممکن نیست؛ قفل اجرا یا نشست ایمنی در دسترس نیست.")
+            return
+        try:
+            state = session.snapshot()
+            if state.get("halted") is not True:
+                self.update_auto_status("قفل اضطراری فعال نیست؛ نیازی به بازآماده‌سازی وجود ندارد.")
+                return
+            if state.get("halt_reason") != "operator emergency stop":
+                self.update_auto_status("بازآماده‌سازی خودکار رد شد؛ علت توقف، توقف دستی معمولی نیست.")
+                return
+            if state.get("intents") != {}:
+                self.update_auto_status("بازآماده‌سازی رد شد؛ درخواست آماده‌سازی معلق وجود دارد.")
+                return
+        except Exception as exc:
+            self.update_auto_status("خواندن وضعیت ایمنی ناموفق بود؛ قفل حفظ شد: " + type(exc).__name__)
+            return
+
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
+        explanation = (
+            "این کار فقط قفل توقف دستی شبیه‌ساز آزمایشی را بازآماده می‌کند.\n"
+            "هیچ سابقه‌ای حذف نمی‌شود؛ هیچ درخواست معلقی مجاز نیست؛ "
+            "هیچ سفارش واقعی ارسال یا فعال نمی‌شود.\n"
+            "پس از تأیید، برای اجرا باید دوباره دکمه شروع آزمایش را بزنید."
+        )
+        label = Label(
+            text=assistant_rtl_text(explanation), font_name=FONT_NAME,
+            base_direction="ltr", text_language="ar", halign="center",
+            valign="middle", size_hint=(1, 1),
+        )
+        body.add_widget(label)
+        buttons = BoxLayout(orientation="horizontal", spacing=dp(8),
+                            size_hint_y=None, height=dp(46))
+        confirm = Button(markup=True, text=fa("تأیید بازآماده‌سازی"),
+                         font_name=FONT_NAME)
+        cancel = Button(markup=True, text=fa("انصراف"), font_name=FONT_NAME)
+        buttons.add_widget(confirm)
+        buttons.add_widget(cancel)
+        body.add_widget(buttons)
+        popup = Popup(title=fa_plain("تأیید بازآماده‌سازی ایمنی"),
+                      title_font=FONT_NAME, content=body,
+                      size_hint=(0.94, 0.55), auto_dismiss=False)
+        cancel.bind(on_press=popup.dismiss)
+
+        def confirm_rearm(_button):
+            current_worker = getattr(self, "auto_trader_thread", None)
+            if current_worker is not None and current_worker.is_alive():
+                self.update_auto_status("بازآماده‌سازی رد شد؛ رشته شبیه‌ساز هنوز فعال است.")
+                popup.dismiss()
+                return
+            try:
+                session.rearm_after_operator_stop()
+                ensure_paper_runner_ready(guard, session)
+                self.update_auto_status(
+                    "قفل توقف دستی با تأیید شما بازآماده شد. شبیه‌ساز هنوز اجرا نشده است؛ "
+                    "برای شروع، دکمه شروع آزمایش را بزنید. هیچ سفارش واقعی ارسال نمی‌شود."
+                )
+            except Exception as exc:
+                self.update_auto_status(
+                    "بازآماده‌سازی انجام نشد و قفل ایمنی حفظ شد: "
+                    + type(exc).__name__ + ": " + str(exc)[:140]
+                )
+            popup.dismiss()
+
+        confirm.bind(on_press=confirm_rearm)
+        popup.open()
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
@@ -2314,7 +2395,9 @@ class FuturesAnalyzerApp(App):
                     self.runtime_guard, self.coordinator_session
                 )
             except Exception as exc:
-                self.coordinator_session = None
+                # Keep a successfully opened session available when the readiness
+                # gate reports a persisted operator stop. The UI can then offer
+                # an explicit, guarded re-arm without deleting state.
                 self.coordinator_session_error = (
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
