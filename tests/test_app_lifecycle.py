@@ -60,6 +60,7 @@ class LifecycleHarness:
         self.auto_trader_thread = None
         self.auto_ws = None
         self.auto_engine = None
+        self._paper_state_lock = threading.RLock()
         self.update_auto_status = Mock()
 
 
@@ -209,6 +210,33 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         snapshot = recovered.snapshot()
         self.assertIs(snapshot["halted"], False)
         self.assertEqual(snapshot["intents"], {})
+
+
+    def test_concurrent_paper_state_persistence_is_serialized_and_atomic(self):
+        app = LifecycleHarness(self.temp.name)
+        engine = PaperTradingEngine(capital=8)
+        errors = []
+
+        def persist_many():
+            try:
+                for _ in range(25):
+                    app._persist_paper_engine_state(engine)
+            except Exception as exc:
+                errors.append(exc)
+
+        workers = [threading.Thread(target=persist_many) for _ in range(8)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=5.0)
+
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        self.assertEqual(errors, [])
+        state_path = os.path.join(self.temp.name, "paper-engine-state.json")
+        with open(state_path, "r", encoding="utf-8") as state_file:
+            restored = PaperTradingEngine.restore_state(json.load(state_file))
+        self.assertEqual(restored.cash, engine.cash)
+        self.assertFalse(os.path.exists(state_path + ".tmp"))
 
 
 
