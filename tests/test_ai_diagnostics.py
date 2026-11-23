@@ -8,7 +8,7 @@ from ai_diagnostics import APP_VERSION, build_ai_diagnostic_context
 class AIDiagnosticContextTests(unittest.TestCase):
     def test_context_reports_current_app_version(self):
         context = build_ai_diagnostic_context(SimpleNamespace())
-        self.assertEqual(APP_VERSION, "1.49")
+        self.assertEqual(APP_VERSION, "1.50")
         self.assertEqual(context["app_version"], APP_VERSION)
 
     def test_context_is_allow_listed_and_excludes_account_data(self):
