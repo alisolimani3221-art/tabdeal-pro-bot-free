@@ -3,12 +3,16 @@ import sys
 import json
 import re
 import threading
+import tempfile
 import time
 import requests
 import certifi
 from android_tls import mount_tabdeal_tls_compat
 
 APP_VERSION = "1.49"
+
+# Serializes paper-state snapshots from the websocket and scan workers.
+_PAPER_STATE_PERSIST_LOCK = threading.RLock()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -1690,15 +1694,49 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
     def _persist_paper_engine_state(self, engine):
-        """Atomically persist the paper-only engine snapshot in app-private storage."""
+        """Serialize concurrent snapshots and durably replace the paper-only state."""
         state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
-        temporary_path = state_path + ".tmp"
-        with open(temporary_path, "w", encoding="utf-8") as state_file:
-            json.dump(engine.export_state(), state_file, ensure_ascii=False,
-                      allow_nan=False, separators=(",", ":"))
-            state_file.flush()
-            os.fsync(state_file.fileno())
-        os.replace(temporary_path, state_path)
+        directory = os.path.dirname(state_path)
+        temporary_path = None
+        # Both websocket tick handling and the periodic scan worker persist
+        # state. A shared fixed .tmp name allowed their writes/replaces to race.
+        with _PAPER_STATE_PERSIST_LOCK:
+            try:
+                os.makedirs(directory, exist_ok=True)
+                payload = json.dumps(
+                    engine.export_state(), ensure_ascii=False,
+                    allow_nan=False, separators=(",", ":")
+                ).encode("utf-8")
+                fd, temporary_path = tempfile.mkstemp(
+                    prefix=".paper-engine-state-", suffix=".tmp",
+                    dir=directory
+                )
+                try:
+                    os.fchmod(fd, 0o600)
+                    with os.fdopen(fd, "wb") as state_file:
+                        state_file.write(payload)
+                        state_file.flush()
+                        os.fsync(state_file.fileno())
+                    os.replace(temporary_path, state_path)
+                    temporary_path = None
+                    directory_fd = os.open(directory, os.O_RDONLY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+                except Exception:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                    raise
+            except Exception:
+                if temporary_path is not None:
+                    try:
+                        os.unlink(temporary_path)
+                    except OSError:
+                        pass
+                raise
 
     def start_auto_paper_trader(self):
         """Start a one-symbol, foreground-only paper simulation; never live orders."""
