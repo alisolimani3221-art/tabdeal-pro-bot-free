@@ -2327,9 +2327,23 @@ class FuturesAnalyzerApp(App):
                         self.runtime_guard, self.coordinator_session
                     )
                 except Exception as exc:
-                    self.coordinator_session_error = (
-                        "{}: {}".format(type(exc).__name__, str(exc)[:160])
-                    )
+                    detail = "{}: {}".format(type(exc).__name__, str(exc)[:120])
+                    # Read-only inspection: preserve the exact persisted halt
+                    # reason and pending-intent count for operator diagnostics.
+                    try:
+                        snapshot = self.coordinator_session.snapshot()
+                        if snapshot.get("halted") is True:
+                            reason = snapshot.get("halt_reason")
+                            if isinstance(reason, str) and reason.strip():
+                                detail += " | halt_reason: " + reason[:120]
+                            intents = snapshot.get("intents")
+                            if isinstance(intents, dict):
+                                detail += " | pending_intents: " + str(len(intents))
+                    except Exception as diagnostic_exc:
+                        detail += " | snapshot_read: {}".format(
+                            type(diagnostic_exc).__name__
+                        )
+                    self.coordinator_session_error = detail
 
     def on_stop(self):
         worker_stopped = True
