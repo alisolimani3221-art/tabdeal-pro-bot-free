@@ -2425,11 +2425,11 @@ class FuturesAnalyzerApp(App):
             )
             watchdog_thread.start()
             try:
-                # Do not set run_forever(timeout=...): websocket-client applies it to the
-                # live socket receive timeout, not just the handshake. The old 12s timeout
-                # was shorter than the 20s ping interval and could tear down a healthy,
-                # temporarily quiet market stream. Ping/pong and the validated-trade
-                # watchdog manage genuine stream silence.
+                # websocket-client 1.8.0 WebSocketApp.run_forever has NO "timeout"
+                # keyword. The previous timeout=12 raised TypeError before the socket
+                # could connect, so the worker only cycled through retries. Keep the
+                # supported ping/pong options; the validated-trade watchdog handles
+                # genuine stream silence and the outer loop handles reconnects.
                 app.run_forever(
                     ping_interval=20,
                     ping_timeout=10,
