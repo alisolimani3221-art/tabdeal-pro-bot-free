@@ -189,9 +189,9 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         }
         with patch.dict(LIFECYCLE_GLOBALS, globals_patch):
             app.request_rearm_paper_runner()
+            self.assertEqual(len(buttons), 2)
+            buttons[0].press()
 
-        self.assertEqual(len(buttons), 2)
-        buttons[0].press()
         session.rearm_after_operator_stop.assert_called_once_with()
         readiness.assert_called_once_with(guard, session)
         app._schedule_rearmed_paper_runner.assert_called_once_with()
@@ -231,8 +231,8 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         }
         with patch.dict(LIFECYCLE_GLOBALS, globals_patch):
             app.request_rearm_paper_runner()
+            buttons[0].press()
 
-        buttons[0].press()
         session.rearm_after_operator_stop.assert_called_once_with()
         session.emergency_stop.assert_called_once_with("operator emergency stop")
         app._schedule_rearmed_paper_runner.assert_not_called()
