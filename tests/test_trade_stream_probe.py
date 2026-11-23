@@ -3,7 +3,7 @@ import math
 import time
 import unittest
 
-from trade_stream_probe import MAX_MESSAGE_BYTES, parse_trade_message
+from trade_stream_probe import (MAX_MESSAGE_BYTES, MAX_TRADE_AGE_MS,\n                                is_trade_timestamp_fresh, parse_trade_message)
 
 
 class TradeStreamProbeTests(unittest.TestCase):
@@ -15,6 +15,29 @@ class TradeStreamProbeTests(unittest.TestCase):
         payload = self.valid_trade()
         payload["trade"][field] = value
         return parse_trade_message(json.dumps(payload), "AEVO_USDT")
+
+    def test_trade_timestamp_freshness_rejects_stale_future_and_invalid_values(self):
+        now_ms = 1_800_000_000_000
+        self.assertTrue(is_trade_timestamp_fresh(now_ms, now_ms=now_ms))
+        self.assertTrue(is_trade_timestamp_fresh(
+            now_ms - MAX_TRADE_AGE_MS, now_ms=now_ms
+        ))
+        self.assertFalse(is_trade_timestamp_fresh(
+            now_ms - MAX_TRADE_AGE_MS - 1, now_ms=now_ms
+        ))
+        self.assertFalse(is_trade_timestamp_fresh(now_ms + 1, now_ms=now_ms))
+        for value in (True, False, None, "1800000000000", 0, -1):
+            with self.subTest(value=value):
+                self.assertFalse(is_trade_timestamp_fresh(value, now_ms=now_ms))
+
+    def test_trade_timestamp_freshness_rejects_invalid_clock_and_window(self):
+        for now_ms, max_age_ms in ((True, 1000), (0, 1000),
+                                   (1_800_000_000_000, True),
+                                   (1_800_000_000_000, -1)):
+            with self.subTest(now_ms=now_ms, max_age_ms=max_age_ms):
+                self.assertFalse(is_trade_timestamp_fresh(
+                    1_800_000_000_000, now_ms=now_ms, max_age_ms=max_age_ms
+                ))
 
     def test_documented_trade_envelope_with_common_fields(self):
         result = parse_trade_message(json.dumps(self.valid_trade()), "AEVO_USDT")
