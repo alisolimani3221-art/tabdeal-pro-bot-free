@@ -181,7 +181,7 @@ def parse_trade_message(message, expected_symbol=None):
 
 
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
-    """Subscribe to the public broadcast with the observed plain-text symbol."""
+    """Subscribe with the observed plain-text symbol and enumerate fresh broadcast markets."""
     if (not isinstance(symbol, str) or len(symbol) > 32
             or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
         raise ValueError("symbol must be an ASCII USDT futures symbol such as AEVO_USDT")
