@@ -45,6 +45,7 @@ from paper_trader import (PaperTradingEngine, diagnose_signal,
                           PAPER_SCAN_INTERVAL_SECONDS)
 from trade_stream_probe import (
     BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
+    clear_websocket_idle_timeout,
 )
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import build_ai_diagnostic_context
@@ -1791,31 +1792,25 @@ class FuturesAnalyzerApp(App):
             return
         try:
             state = session.snapshot()
-            coordinator_halted = state.get("halted") is True
-            if coordinator_halted and state.get("halt_reason") != "operator emergency stop":
-                self.update_auto_status("بازآماده‌سازی رد شد؛ توقف هماهنگ‌کننده از نوع توقف دستیِ قابل‌بازیابی نیست.")
-                return
+            if not isinstance(state, dict) or type(state.get("halted")) is not bool:
+                raise RuntimeError("persisted coordinator state is invalid")
             if state.get("intents") != {}:
                 self.update_auto_status("بازآماده‌سازی رد شد؛ درخواست آماده‌سازی معلق وجود دارد.")
                 return
-            # A worker-side failure can persist EMERGENCY_STOP in the paper
-            # engine without setting the coordinator halt. Permit recovery only
-            # after explicit confirmation, with no position and above MAX_LOSS.
+            # Rearm only the local paper engine. The prepared-intent
+            # coordinator halt is independent and must never be cleared here.
             paper_state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
-            paper_engine = None
-            if os.path.isfile(paper_state_path):
-                with open(paper_state_path, "r", encoding="utf-8") as state_file:
-                    paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if paper_engine.position is not None or (
-                    paper_engine.halted and paper_engine.halt_reason != "EMERGENCY_STOP"
-                ):
-                    self.update_auto_status(
-                        "بازآماده‌سازی رد شد؛ موقعیت باز یا توقف سقف زیان/ایمنی غیرقابل‌بازیابی وجود دارد."
-                    )
-                    return
-            paper_halted = paper_engine is not None and paper_engine.halted
-            if not coordinator_halted and not paper_halted:
-                self.update_auto_status("هیچ توقف قابل‌بازیابی فعالی وجود ندارد.")
+            if not os.path.isfile(paper_state_path):
+                self.update_auto_status("توقف قابل‌بازیابی برای موتور آزمایشی ثبت نشده است.")
+                return
+            with open(paper_state_path, "r", encoding="utf-8") as state_file:
+                paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
+            if (not paper_engine.halted
+                    or paper_engine.halt_reason != "EMERGENCY_STOP"
+                    or paper_engine.position is not None):
+                self.update_auto_status(
+                    "بازآماده‌سازی رد شد؛ فقط توقف اضطراری موتور آزمایشی بدون موقعیت باز قابل‌بازیابی است."
+                )
                 return
         except Exception as exc:
             self.update_auto_status("خواندن وضعیت ایمنی ناموفق بود؛ قفل حفظ شد: " + type(exc).__name__)
@@ -1823,10 +1818,10 @@ class FuturesAnalyzerApp(App):
 
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
         explanation = (
-            "این کار فقط توقف قابل‌بازیابیِ موتور آزمایشی را پس از بررسی دوباره وضعیت ایمنی بازآماده می‌کند.\n"
-            "توقف سقف زیان، موقعیت باز، درخواست معلق یا توقف مبهم قابل بازنشانی نیست.\n"
-            "سرمایه مجازی و تاریخچه حفظ می‌شوند؛ هیچ سفارش واقعی ارسال یا فعال نمی‌شود.\n"
-            "پس از تأیید، شبیه‌ساز آزمایشی به‌صورت خودکار راه‌اندازی می‌شود."
+            "این کار فقط توقف اضطراریِ موتور آزمایشی را پس از بررسی دوباره وضعیت آن بازآماده می‌کند.\n"
+            "توقف سقف زیان، موقعیت باز، درخواست آماده‌سازی معلق یا وضعیت مبهم قابل بازنشانی نیست.\n"
+            "توقف هماهنگ‌کننده سفارش‌ها دست‌نخورده می‌ماند؛ سرمایه مجازی و تاریخچه حفظ می‌شوند.\n"
+            "هیچ سفارش واقعی ارسال یا فعال نمی‌شود."
         )
         label = Label(
             text=assistant_rtl_text(explanation), font_name=FONT_NAME,
@@ -1853,7 +1848,6 @@ class FuturesAnalyzerApp(App):
                 self.update_auto_status("بازآماده‌سازی رد شد؛ رشته شبیه‌ساز هنوز فعال است.")
                 popup.dismiss()
                 return
-            rearmed = False
             paper_rearmed = False
             start_after_rearm = False
             try:
@@ -1862,15 +1856,12 @@ class FuturesAnalyzerApp(App):
                 if not getattr(guard, "held", False):
                     raise RuntimeError("exclusive app runtime lock is not held")
                 current_state = session.snapshot()
+                if not isinstance(current_state, dict) or type(current_state.get("halted")) is not bool:
+                    raise RuntimeError("persisted coordinator state is invalid")
                 if current_state.get("intents") != {}:
-                    raise RuntimeError("pending prepared intents must be resolved before re-arming")
-                if current_state.get("halted"):
-                    if current_state.get("halt_reason") != "operator emergency stop":
-                        raise RuntimeError("coordinator halt is not operator-rearmable")
-                    session.rearm_after_operator_stop()
-                    rearmed = True
-                elif current_state.get("halt_reason") is not None:
-                    raise RuntimeError("coordinator recovery metadata is inconsistent")
+                    raise RuntimeError("pending prepared intents must be resolved before paper re-arm")
+                # Deliberately leave coordinator halted state untouched. This
+                # confirmation applies only to the local paper simulator.
                 # Reload the paper engine rather than trusting the snapshot
                 # captured when the confirmation dialog was first opened.
                 paper_state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
@@ -1887,8 +1878,8 @@ class FuturesAnalyzerApp(App):
                     self._persist_paper_engine_state(paper_engine)
                     self.auto_engine = paper_engine
                     paper_rearmed = True
-                if not rearmed and not paper_rearmed:
-                    raise RuntimeError("no eligible persisted halt remains to re-arm")
+                if not paper_rearmed:
+                    raise RuntimeError("no eligible paper-engine halt remains to re-arm")
                 ensure_paper_runner_ready(guard, session)
                 self.update_auto_status(
                     "توقف قابل‌بازیابی با تأیید شما بازآماده شد؛ راه‌اندازی خودکار شبیه‌ساز آزمایشی در حال انجام است. "
@@ -1906,11 +1897,6 @@ class FuturesAnalyzerApp(App):
                         self._persist_paper_engine_state(paper_engine)
                     except Exception as paper_rollback_exc:
                         rollback_error = paper_rollback_exc
-                if rearmed:
-                    try:
-                        session.emergency_stop("operator emergency stop")
-                    except Exception as rollback_exc:
-                        rollback_error = rollback_exc
                 detail = type(exc).__name__ + ": " + str(exc)[:120]
                 if rollback_error is not None:
                     detail += " | rollback failed: " + type(rollback_error).__name__
@@ -2139,6 +2125,21 @@ class FuturesAnalyzerApp(App):
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
+                try:
+                    clear_websocket_idle_timeout(ws)
+                except Exception as timeout_exc:
+                    detail = "WebSocket idle-timeout setup failed: {}: {}".format(
+                        type(timeout_exc).__name__, str(timeout_exc)[:120]
+                    )
+                    self._update_engine_health(
+                        worker_phase="socket_timeout_setup_failed",
+                        websocket_connected=False, last_stream_error=detail,
+                    )
+                    Clock.schedule_once(
+                        lambda dt, value=detail: self.update_auto_status(value), 0
+                    )
+                    ws.close()
+                    return
                 stream_watchdog.connected()
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",

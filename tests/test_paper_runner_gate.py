@@ -24,20 +24,29 @@ class PaperRunnerGateTests(unittest.TestCase):
         with self.assertRaises(PaperRunnerGateError):
             ensure_paper_runner_ready(self.guard, None)
 
-    def test_persisted_emergency_stop_blocks(self):
-        self.session.snapshot.return_value = {"halted": True, "intents": {}}
-        with self.assertRaisesRegex(PaperRunnerGateError, "emergency stop"):
-            ensure_paper_runner_ready(self.guard, self.session)
+    def test_coordinator_emergency_stop_does_not_disable_paper_only_runner(self):
+        # The halt remains persisted for prepared intents. The independent
+        # paper simulator is read-only and may continue without clearing it.
+        halted_state = {
+            "halted": True,
+            "halt_reason": "operator emergency stop",
+            "intents": {},
+        }
+        self.session.snapshot.return_value = halted_state
+        self.assertTrue(ensure_paper_runner_ready(self.guard, self.session))
+        self.assertEqual(self.session.snapshot.return_value, halted_state)
+        self.session.snapshot.assert_called_once_with()
 
-    def test_persisted_emergency_stop_reports_the_saved_reason(self):
-        self.session.snapshot.return_value = {
+    def test_persisted_emergency_stop_reason_is_preserved_but_does_not_block_paper(self):
+        halted_state = {
             "halted": True,
             "halt_reason": "worker-side emergency stop",
             "intents": {},
         }
-        with self.assertRaisesRegex(
-                PaperRunnerGateError, "worker-side emergency stop"):
-            ensure_paper_runner_ready(self.guard, self.session)
+        self.session.snapshot.return_value = halted_state
+        self.assertTrue(ensure_paper_runner_ready(self.guard, self.session))
+        self.assertEqual(self.session.snapshot.return_value["halt_reason"],
+                         "worker-side emergency stop")
 
     def test_malformed_or_unreadable_state_blocks(self):
         for state in (None, [], {"halted": "false", "intents": {}},

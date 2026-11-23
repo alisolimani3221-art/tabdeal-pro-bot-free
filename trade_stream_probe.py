@@ -180,6 +180,23 @@ def parse_trade_message(message, expected_symbol=None):
     return result
 
 
+def clear_websocket_idle_timeout(ws_app):
+    """Clear the temporary connect timeout after WebSocket handshake completes.
+
+    websocket-client 1.8.0 applies socket.getdefaulttimeout() to the connected
+    socket. A short default is useful to bound DNS/connect/handshake, but leaving
+    it in place can disconnect an otherwise healthy quiet feed before the
+    20-second ping interval or 45-second trade watchdog. Clear it on open; the
+    app's ping/pong watchdog then owns connection liveness.
+    """
+    socket_wrapper = getattr(ws_app, "sock", None)
+    setter = getattr(socket_wrapper, "settimeout", None)
+    if not callable(setter):
+        raise RuntimeError("WebSocket connection socket does not expose settimeout")
+    setter(None)
+    return True
+
+
 def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     """Connect once, send plain-text symbol on open, and observe public trades."""
     if (not isinstance(symbol, str) or len(symbol) > 32
@@ -202,6 +219,9 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
               "last_diagnostic": "no_message", "symbol": symbol}
 
     def on_open(ws):
+        # Clear the temporary default socket timeout after the handshake so
+        # an idle-but-healthy public feed survives until the explicit probe timer.
+        clear_websocket_idle_timeout(ws)
         # Historical successful Tabdeal probe runs subscribed by sending the
         # plain-text market symbol after the broadcast socket opens. This is
         # not an order or authenticated action; it only selects the read-only
