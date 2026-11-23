@@ -471,7 +471,7 @@ class PaperTraderTests(unittest.TestCase):
                     PaperTradingEngine.restore_state(corrupted)
 
     def test_equity_includes_adverse_exit_slippage_for_long_and_short(self):
-        for signal, expected_direction in (("BULLISH", -1), ("BEARISH", -1)):
+        for signal in ("BULLISH", "BEARISH"):
             with self.subTest(signal=signal):
                 engine = PaperTradingEngine(
                     capital=8, fee_rate=0.001, slippage_rate=0.002
