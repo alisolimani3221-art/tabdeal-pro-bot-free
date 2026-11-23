@@ -85,8 +85,12 @@ class TabdealApiContractTests(unittest.TestCase):
         probe = self.read("trade_stream_probe.py")
         run_block = source[source.index("app.run_forever("):source.index("except Exception as stream_exc:")]
         self.assertNotRegex(run_block, r"(?<![A-Za-z0-9_])timeout\s*=")
-        self.assertIn("websocket.setdefaulttimeout(12.0)", source)
-        self.assertIn("websocket.setdefaulttimeout(previous_socket_timeout)", source)
+        # The Android runner must not apply a process-wide default timeout:
+        # it would also constrain reads after the WebSocket handshake.
+        self.assertNotIn("websocket.setdefaulttimeout(", source)
+        self.assertIn("Do not change socket.setdefaulttimeout globally here.", source)
+        # The standalone probe may bound its short-lived handshake, but must
+        # not pass the unsupported timeout keyword to run_forever().
         self.assertIn("websocket.setdefaulttimeout(min(12.0, timeout_value))", probe)
         self.assertNotIn("timeout=min(12.0", probe)
 

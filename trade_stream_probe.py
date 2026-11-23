@@ -9,6 +9,8 @@ import math
 import re
 import time
 import threading
+import certifi
+from android_tls import tabdeal_websocket_ssl_options
 from datetime import datetime, timezone
 
 BROADCAST_URL = "wss://api1.tabdeal.org/special_margin/broadcast/"
@@ -235,7 +237,10 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
     previous_socket_timeout = websocket.getdefaulttimeout()
     websocket.setdefaulttimeout(min(12.0, timeout_value))
     try:
-        app.run_forever(ping_interval=20, ping_timeout=10, reconnect=0)
+        app.run_forever(
+            ping_interval=20, ping_timeout=10, reconnect=0,
+            sslopt=tabdeal_websocket_ssl_options(certifi.where()),
+        )
     finally:
         websocket.setdefaulttimeout(previous_socket_timeout)
         timeout.cancel()

@@ -6,9 +6,10 @@ import threading
 import time
 import requests
 import certifi
-from android_tls import mount_tabdeal_tls_compat
+from android_tls import (mount_tabdeal_tls_compat,
+                         tabdeal_websocket_ssl_options)
 
-APP_VERSION = "1.49"
+APP_VERSION = "1.51"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -37,6 +38,7 @@ from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path
 from market_symbols import select_market_symbol, list_market_symbols
+from orderbook_poller import fetch_order_book_snapshot
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
@@ -47,7 +49,8 @@ from trade_stream_probe import (
     BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
 )
 from openai_assistant import analyze_with_openai
-from ai_diagnostics import build_ai_diagnostic_context
+from ai_diagnostics import (build_ai_diagnostic_context,
+                             build_engine_health_report_lines)
 from trade_stream_watchdog import TradeStreamWatchdog
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
@@ -297,6 +300,15 @@ class FuturesAnalyzerApp(App):
         # Mixing LTR ticker/punctuation with RTL text caused tofu boxes on some
         # Android/Kivy font fallback combinations on the home screen.
         self.current_symbol = "BTC_USDT"
+        self.verified_market_symbols = set()
+        self.orderbook_poll_event = None
+        self.orderbook_poll_stop = threading.Event()
+        self.orderbook_poll_lock = threading.Lock()
+        self.orderbook_poll_thread = None
+        self.orderbook_last_success_at = None
+        self.orderbook_last_error = None
+        self.orderbook_update_count = 0
+        self.orderbook_price_history = []
         self.symbol_spinner = Spinner(
             text=self.current_symbol,
             values=(self.current_symbol,),
@@ -335,6 +347,11 @@ class FuturesAnalyzerApp(App):
         )
         book_title_button.bind(on_press=self.show_status)
         content.add_widget(book_title_button)
+        self.orderbook_freshness = self.make_label(
+            "به‌روزرسانی خودکار پس از دریافت نخستین دفتر سفارش فعال می‌شود",
+            size=11, height=dp(32), color=(0.72, 0.80, 0.90, 1)
+        )
+        content.add_widget(self.orderbook_freshness)
         book_grid = BoxLayout(orientation="vertical", spacing=dp(10), size_hint_y=None, height=dp(520))
         self.bid_rows = []
         self.ask_rows = []
@@ -475,11 +492,24 @@ class FuturesAnalyzerApp(App):
 
     def on_symbol_selected(self, spinner, value):
         if value:
-            self.current_symbol = str(value)
+            selected = str(value).strip().upper()
+            if selected == self.current_symbol:
+                return
+            self.current_symbol = selected
+            # Never leave another contract's prices visible under the new ticker.
+            for label in (self.price_value, self.bid_value, self.ask_value):
+                label.text = "--"
+            for row in self.bid_rows + self.ask_rows:
+                row.text = "--       --"
+                row.disabled = True
+            self.orderbook_freshness.text = fa("در انتظار دریافت دفتر سفارش نماد جدید...")
+            if selected in self.verified_market_symbols:
+                self._schedule_order_book_poll(0)
 
     def update_symbol_options(self, symbols):
         if not symbols:
             return
+        self.verified_market_symbols = set(str(item) for item in symbols)
         current = self.current_symbol
         self.symbol_spinner.values = tuple(symbols)
         if current in symbols:
@@ -642,6 +672,7 @@ class FuturesAnalyzerApp(App):
                 if not available_symbols:
                     raise RuntimeError("/exchangeInfo contained no active USDT perpetual symbols")
                 results["symbol_count"] = len(available_symbols)
+                results["verified_symbols"] = list(available_symbols)
                 Clock.schedule_once(
                     lambda dt, values=available_symbols: self.update_symbol_options(values), 0
                 )
@@ -711,6 +742,172 @@ class FuturesAnalyzerApp(App):
             session.close()
         Clock.schedule_once(lambda dt, res=results: self.show_result(res), 0)
 
+
+
+    def _start_order_book_polling(self):
+        """Start one foreground-only Kivy timer; network reads run off the UI thread."""
+        if self.orderbook_poll_event is None:
+            self.orderbook_poll_stop.clear()
+            self.orderbook_poll_event = Clock.schedule_interval(
+                self._schedule_order_book_poll, 2.0
+            )
+        self._schedule_order_book_poll(0)
+
+    def _schedule_order_book_poll(self, _dt):
+        """Schedule a depth read every two seconds without allowing overlap."""
+        if self.orderbook_poll_stop.is_set():
+            return False
+        symbol = str(self.current_symbol).upper()
+        if symbol not in self.verified_market_symbols:
+            return True
+        if not self.orderbook_poll_lock.acquire(False):
+            return True
+        worker = threading.Thread(
+            target=self._order_book_poll_worker, args=(symbol,), daemon=True
+        )
+        self.orderbook_poll_thread = worker
+        try:
+            worker.start()
+        except Exception:
+            self.orderbook_poll_lock.release()
+            raise
+        return True
+
+    def _order_book_poll_worker(self, symbol):
+        snapshot = None
+        error = None
+        session = None
+        try:
+            session = requests.Session()
+            mount_tabdeal_tls_compat(session, certifi.where())
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+                "Accept": "application/json",
+                "Connection": "close",
+            })
+            snapshot = fetch_order_book_snapshot(
+                session, FUTURES_API, symbol, certifi.where(),
+                timeout=(3.05, 6.0)
+            )
+        except Exception as exc:
+            error = "{}: {}".format(type(exc).__name__, str(exc)[:220])
+        finally:
+            try:
+                if session is not None:
+                    session.close()
+            except Exception:
+                pass
+            self.orderbook_poll_lock.release()
+        if not self.orderbook_poll_stop.is_set():
+            Clock.schedule_once(
+                lambda _dt, data=snapshot, failure=error:
+                    self._apply_order_book_poll(data, failure), 0
+            )
+
+    def _apply_order_book_poll(self, snapshot, error):
+        """Publish only a validated fresh snapshot; failures never refresh old prices."""
+        if self.orderbook_poll_stop.is_set():
+            return
+        if snapshot is not None:
+            if snapshot.get("symbol") != self.current_symbol:
+                return
+            self.orderbook_last_success_at = snapshot["received_at"]
+            self.orderbook_last_error = None
+            self.latest_market_price = snapshot["mid_price"]
+            self.orderbook_update_count += 1
+            self.orderbook_price_history.append({
+                "timestamp": snapshot["received_at"],
+                "symbol": snapshot["symbol"],
+                "bid": snapshot["best_bid"],
+                "ask": snapshot["best_ask"],
+                "mid": snapshot["mid_price"],
+            })
+            # Keep a bounded ten-minute rolling sample; never write every tick
+            # to flash storage or let market polling grow memory without limit.
+            if len(self.orderbook_price_history) > 300:
+                del self.orderbook_price_history[:-300]
+            for label, value in (
+                (self.price_value, snapshot["mid_price"]),
+                (self.bid_value, snapshot["best_bid"]),
+                (self.ask_value, snapshot["best_ask"]),
+            ):
+                label.font_name = NUMERIC_FONT_NAME
+                label.text = format_market_value(value)
+            for row_buttons, levels in (
+                (self.bid_rows, snapshot["bids"]),
+                (self.ask_rows, snapshot["asks"]),
+            ):
+                for index, row in enumerate(row_buttons):
+                    if index < len(levels):
+                        price, quantity = levels[index]
+                        row.text = "{}       {}".format(
+                            format_market_value(price),
+                            format_market_value(quantity)
+                        )
+                        row.disabled = False
+                        row.background_color = (
+                            (0.10, 0.18, 0.20, 1)
+                            if row_buttons is self.bid_rows
+                            else (0.22, 0.13, 0.13, 1)
+                        )
+                    else:
+                        row.text = "--       --"
+                        row.disabled = True
+            # Keep the AI's read-only market context aligned with the latest
+            # verified book. This snapshot is never passed to the paper engine.
+            current = dict(getattr(self, "last_market_snapshot", {}) or {})
+            current.update({
+                "symbol": snapshot["symbol"],
+                "snapshot_time": snapshot["received_at"],
+                "best_bid": snapshot["best_bid"],
+                "best_ask": snapshot["best_ask"],
+                "midpoint_estimate": snapshot["mid_price"],
+                "bids": snapshot["bids"],
+                "asks": snapshot["asks"],
+                "data_kind": "order_book_snapshot",
+            })
+            self.last_market_snapshot = current
+            diagnostic = dict(getattr(self, "last_diagnostic_results", {}) or {})
+            diagnostic.update({
+                "market_symbol": snapshot["symbol"],
+                "symbol_verified": True,
+                "depth_status": 200,
+                "depth_http": 200,
+                "best_bid": snapshot["best_bid"],
+                "best_ask": snapshot["best_ask"],
+                "mid_price": snapshot["mid_price"],
+                "bids": snapshot["bids"],
+                "asks": snapshot["asks"],
+                "orderbook_poll_last_success": snapshot["received_at"],
+                "orderbook_poll_updates": self.orderbook_update_count,
+                "orderbook_poll_error": None,
+            })
+            self.last_diagnostic_results = diagnostic
+            self.orderbook_freshness.text = fa(
+                "آخرین ثبت موفق: {} | هدف به‌روزرسانی: ۲ ثانیه | ثبت‌های موفق: {}".format(
+                    snapshot["received_at"].split("T")[-1],
+                    self.orderbook_update_count
+                )
+            )
+            self.orderbook_freshness.color = (0.35, 0.9, 0.55, 1)
+            return
+
+        self.orderbook_last_error = str(error or "unknown error")[:220]
+        diagnostic = dict(getattr(self, "last_diagnostic_results", {}) or {})
+        diagnostic["orderbook_poll_error"] = self.orderbook_last_error
+        diagnostic["orderbook_poll_updates"] = self.orderbook_update_count
+        self.last_diagnostic_results = diagnostic
+        last_time = self.orderbook_last_success_at
+        if last_time:
+            last_clock = last_time.split("T")[-1]
+            message = (
+                "دریافت جدید ناموفق؛ قیمت قبلی تازه محسوب نمی‌شود. "
+                "آخرین ثبت موفق: {} | علت: {}"
+            ).format(last_clock, self.orderbook_last_error)
+        else:
+            message = "دریافت دفتر سفارش ناموفق است؛ علت: " + self.orderbook_last_error
+        self.orderbook_freshness.text = fa(message)
+        self.orderbook_freshness.color = (1, 0.55, 0.4, 1)
 
     def open_account_connection(self, instance):
         """Read account data; persist credentials only after a successful GET."""
@@ -1282,6 +1479,8 @@ class FuturesAnalyzerApp(App):
         self.last_diagnostic_results = dict(results)
         # Preserve a compact snapshot for the read-only AI assistant. This is
         # diagnostic market data only; it contains no account credentials.
+        if results.get("verified_symbols"):
+            self.verified_market_symbols = set(results["verified_symbols"])
         self.last_market_snapshot = {
             key: results.get(key) for key in (
                 "market_symbol", "symbol_verified", "depth_status", "depth_diagnostic",
@@ -1434,6 +1633,8 @@ class FuturesAnalyzerApp(App):
                       size_hint=(0.94, 0.78), auto_dismiss=False)
         close_button.bind(on_press=popup.dismiss)
         popup.open()
+        if market_ok and book_ok and results.get("symbol_verified"):
+            self._start_order_book_polling()
 
 
     def open_diagnostics(self, instance):
@@ -1507,6 +1708,11 @@ class FuturesAnalyzerApp(App):
             "آزمایش راست‌به‌چپ: " + rtl_runtime_status(),
             "نماد انتخاب‌شده: " + str(self.current_symbol),
             "دفتر سفارش: " + depth_status,
+            "هدف به‌روزرسانی دفتر سفارش: هر ۲ ثانیه؛ درخواست هم‌زمان تکراری اجرا نمی‌شود",
+            "ثبت‌های موفق خودکار دفتر سفارش: " + str(getattr(self, "orderbook_update_count", 0)),
+            "نمونه‌های نگهداری‌شده قیمت: " + str(len(getattr(self, "orderbook_price_history", []))),
+            "آخرین ثبت موفق دفتر سفارش: " + str(getattr(self, "orderbook_last_success_at", "هنوز ثبت نشده")),
+            "آخرین خطای دریافت خودکار دفتر سفارش: " + str(getattr(self, "orderbook_last_error", "") or "ندارد")[:180],
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
             "رشته پس‌زمینه معامله‌گر: " + ("ALIVE (سلامت جریان تأیید نشده)" if auto_running else "STOPPED"),
@@ -1517,6 +1723,7 @@ class FuturesAnalyzerApp(App):
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
+        lines.extend(build_engine_health_report_lines(self))
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
                     "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
@@ -2136,9 +2343,13 @@ class FuturesAnalyzerApp(App):
             )
             stream_watchdog = TradeStreamWatchdog(silence_timeout=45.0)
             watchdog_stop = threading.Event()
+            # Keep the first transport/callback error so on_close cannot hide
+            # the actionable cause behind a generic "no close reason" message.
+            socket_diagnostics = {"opened": False, "error": None}
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
+                socket_diagnostics["opened"] = True
                 stream_watchdog.connected()
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
@@ -2152,7 +2363,18 @@ class FuturesAnalyzerApp(App):
                 # Match the previously observed working public-feed protocol:
                 # send the market symbol as plain text after the socket opens.
                 # This is a read-only market subscription, never an order action.
-                ws.send(symbol)
+                try:
+                    ws.send(symbol)
+                except Exception as subscribe_exc:
+                    detail = "{}: {}".format(
+                        type(subscribe_exc).__name__, str(subscribe_exc)[:180]
+                    )
+                    socket_diagnostics["error"] = detail
+                    self._update_engine_health(
+                        worker_phase="reconnecting", websocket_connected=False,
+                        last_stream_error="subscription_send_failed: " + detail,
+                    )
+                    raise
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
@@ -2343,7 +2565,8 @@ class FuturesAnalyzerApp(App):
                         )
 
             def on_error(ws, error):
-                detail = "{}: {}".format(type(error).__name__, str(error)[:140])
+                detail = "{}: {}".format(type(error).__name__, str(error)[:180])
+                socket_diagnostics["error"] = detail
                 self._update_engine_health(worker_phase="reconnecting",
                                            websocket_connected=False,
                                            last_stream_error=detail)
@@ -2354,10 +2577,23 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_close(ws, close_status_code, close_message):
-                self._update_engine_health(worker_phase="reconnecting",
-                                           websocket_connected=False)
+                phase = "after_open" if socket_diagnostics["opened"] else "before_open"
+                detail = "websocket_closed: phase={}; code={}; message={}".format(
+                    phase, close_status_code,
+                    str(close_message or "no close reason")[:100]
+                )
+                previous_error = socket_diagnostics.get("error")
+                if previous_error:
+                    detail += "; transport_error=" + str(previous_error)[:180]
+                elif not socket_diagnostics["opened"]:
+                    detail += "; transport_error=not_reported_by_websocket_client"
+                self._update_engine_health(
+                    worker_phase="reconnecting",
+                    websocket_connected=False,
+                    last_stream_error=detail,
+                )
                 if not self.auto_stop_event.is_set():
-                    detail = "کد={}; پیام={}".format(
+                    status_detail = "کد={}; پیام={}".format(
                         close_status_code, str(close_message or "بدون توضیح")[:100]
                     )
                     Clock.schedule_once(
@@ -2506,16 +2742,17 @@ class FuturesAnalyzerApp(App):
                 target=monitor_stream_silence, daemon=True
             )
             watchdog_thread.start()
-            previous_socket_timeout = websocket.getdefaulttimeout()
-            websocket.setdefaulttimeout(12.0)
             try:
-                # websocket-client 1.8.0 has no run_forever(timeout=...) argument.
-                # Its documented default socket timeout bounds the handshake
-                # without turning an otherwise quiet, connected feed into a failure.
+                # Do not change socket.setdefaulttimeout globally here. A short
+                # process-wide default can also become the live WebSocket read
+                # timeout and close an otherwise healthy, quiet market stream.
+                # websocket-client 1.8.0 has no run_forever(timeout=...) argument;
+                # ping/pong plus the validated-trade watchdog provide liveness.
                 app.run_forever(
                     ping_interval=20,
                     ping_timeout=10,
                     reconnect=0,
+                    sslopt=tabdeal_websocket_ssl_options(certifi.where()),
                 )
             except Exception as stream_exc:
                 detail = "{}: {}".format(type(stream_exc).__name__, str(stream_exc)[:140])
@@ -2533,7 +2770,6 @@ class FuturesAnalyzerApp(App):
                     websocket_connected=False,
                     worker_phase=("stopping" if self.auto_stop_event.is_set() else "reconnecting"),
                 )
-                websocket.setdefaulttimeout(previous_socket_timeout)
                 scan_stop.set()
                 scan_thread.join(timeout=2.0)
                 watchdog_stop.set()
@@ -2618,6 +2854,18 @@ class FuturesAnalyzerApp(App):
         )
 
     def on_stop(self):
+        poll_stop = getattr(self, "orderbook_poll_stop", None)
+        if poll_stop is not None:
+            poll_stop.set()
+        poll_event = getattr(self, "orderbook_poll_event", None)
+        if poll_event is not None:
+            try:
+                poll_event.cancel()
+            except Exception:
+                pass
+        poll_thread = getattr(self, "orderbook_poll_thread", None)
+        if poll_thread is not None and poll_thread.is_alive():
+            poll_thread.join(timeout=1.0)
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
