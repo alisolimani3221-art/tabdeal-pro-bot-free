@@ -245,9 +245,17 @@ class TradeStreamProbeTests(unittest.TestCase):
 
         observed = {"sent": [], "trades": []}
 
+        class FakeTransport:
+            def __init__(self):
+                self.timeout = None
+
+            def settimeout(self, value):
+                self.timeout = value
+
         class FakeWebSocketApp:
             def __init__(self, url, **callbacks):
                 self.callbacks = callbacks
+                self.sock = FakeTransport()
 
             def send(self, payload):
                 observed["sent"].append(payload)
