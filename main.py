@@ -2342,9 +2342,13 @@ class FuturesAnalyzerApp(App):
             )
             stream_watchdog = TradeStreamWatchdog(silence_timeout=45.0)
             watchdog_stop = threading.Event()
+            # Keep the first transport/callback error so on_close cannot hide
+            # the actionable cause behind a generic "no close reason" message.
+            socket_diagnostics = {"opened": False, "error": None}
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket
+                socket_diagnostics["opened"] = True
                 stream_watchdog.connected()
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
@@ -2358,7 +2362,18 @@ class FuturesAnalyzerApp(App):
                 # Match the previously observed working public-feed protocol:
                 # send the market symbol as plain text after the socket opens.
                 # This is a read-only market subscription, never an order action.
-                ws.send(symbol)
+                try:
+                    ws.send(symbol)
+                except Exception as subscribe_exc:
+                    detail = "{}: {}".format(
+                        type(subscribe_exc).__name__, str(subscribe_exc)[:180]
+                    )
+                    socket_diagnostics["error"] = detail
+                    self._update_engine_health(
+                        worker_phase="reconnecting", websocket_connected=False,
+                        last_stream_error="subscription_send_failed: " + detail,
+                    )
+                    raise
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
@@ -2549,7 +2564,8 @@ class FuturesAnalyzerApp(App):
                         )
 
             def on_error(ws, error):
-                detail = "{}: {}".format(type(error).__name__, str(error)[:140])
+                detail = "{}: {}".format(type(error).__name__, str(error)[:180])
+                socket_diagnostics["error"] = detail
                 self._update_engine_health(worker_phase="reconnecting",
                                            websocket_connected=False,
                                            last_stream_error=detail)
@@ -2560,9 +2576,16 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_close(ws, close_status_code, close_message):
-                detail = "websocket_closed: code={}; message={}".format(
-                    close_status_code, str(close_message or "no close reason")[:100]
+                phase = "after_open" if socket_diagnostics["opened"] else "before_open"
+                detail = "websocket_closed: phase={}; code={}; message={}".format(
+                    phase, close_status_code,
+                    str(close_message or "no close reason")[:100]
                 )
+                previous_error = socket_diagnostics.get("error")
+                if previous_error:
+                    detail += "; transport_error=" + str(previous_error)[:180]
+                elif not socket_diagnostics["opened"]:
+                    detail += "; transport_error=not_reported_by_websocket_client"
                 self._update_engine_health(
                     worker_phase="reconnecting",
                     websocket_connected=False,
