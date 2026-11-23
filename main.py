@@ -1784,17 +1784,35 @@ class FuturesAnalyzerApp(App):
                 self.update_auto_status("بازآماده‌سازی رد شد؛ رشته شبیه‌ساز هنوز فعال است.")
                 popup.dismiss()
                 return
+            rearmed = False
             try:
+                # Validate the process lock immediately before changing the
+                # persisted halt. The snapshot checks above already proved
+                # the exact operator-stop reason and an empty intent set.
+                if not getattr(guard, "held", False):
+                    raise RuntimeError("exclusive app runtime lock is not held")
                 session.rearm_after_operator_stop()
+                rearmed = True
                 ensure_paper_runner_ready(guard, session)
                 self.update_auto_status(
                     "قفل توقف دستی با تأیید شما بازآماده شد. شبیه‌ساز هنوز اجرا نشده است؛ "
                     "برای شروع، دکمه شروع آزمایش را بزنید. هیچ سفارش واقعی ارسال نمی‌شود."
                 )
             except Exception as exc:
+                # If any post-rearm readiness check fails, restore the
+                # persistent emergency stop before reporting failure. Never
+                # leave a cleared halt behind after an unsuccessful re-arm.
+                rollback_error = None
+                if rearmed:
+                    try:
+                        session.emergency_stop("operator emergency stop")
+                    except Exception as rollback_exc:
+                        rollback_error = rollback_exc
+                detail = type(exc).__name__ + ": " + str(exc)[:120]
+                if rollback_error is not None:
+                    detail += " | rollback failed: " + type(rollback_error).__name__
                 self.update_auto_status(
-                    "بازآماده‌سازی انجام نشد و قفل ایمنی حفظ شد: "
-                    + type(exc).__name__ + ": " + str(exc)[:140]
+                    "بازآماده‌سازی انجام نشد؛ تلاش برای حفظ قفل ایمنی انجام شد: " + detail
                 )
             popup.dismiss()
 
