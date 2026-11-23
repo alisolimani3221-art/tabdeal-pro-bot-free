@@ -21,6 +21,31 @@ class RiskAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(result["stop_price_long"], 49000)
         self.assertAlmostEqual(result["target_price_long"], 52000)
 
+    def test_position_size_includes_round_trip_fees_and_slippage(self):
+        no_cost = calculate_position_risk(1000, 1, 50000, 2, 3, 2)
+        with_costs = calculate_position_risk(
+            1000, 1, 50000, 2, 3, 2,
+            fee_rate=0.0005, slippage_rate=0.0002,
+        )
+        self.assertLess(with_costs["quantity"], no_cost["quantity"])
+        self.assertAlmostEqual(with_costs["risk_amount"], 10.0)
+        self.assertGreater(with_costs["fees_round_trip_estimate"], 0)
+        self.assertGreater(with_costs["slippage_estimate"], 0)
+        self.assertLessEqual(
+            with_costs["margin_estimate"] + with_costs["fees_entry_estimate"],
+            1000,
+        )
+
+    def test_fee_and_slippage_rates_are_bounded(self):
+        for fee_rate, slippage_rate in ((-0.1, 0), (0.051, 0), (0, -0.01),
+                                        (0, 0.011), (float("nan"), 0)):
+            with self.subTest(fee_rate=fee_rate, slippage_rate=slippage_rate):
+                with self.assertRaises(ValueError):
+                    calculate_position_risk(
+                        100, 1, 100, 1, 2, 2,
+                        fee_rate=fee_rate, slippage_rate=slippage_rate,
+                    )
+
     def test_position_size_never_exceeds_collateral_leverage(self):
         result = calculate_position_risk(100, 1, 100, 0.01, 2, 2)
         self.assertLessEqual(result["margin_estimate"], 100)
