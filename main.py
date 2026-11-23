@@ -1172,9 +1172,11 @@ class FuturesAnalyzerApp(App):
         add_field("risk", "ریسک هر معامله", "1")
         add_field("stop", "فاصله حد ضرر", "1")
         add_field("leverage", "اهرم (حداکثر 3)", "3")
+        add_field("fee", "کارمزد هر سمت (درصد)", "0.05")
+        add_field("slippage", "لغزش هر سمت (درصد)", "0.02")
 
         result_box = BoxLayout(orientation="vertical", spacing=dp(5),
-                               size_hint_y=None, height=dp(8 * 38 + 56))
+                               size_hint_y=None, height=dp(10 * 38 + 56))
         result_rows = {}
 
         def add_result_row(key, label):
@@ -1203,9 +1205,11 @@ class FuturesAnalyzerApp(App):
         add_result_row("stop_sell", "حد ضرر فروش")
         add_result_row("target_buy", "هدف خرید")
         add_result_row("target_sell", "هدف فروش")
+        add_result_row("fees", "کارمزد رفت‌وبرگشت تخمینی")
+        add_result_row("slippage", "هزینه لغزش تخمینی")
         result_note = self.make_label(
-            "مقادیر تخمینی هستند؛ کارمزد و لغزش قیمت محاسبه نشده‌اند.",
-            size=11, height=dp(52)
+            "فرض اولیه مدل: کارمزد ۰٫۰۵٪ و لغزش ۰٫۰۲٪ هر سمت؛ نرخ واقعی را بررسی کنید. هزینه تأمین مالی لحاظ نشده است.",
+            size=11, height=dp(68)
         )
         result_box.add_widget(result_note)
         body.add_widget(result_box)
@@ -1233,6 +1237,8 @@ class FuturesAnalyzerApp(App):
                     normalize_digits(fields["stop"].text),
                     normalize_digits(fields["leverage"].text),
                     2.0,
+                    fee_rate=float(normalize_digits(fields["fee"].text)) / 100.0,
+                    slippage_rate=float(normalize_digits(fields["slippage"].text)) / 100.0,
                 )
                 # Save only a validated capital value; it will be prefilled next time.
                 self.capital_usdt = capital_value
@@ -1249,6 +1255,8 @@ class FuturesAnalyzerApp(App):
                 result_rows["stop_sell"].text = format_market_value(result["stop_price_short"])
                 result_rows["target_buy"].text = format_market_value(result["target_price_long"])
                 result_rows["target_sell"].text = format_market_value(result["target_price_short"])
+                result_rows["fees"].text = "{:.4f}".format(result["fees_round_trip_estimate"])
+                result_rows["slippage"].text = "{:.4f}".format(result["slippage_estimate"])
                 if result["margin_estimate"] > capital_value:
                     result_note.text = fa(
                         "هشدار: وجه تضمین تخمینی از سرمایه واردشده بیشتر است؛ این حجم قابل اجرا نیست."
@@ -1257,7 +1265,8 @@ class FuturesAnalyzerApp(App):
                     result_note.text = fa("هشدار: اهرم بالا خطر لیکویید شدن را افزایش می‌دهد.")
                 else:
                     result_note.text = fa(
-                        "مقادیر تخمینی هستند؛ کارمزد و لغزش قیمت محاسبه نشده‌اند."
+                        "ریسک شامل کارمزد و لغزش واردشده است؛ نرخ واقعی حساب را بررسی کنید. "
+                        "هزینه تأمین مالی و تغییر نرخ کارمزد لحاظ نشده است."
                     )
             except (TypeError, ValueError, ZeroDivisionError):
                 result_note.text = fa("ورودی نامعتبر است؛ مقادیر را بررسی کنید.")
