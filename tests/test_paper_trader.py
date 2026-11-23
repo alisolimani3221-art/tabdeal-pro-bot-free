@@ -268,6 +268,38 @@ class PaperTraderTests(unittest.TestCase):
         self.assertTrue(result["halted"])
         self.assertIsNone(result["open_position"])
         self.assertEqual(result["events"], [])
+    def test_operator_stop_rearm_preserves_paper_history_and_cash(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        engine.emergency_close()
+        previous_cash = engine.cash
+        previous_trades = [dict(item) for item in engine.closed_trades]
+        previous_scans = engine.scans
+        result = engine.rearm_after_operator_stop()
+        self.assertEqual(result, {
+            "halted": False, "rearmed": True, "live_order_submitted": False
+        })
+        self.assertFalse(engine.halted)
+        self.assertIsNone(engine.halt_reason)
+        self.assertIsNone(engine.position)
+        self.assertEqual(engine.cash, previous_cash)
+        self.assertEqual(engine.closed_trades, previous_trades)
+        self.assertEqual(engine.scans, previous_scans)
+        restored = PaperTradingEngine.restore_state(engine.export_state())
+        self.assertFalse(restored.halted)
+        self.assertEqual(restored.closed_trades, previous_trades)
+
+    def test_paper_engine_rearm_rejects_max_loss_and_open_position(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.halted = True
+        engine.halt_reason = "MAX_LOSS"
+        with self.assertRaisesRegex(RuntimeError, "only an explicit operator"):
+            engine.rearm_after_operator_stop()
+        engine.halt_reason = "EMERGENCY_STOP"
+        engine.position = {"symbol": "AAA_USDT"}
+        with self.assertRaisesRegex(RuntimeError, "open paper position"):
+            engine.rearm_after_operator_stop()
+
 
     def test_engine_never_exposes_live_order_method(self):
         engine = PaperTradingEngine(capital=8)
