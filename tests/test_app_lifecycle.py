@@ -34,6 +34,7 @@ LIFECYCLE_GLOBALS = {
     "os": os,
     "json": json,
     "threading": threading,
+    "tempfile": tempfile,
     "AppRuntimeGuard": AppRuntimeGuard,
     "TradeCoordinatorSession": TradeCoordinatorSession,
     "ensure_paper_runner_ready": ensure_paper_runner_ready,
