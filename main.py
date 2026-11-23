@@ -773,8 +773,9 @@ class FuturesAnalyzerApp(App):
     def _order_book_poll_worker(self, symbol):
         snapshot = None
         error = None
-        session = requests.Session()
+        session = None
         try:
+            session = requests.Session()
             mount_tabdeal_tls_compat(session, certifi.where())
             session.headers.update({
                 "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
@@ -789,7 +790,8 @@ class FuturesAnalyzerApp(App):
             error = "{}: {}".format(type(exc).__name__, str(exc)[:220])
         finally:
             try:
-                session.close()
+                if session is not None:
+                    session.close()
             except Exception:
                 pass
             self.orderbook_poll_lock.release()
@@ -808,6 +810,7 @@ class FuturesAnalyzerApp(App):
                 return
             self.orderbook_last_success_at = snapshot["received_at"]
             self.orderbook_last_error = None
+            self.latest_market_price = snapshot["mid_price"]
             self.orderbook_update_count += 1
             for label, value in (
                 (self.price_value, snapshot["mid_price"]),
@@ -1671,6 +1674,10 @@ class FuturesAnalyzerApp(App):
             "آزمایش راست‌به‌چپ: " + rtl_runtime_status(),
             "نماد انتخاب‌شده: " + str(self.current_symbol),
             "دفتر سفارش: " + depth_status,
+            "زمان‌بندی دفتر سفارش: هر ۲ ثانیه پس از دریافت اولیه",
+            "ثبت‌های موفق خودکار دفتر سفارش: " + str(getattr(self, "orderbook_update_count", 0)),
+            "آخرین ثبت موفق دفتر سفارش: " + str(getattr(self, "orderbook_last_success_at", "هنوز ثبت نشده")),
+            "آخرین خطای دریافت خودکار دفتر سفارش: " + str(getattr(self, "orderbook_last_error", "") or "ندارد")[:180],
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
             "رشته پس‌زمینه معامله‌گر: " + ("ALIVE (سلامت جریان تأیید نشده)" if auto_running else "STOPPED"),
