@@ -182,7 +182,10 @@ def calculate_position_risk(capital, risk_percent, entry_price, stop_percent,
     collateral_per_unit = entry_fill * (1.0 / leverage + fee_rate)
     max_quantity_by_collateral = capital / collateral_per_unit
     quantity = min(desired_quantity, max_quantity_by_collateral)
-    notional = quantity * entry_fill
+    # Clamp the displayed notional to the exact collateral/leverage ceiling;
+    # binary floating-point division can otherwise produce 300.00000000000006.
+    notional = min(quantity * entry_fill, capital * leverage)
+    quantity = notional / entry_fill
     risk_amount = quantity * risk_per_unit
     margin_estimate = notional / leverage
     fees_entry_estimate = notional * fee_rate
