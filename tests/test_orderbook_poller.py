@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 from orderbook_poller import fetch_order_book_snapshot
@@ -9,6 +10,15 @@ class OrderBookPollerTests(unittest.TestCase):
         session = Mock()
         session.get.return_value = response
         return session
+
+    def test_app_schedules_independent_two_second_polling_without_overlap(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Clock.schedule_interval(\\n                self._schedule_order_book_poll, 2.0", source)
+        self.assertIn("self.orderbook_poll_lock.acquire(False)", source)
+        self.assertIn("self.orderbook_poll_stop.set()", source)
+        self.assertIn("fetch_order_book_snapshot(", source)
 
     def test_fetches_one_valid_depth_snapshot_and_closes_response(self):
         response = Mock()
