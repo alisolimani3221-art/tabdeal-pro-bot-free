@@ -2693,22 +2693,24 @@ class FuturesAnalyzerApp(App):
 
         # Start a separate read-only depth poller even when the paper engine
         # is halted by a persisted emergency stop. It only updates market display.
-        Clock.schedule_once(
-            lambda _dt: self._start_market_price_refresh(), 0.3
-        )
-
+        # Start the read-only market display and the guarded paper runner only
+        # after Kivy's UI is initialized. Keep a single scheduled startup callback.
         # Start the paper-only public market stream automatically after Kivy's
         # UI is initialized. start_auto_paper_trader() repeats every safety gate,
         # restores persisted state, and refuses emergency/loss halts. It never
         # submits exchange orders. Scheduling avoids starting worker/UI updates
         # before the application has completed its startup lifecycle.
-        Clock.schedule_once(
-            lambda _dt: self.start_auto_paper_trader(), 0.5
-        )
+        def start_foreground_services(_dt):
+            self._start_market_price_refresh()
+            self.start_auto_paper_trader()
+
+        Clock.schedule_once(start_foreground_services, 0.5)
 
     def on_pause(self):
         # Android may suspend networking in background; stop cleanly and resume on foreground.
-        self._stop_market_price_refresh(timeout=2.0)
+        stop_market_feed = getattr(self, "_stop_market_price_refresh", None)
+        if callable(stop_market_feed):
+            stop_market_feed(timeout=2.0)
         return True
 
     def on_resume(self):
@@ -2719,7 +2721,9 @@ class FuturesAnalyzerApp(App):
             self._start_market_price_refresh()
 
     def on_stop(self):
-        self._stop_market_price_refresh(timeout=2.0)
+        stop_market_feed = getattr(self, "_stop_market_price_refresh", None)
+        if callable(stop_market_feed):
+            stop_market_feed(timeout=2.0)
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
