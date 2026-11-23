@@ -454,5 +454,33 @@ class PaperTraderTests(unittest.TestCase):
             engine.process_tick("AAA_USDT", float("nan"))
         self.assertIsNotNone(engine.position)
 
+    def test_equity_includes_adverse_exit_slippage_for_long_and_short(self):
+        for signal, expected_direction in (("BULLISH", -1), ("BEARISH", -1)):
+            with self.subTest(signal=signal):
+                engine = PaperTradingEngine(
+                    capital=8, fee_rate=0.001, slippage_rate=0.002
+                )
+                engine.process_scan([setup(signal=signal)])
+                position = engine.position
+                mark = position["last_price"]
+                adverse_exit = mark * (
+                    1 - engine.slippage_rate if signal == "BULLISH"
+                    else 1 + engine.slippage_rate
+                )
+                direction = 1 if signal == "BULLISH" else -1
+                expected = (
+                    engine.cash
+                    + (adverse_exit - position["entry"])
+                    * position["quantity"] * direction
+                    - adverse_exit * position["quantity"] * engine.fee_rate
+                )
+                self.assertAlmostEqual(engine.equity, expected)
+                optimistic = (
+                    engine.cash
+                    + (mark - position["entry"]) * position["quantity"] * direction
+                    - mark * position["quantity"] * engine.fee_rate
+                )
+                self.assertLessEqual(engine.equity, optimistic + 1e-12)
+
 if __name__ == "__main__":
     unittest.main()
