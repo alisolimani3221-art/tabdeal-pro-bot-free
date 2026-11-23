@@ -12,6 +12,7 @@ on:
   pull_request:
     branches:
       - main
+      - release/v1.49
       - fix/v1.33-account-api-connection
       - fix/v1.37-15s-scan-idempotency
       - fix/v1.38-live-paper-mark-price
@@ -22,6 +23,10 @@ on:
   push:
     paths:
       - 'main.py'
+      - 'android_tls.py'
+      - 'paper_state_store.py'
+      - 'trade_coordinator_session.py'
+      - 'trade_stream_watchdog.py'
       - 'paper_runner_gate.py'
       - 'tabdeal_account.py'
       - 'ai_assistant.py'
