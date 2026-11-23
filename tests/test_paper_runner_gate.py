@@ -37,15 +37,16 @@ class PaperRunnerGateTests(unittest.TestCase):
         self.assertEqual(self.session.snapshot.return_value, halted_state)
         self.session.snapshot.assert_called_once_with()
 
-    def test_persisted_emergency_stop_reports_the_saved_reason(self):
-        self.session.snapshot.return_value = {
+    def test_persisted_emergency_stop_reason_is_preserved_but_does_not_block_paper(self):
+        halted_state = {
             "halted": True,
             "halt_reason": "worker-side emergency stop",
             "intents": {},
         }
-        with self.assertRaisesRegex(
-                PaperRunnerGateError, "worker-side emergency stop"):
-            ensure_paper_runner_ready(self.guard, self.session)
+        self.session.snapshot.return_value = halted_state
+        self.assertTrue(ensure_paper_runner_ready(self.guard, self.session))
+        self.assertEqual(self.session.snapshot.return_value["halt_reason"],
+                         "worker-side emergency stop")
 
     def test_malformed_or_unreadable_state_blocks(self):
         for state in (None, [], {"halted": "false", "intents": {}},
