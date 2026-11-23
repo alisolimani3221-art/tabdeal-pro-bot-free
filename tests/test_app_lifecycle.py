@@ -336,6 +336,19 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertEqual(blocked["events"], [])
         self.assertIsNone(blocked["open_position"])
 
+    def test_repeated_start_does_not_reset_health_of_running_worker(self):
+        app = LifecycleHarness(self.temp.name)
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app.auto_trader_thread = worker
+        app.auto_health = {"health_state": "ACTIVE", "selected_symbol_trade_count": 7}
+
+        app.start_auto_paper_trader()
+
+        self.assertEqual(app.auto_health["health_state"], "ACTIVE")
+        self.assertEqual(app.auto_health["selected_symbol_trade_count"], 7)
+        app.update_auto_status.assert_called_once()
+
     def test_start_gate_blocks_worker_when_runtime_lock_is_not_held(self):
         app = LifecycleHarness(self.temp.name)
         app.runtime_guard = Mock(held=False)
