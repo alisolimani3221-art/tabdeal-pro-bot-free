@@ -264,7 +264,7 @@ class PaperTraderTests(unittest.TestCase):
         engine = PaperTradingEngine(capital=8)
         engine.emergency_close("periodic scan failure: RuntimeError")
         saved = engine.export_state()
-        self.assertEqual(saved["schema_version"], 3)
+        self.assertEqual(saved["schema_version"], 4)
         restored = PaperTradingEngine.restore_state(saved)
         self.assertEqual(
             restored.halt_detail, "periodic scan failure: RuntimeError"
@@ -288,16 +288,24 @@ class PaperTraderTests(unittest.TestCase):
         restored_one = PaperTradingEngine.restore_state(version_one)
         self.assertIsNone(restored_one.halt_detail)
 
-        # Legacy halted files must migrate to schema v3 without losing
-        # their original reason or becoming unrestorable on the next launch.
-        for legacy in (version_one, version_two):
+        version_three = dict(current)
+        version_three["schema_version"] = 3
+        version_three.pop("daily_loss_percent")
+        version_three.pop("daily_loss_date")
+        version_three.pop("daily_start_equity")
+        restored_three = PaperTradingEngine.restore_state(version_three)
+        self.assertEqual(restored_three.daily_loss_percent, 1.0)
+
+        # Legacy halted files must migrate without losing their original reason
+        # or becoming unrestorable on the next launch.
+        for legacy in (version_one, version_two, version_three):
             legacy_halted = dict(legacy)
             legacy_halted["halted"] = True
             legacy_halted["halt_reason"] = "EMERGENCY_STOP"
             migrated = PaperTradingEngine.restore_state(legacy_halted)
             self.assertIn("EMERGENCY_STOP", migrated.halt_detail)
             upgraded_snapshot = migrated.export_state()
-            self.assertEqual(upgraded_snapshot["schema_version"], 3)
+            self.assertEqual(upgraded_snapshot["schema_version"], 4)
             restored_again = PaperTradingEngine.restore_state(upgraded_snapshot)
             self.assertEqual(restored_again.halt_reason, "EMERGENCY_STOP")
             self.assertIn("EMERGENCY_STOP", restored_again.halt_detail)
@@ -421,6 +429,64 @@ class PaperTraderTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 PaperTradingEngine(capital=8, max_loss_percent=value)
 
+
+    def test_daily_loss_cap_is_one_percent_and_closes_open_position_on_tick(self):
+        engine = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
+        engine.process_scan([setup()])
+        self.assertIsNotNone(engine.position)
+        # A profitable prior-day close can make today's starting equity exceed
+        # current equity; a modest live drawdown must then trip today's 1% cap.
+        engine.daily_start_equity = 20.0
+        result = engine.process_tick("AAA_USDT", 99.5, now="2026-11-24")
+        self.assertTrue(result["halted"])
+        self.assertEqual(result["halt_reason"], "DAILY_MAX_LOSS")
+        self.assertEqual(result["trade"]["reason"], "DAILY_MAX_LOSS")
+        self.assertIsNone(engine.position)
+        restored = PaperTradingEngine.restore_state(engine.export_state())
+        self.assertTrue(restored.halted)
+        self.assertEqual(restored.halt_reason, "DAILY_MAX_LOSS")
+        self.assertEqual(restored.daily_loss_date, "2026-11-24")
+        self.assertEqual(restored.daily_start_equity, 20.0)
+
+    def test_daily_loss_cap_is_checked_during_scan_marking(self):
+        engine = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
+        engine.process_scan([setup()])
+        engine.daily_start_equity = 20.0
+        result = engine.process_scan(
+            [dict(setup(price=99.5), signal="NEUTRAL")],
+            now="2026-11-24",
+        )
+        self.assertTrue(result["halted"])
+        self.assertEqual(result["halt_reason"], "DAILY_MAX_LOSS")
+        self.assertEqual(result["events"][-1]["trade"]["reason"], "DAILY_MAX_LOSS")
+        self.assertIsNone(engine.position)
+
+    def test_daily_period_rolls_at_utc_midnight_without_carrying_old_drawdown(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()], now="2026-11-23")
+        engine.daily_loss_date = "2026-11-23"
+        engine.daily_start_equity = 20.0
+        result = engine.process_tick("AAA_USDT", 100.1, now="2026-11-24")
+        self.assertIsNone(result)
+        self.assertEqual(engine.daily_loss_date, "2026-11-24")
+        self.assertAlmostEqual(engine.daily_start_equity, engine.equity)
+        self.assertFalse(engine.halted)
+
+    def test_daily_loss_limit_rejects_values_above_one_percent(self):
+        for value in (True, False, 0, float("nan"), 1.01, 2):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                PaperTradingEngine(capital=8, daily_loss_percent=value)
+
+    def test_tick_checks_cumulative_floating_loss_before_stop_is_hit(self):
+        engine = PaperTradingEngine(
+            capital=8, max_loss_percent=0.01, daily_loss_percent=1.0
+        )
+        engine.process_scan([setup()])
+        result = engine.process_tick("AAA_USDT", 99.5, now=engine.daily_loss_date)
+        self.assertTrue(result["halted"])
+        self.assertEqual(result["halt_reason"], "MAX_LOSS")
+        self.assertEqual(result["trade"]["reason"], "MAX_LOSS")
+        self.assertIsNone(engine.position)
 
     def test_data_gap_flattens_and_latches_open_long_and_short_positions(self):
         for signal in ("BULLISH", "BEARISH"):
