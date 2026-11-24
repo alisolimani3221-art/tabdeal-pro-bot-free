@@ -700,3 +700,10 @@ class PaperTradingEngine:
                 "open_position": dict(self.position) if self.position else None,
                 "closed_trades": len(self.closed_trades),
                 "halted": self.halted, "halt_reason": self.halt_reason}
+
+
+def reconcile_paper_market_tick(engine, symbol, price, gap_detected=False, now=None):
+    """Apply the same fail-closed policy to each fresh selected-symbol trade."""
+    if gap_detected and engine.position is not None:
+        return engine.halt_for_data_gap(symbol, price)
+    return engine.process_tick(symbol, price, now=now)
