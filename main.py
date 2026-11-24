@@ -2022,9 +2022,9 @@ class FuturesAnalyzerApp(App):
                         and not isinstance(item.get("net_pnl"), bool))
         source = snapshot.get("_source", "unavailable") if snapshot else "unavailable"
         summary = (
-            "تعداد معاملات بسته: {} | سودده: {} | زیان‌ده: {}\\n"
-            "سود/زیان خالص تجمعی: {:.6f} USDT\\n"
-            "سرمایه نقدی: {} USDT\\n"
+            "تعداد معاملات بسته: {} | سودده: {} | زیان‌ده: {}\n"
+            "سود/زیان خالص تجمعی: {:.6f} USDT\n"
+            "سرمایه نقدی: {} USDT\n"
             "منبع داده: {} | این صفحه فقط‌خواندنی است."
         ).format(
             len(valid), wins, losses, net_total,
