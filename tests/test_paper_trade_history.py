@@ -28,7 +28,7 @@ class PaperTradeHistoryTests(unittest.TestCase):
     def _closed_engine(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([signal()])
-        engine.process_scan([dict(signal(price=98), signal="NEUTRAL")])
+        engine.emergency_close("history test fixture")
         self.assertEqual(len(engine.closed_trades), 1)
         return engine
 
