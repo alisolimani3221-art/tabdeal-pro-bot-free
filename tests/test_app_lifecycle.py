@@ -455,5 +455,26 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertFalse(restarted.runtime_guard.held)
 
 
+    def test_shutdown_persistence_failure_latches_durable_coordinator_halt(self):
+        app = LifecycleHarness(self.temp.name)
+        app.on_start()
+        self.assertIsNotNone(app.coordinator_session)
+        app.auto_engine = Mock()
+        app._persist_paper_engine_state = Mock(
+            side_effect=OSError("simulated disk write failure")
+        )
+
+        app.on_stop()
+
+        state = app.coordinator_session.snapshot()
+        self.assertTrue(state["halted"])
+        self.assertIn("persistence", state["halt_reason"].lower())
+        self.assertTrue(any(
+            "ذخیره" in str(call.args[0]) or "persist" in str(call.args[0]).lower()
+            for call in app.update_auto_status.call_args_list
+        ))
+        self.assertFalse(app.runtime_guard.held)
+
+
 if __name__ == "__main__":
     unittest.main()
