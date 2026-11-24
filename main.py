@@ -2219,7 +2219,8 @@ class FuturesAnalyzerApp(App):
             ).format(retained_count)
         status_text = (
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
-            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
+            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪؛ "
+            "سقف زیان روزانه: ۱٪؛ سقف زیان تجمعی: ۳٪.\n"
             + warmup_text + " هیچ سفارش واقعی ارسال نمی‌شود."
         ).format(self.capital_usdt)
         self.update_auto_status(status_text)
