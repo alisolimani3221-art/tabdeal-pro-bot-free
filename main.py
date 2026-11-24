@@ -2386,6 +2386,7 @@ class FuturesAnalyzerApp(App):
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, retry_attempt
+                nonlocal recovered_open_position
                 received_messages += 1
                 self._update_engine_health(received_messages=received_messages)
                 # This socket is a market-wide broadcast. Parse each event's
