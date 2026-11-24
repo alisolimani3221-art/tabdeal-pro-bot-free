@@ -100,9 +100,9 @@ class TradeCandleBuilder:
                 gap_detected = True
                 self._reconnect_warmup_pending = False
             else:
-                # The first fresh trade proves the cached history joins the
-                # live stream without a missing minute.
-                self._reconnect_warmup_pending = False
+                # Continuity is confirmed, but readiness stays blocked until
+                # one complete post-reconnect candle has actually closed.
+                pass
             self._resume_bucket = None
             self._resume_last_timestamp_ms = None
         if self.current is None:
