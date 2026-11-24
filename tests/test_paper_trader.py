@@ -1,5 +1,5 @@
 import unittest
-from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal,
+from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal, diagnose_entry_state,
                           prepare_live_market_snapshot, PAPER_SCAN_INTERVAL_SECONDS,
                           paper_scan_due, reconcile_paper_market_tick)
 
@@ -50,6 +50,19 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIn("RSI", diagnose_signal(dict(setup(), rsi14=75)))
         self.assertIn("نوسان", diagnose_signal(dict(setup(), atr14=3.0)))
         self.assertIn("تأیید شده", diagnose_signal(setup()))
+
+    def test_open_position_overrides_signal_only_entry_diagnostic(self):
+        self.assertIn("تأیید شده", diagnose_entry_state(setup(), None))
+        message = diagnose_entry_state(setup(), {
+            "symbol": "AAA_USDT", "side": "BULLISH"
+        })
+        self.assertIn("موقعیت آزمایشی خرید", message)
+        self.assertIn("ورود جدید مسدود", message)
+        self.assertIn("AAA_USDT", message)
+
+    def test_invalid_open_position_fails_closed_in_entry_diagnostic(self):
+        self.assertIn("ورود جدید مسدود", diagnose_entry_state(setup(), {}))
+        self.assertIn("ورود جدید مسدود", diagnose_entry_state(setup(), "invalid"))
 
     def test_rejects_signal_without_minimum_closed_candle_provenance(self):
         for value in (None, 0, 19, 19.9, True, "20"):
