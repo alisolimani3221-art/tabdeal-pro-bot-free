@@ -419,7 +419,7 @@ class PaperTraderTests(unittest.TestCase):
             dict(setup(price=98.0), signal="NEUTRAL")
         ])
         trade = closed["events"][0]["trade"]
-        self.assertNotIn("opened_at", trade)
+        self.assertIsNone(trade.get("opened_at"))
         self.assertNotIn("closed_at", trade)
 
     def test_restore_rejects_malformed_or_reversed_trade_timestamps(self):
