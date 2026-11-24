@@ -9,6 +9,10 @@ import re
 from collections import deque
 
 
+MIN_MONITOR_CANDLES = 5
+MIN_ANALYSIS_CANDLES = 23
+
+
 class TradeCandleBuilder:
     def __init__(self, symbol, interval_ms=60_000, max_candles=500):
         if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
@@ -213,9 +217,15 @@ class TradeCandleBuilder:
                 candle["low"], candle["close"], candle["volume"]]
 
     @property
+    def monitor_ready(self):
+        """Five complete candles permit early monitoring, never technical entry."""
+        return len(self.closed) >= MIN_MONITOR_CANDLES
+
+    @property
     def is_ready(self):
-        # analyze_klines excludes the final row as a still-forming candle.
-        return (len(self.closed) >= 20 and self.current is not None
+        # Keep technical signals/entries gated until 23 closed candles and a
+        # live forming candle are present; analyze_klines excludes that last row.
+        return (len(self.closed) >= MIN_ANALYSIS_CANDLES and self.current is not None
                 and not self.discard_next_close and not self._reconnect_warmup_pending)
 
     def candles_for_analysis(self):
@@ -228,6 +238,8 @@ class TradeCandleBuilder:
     def status(self):
         return {"symbol": self.symbol, "closed_candles": len(self.closed),
                 "has_forming_candle": self.current is not None,
+                "monitor_ready": self.monitor_ready,
+                "analysis_required_candles": MIN_ANALYSIS_CANDLES,
                 "ready": self.is_ready, "gaps": self.gaps,
                 "reconnect_check_pending": self._resume_bucket is not None,
                 "reconnect_warmup_pending": self._reconnect_warmup_pending,
