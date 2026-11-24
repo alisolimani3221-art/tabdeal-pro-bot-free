@@ -66,7 +66,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
-        builder.add_trade(self.trade(123))
+        builder.add_trade(self.trade(126))
         self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), 0)
 
@@ -153,7 +153,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         retained = len(builder.closed)
         builder.reset_after_reconnect()
 
-        result = builder.add_trade(self.trade(122))
+        result = builder.add_trade(self.trade(124))
         self.assertTrue(result["accepted"])
         self.assertFalse(result["gap_detected"])
         self.assertEqual(len(builder.closed), retained)
@@ -161,10 +161,10 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
         # The reconnect's first partial candle is discarded; the following
         # fully observed candle restores readiness without a 20-candle reset.
-        builder.add_trade(self.trade(123))
+        builder.add_trade(self.trade(125))
         self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), retained)
-        builder.add_trade(self.trade(124))
+        builder.add_trade(self.trade(126))
         self.assertTrue(builder.is_ready)
         self.assertEqual(len(builder.closed), retained + 1)
 
@@ -175,7 +175,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertTrue(builder.is_ready)
         builder.reset_after_reconnect()
 
-        result = builder.add_trade(self.trade(123))
+        result = builder.add_trade(self.trade(126))
         self.assertTrue(result["accepted"])
         self.assertTrue(result["gap_detected"])
         self.assertEqual(len(builder.closed), 0)
@@ -197,11 +197,11 @@ class TradeCandleBuilderTests(unittest.TestCase):
                 for minute in range(100, 123)]
         self.assertEqual(builder.restore_closed_candles(rows), 23)
         self.assertFalse(builder.is_ready)
-        result = builder.add_trade(self.trade(120, second=2))
+        result = builder.add_trade(self.trade(123, second=2))
         self.assertTrue(result["accepted"])
         self.assertFalse(result["gap_detected"])
         self.assertFalse(builder.is_ready)
-        builder.add_trade(self.trade(121, second=2))
+        builder.add_trade(self.trade(124, second=2))
         self.assertFalse(builder.is_ready)
         ready = builder.add_trade(self.trade(125, second=2))
         self.assertTrue(ready["ready"])
