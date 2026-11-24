@@ -709,7 +709,7 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(restored.scans, 27)
         self.assertEqual(restored.daily_loss_percent, 1.0)
         self.assertEqual(restored.daily_start_equity, restored.equity)
-        self.assertRegex(restored.daily_loss_date, r"^\\d{4}-\\d{2}-\\d{2}$")
+        self.assertRegex(restored.daily_loss_date, r"^\d{4}-\d{2}-\d{2}$")
         self.assertFalse(restored.halted)
         # The one-time migration is durable and does not repeat on next launch.
         upgraded = restored.export_state()
