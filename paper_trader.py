@@ -457,6 +457,11 @@ class PaperTradingEngine:
                 raise RuntimeError("only an explicit operator emergency stop can be re-armed")
             if self.position is not None:
                 raise RuntimeError("open paper position must be closed before re-arming")
+            self._refresh_daily_period()
+            if self.cash <= self.daily_loss_floor:
+                self.halt_reason = "DAILY_MAX_LOSS"
+                self.halt_detail = "UTC daily paper loss limit remains active"
+                raise RuntimeError("maximum UTC daily paper loss limit remains active")
             loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
             if self.cash <= loss_floor:
                 self.halt_reason = "MAX_LOSS"
