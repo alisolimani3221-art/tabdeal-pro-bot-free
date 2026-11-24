@@ -44,7 +44,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
-                          PAPER_SCAN_INTERVAL_SECONDS)
+                          reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS)
 from trade_stream_probe import (
     BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
 )
@@ -2511,12 +2511,10 @@ class FuturesAnalyzerApp(App):
                 # Every accepted, fresh trade may manage an open paper position,
                 # including the first tick that reveals a candle-history gap.
                 try:
-                    if update.get("gap_detected") and engine.position is not None:
-                        # The stop/target path during a stream outage is unknowable.
-                        # Flatten at the first fresh reconnect tick and latch DATA_GAP.
-                        tick_event = engine.halt_for_data_gap(symbol, parsed["price"])
-                    else:
-                        tick_event = engine.process_tick(symbol, parsed["price"])
+                    tick_event = reconcile_paper_market_tick(
+                        engine, symbol, parsed["price"],
+                        gap_detected=bool(update.get("gap_detected")),
+                    )
                     if tick_event:
                         self._persist_paper_engine_state(engine)
                         last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
