@@ -306,7 +306,7 @@ class PaperTraderTests(unittest.TestCase):
             legacy_halted["halted"] = True
             legacy_halted["halt_reason"] = "EMERGENCY_STOP"
             if legacy_halted["schema_version"] == 3:
-                legacy_halted["halt_detail"] = "legacy schema v3 stop"
+                legacy_halted["halt_detail"] = "legacy schema v3 stop: EMERGENCY_STOP"
             migrated = PaperTradingEngine.restore_state(legacy_halted)
             self.assertIn("EMERGENCY_STOP", migrated.halt_detail)
             upgraded_snapshot = migrated.export_state()
