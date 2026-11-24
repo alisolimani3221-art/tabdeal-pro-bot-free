@@ -2025,7 +2025,13 @@ class FuturesAnalyzerApp(App):
                 self.update_auto_status("هیچ توقف قابل‌بازیابی فعالی وجود ندارد.")
                 return
         except Exception as exc:
-            self.update_auto_status("خواندن وضعیت ایمنی ناموفق بود؛ قفل حفظ شد: " + type(exc).__name__)
+            # Keep the fail-closed behavior, but expose the concrete validation
+            # reason so an operator can distinguish coordinator vs paper-state
+            # corruption without weakening or bypassing either safety gate.
+            detail = "{}: {}".format(type(exc).__name__, str(exc)[:180])
+            self.update_auto_status(
+                "خواندن وضعیت ایمنی ناموفق بود؛ قفل حفظ شد: " + detail
+            )
             return
 
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
