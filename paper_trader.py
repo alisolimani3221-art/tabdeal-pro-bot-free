@@ -265,13 +265,22 @@ class PaperTradingEngine:
                 "last_entry_candle", "halt_detail", "daily_loss_percent",
                 "daily_loss_date", "daily_start_equity",
             }
+            # A pre-daily-risk v4 snapshot was briefly written with this same
+            # version number. Accept only that exact legacy shape: all three
+            # daily-risk fields absent and no other missing/extra fields.
+            legacy_daily_fields = {
+                "daily_loss_percent", "daily_loss_date", "daily_start_equity",
+            }
+            legacy_v4_daily = set(state) == expected - legacy_daily_fields
         else:
             raise ValueError(
                 "unsupported paper-engine schema_version {}; supported versions: 1-4"
                 .format(version)
             )
         actual = set(state)
-        if actual != expected:
+        if actual != expected and not (
+                version == 4 and legacy_v4_daily
+        ):
             missing = sorted(expected - actual)
             unexpected = sorted(actual - expected)
             # Report only field names, never persisted values, balances, or positions.
@@ -291,7 +300,10 @@ class PaperTradingEngine:
             fee_rate=state["fee_rate"],
             slippage_rate=state["slippage_rate"],
             max_loss_percent=state["max_loss_percent"],
-            daily_loss_percent=(state["daily_loss_percent"] if version >= 4 else 1.0),
+            daily_loss_percent=(
+                state["daily_loss_percent"]
+                if version >= 4 and not legacy_v4_daily else 1.0
+            ),
         )
 
         def finite(value, name, allow_zero=False, allow_negative=False):
@@ -406,7 +418,7 @@ class PaperTradingEngine:
                     or not isinstance(trade.get("reason"), str)):
                 raise ValueError("paper-engine trade metadata is invalid")
         engine.closed_trades = [dict(item) for item in trades]
-        if version >= 4:
+        if version >= 4 and not legacy_v4_daily:
             daily_date = state["daily_loss_date"]
             engine.daily_loss_date = _utc_date_key(daily_date)
             if engine.daily_loss_date != daily_date:
