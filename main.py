@@ -2961,7 +2961,7 @@ class FuturesAnalyzerApp(App):
             engine = getattr(self, "auto_engine", None)
             history = load_paper_history(state_path, engine=engine)
             summary = self.make_label(
-                "معاملات بسته‌شده: {} | سودده: {} | زیان‌ده: {}\\nسود/زیان خالص: {:.6f} USDT".format(
+                "معاملات بسته‌شده: {} | سودده: {} | زیان‌ده: {}\nسود/زیان خالص: {:.6f} USDT".format(
                     history["count"], history["wins"], history["losses"],
                     history["net_pnl"]),
                 size=13, height=dp(72), color=(0.55, 0.85, 1, 1))
@@ -2980,8 +2980,8 @@ class FuturesAnalyzerApp(App):
                     # The existing v4 persisted trade schema has no entry/exit
                     # timestamps. Do not fabricate times; show stored prices instead.
                     details = (
-                        "#{:d}  {}  {}\\nورود: {:.8g} | خروج: {:.8g}\\n"
-                        "سود/زیان خالص: {:+.6f} USDT ({})\\nعلت خروج: {}\\n"
+                        "#{:d}  {}  {}\nورود: {:.8g} | خروج: {:.8g}\n"
+                        "سود/زیان خالص: {:+.6f} USDT ({})\nعلت خروج: {}\n"
                         "زمان ورود/خروج در داده ذخیره‌شده موجود نیست"
                     ).format(index, trade["symbol"], side, float(trade["entry"]),
                              float(trade["exit"]), pnl, result,
@@ -2996,7 +2996,7 @@ class FuturesAnalyzerApp(App):
             body.add_widget(scroll)
         except Exception as exc:
             body.add_widget(self.make_label(
-                "خواندن تاریخچه آزمایشی ناموفق بود؛ هیچ تغییری در معاملات انجام نشد.\\n{}: {}".format(
+                "خواندن تاریخچه آزمایشی ناموفق بود؛ هیچ تغییری در معاملات انجام نشد.\n{}: {}".format(
                     type(exc).__name__, str(exc)[:180]),
                 size=12, height=dp(100), color=(1, 0.55, 0.45, 1)))
         close_button = Button(
