@@ -22,6 +22,15 @@ class MultiSymbolCandleCache:
         self.lock = threading.RLock()
         os.makedirs(directory, exist_ok=True)
 
+    def set_allowed_symbols(self, symbols):
+        """Refresh the active-contract allowlist after exchangeInfo loads."""
+        normalized = {
+            value for value in symbols
+            if isinstance(value, str) and re.fullmatch(r"[A-Z0-9]+_USDT", value)
+        }
+        with self.lock:
+            self.allowed_symbols = normalized
+
     def _path(self, symbol):
         if symbol not in self.allowed_symbols:
             raise ValueError("symbol is not in the active futures allowlist")
