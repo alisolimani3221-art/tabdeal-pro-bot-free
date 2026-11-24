@@ -29,6 +29,7 @@ on:
       - fix/v1.52-legacy-paper-schema-v4-migration
       - work/v1.53-integrated
       - fix/v1.53-five-candle-warmup-orderbook-refresh
+      # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
       - 'android_tls.py'
