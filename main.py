@@ -2511,14 +2511,19 @@ class FuturesAnalyzerApp(App):
                 # Every accepted, fresh trade may manage an open paper position,
                 # including the first tick that reveals a candle-history gap.
                 try:
-                    tick_event = engine.process_tick(symbol, parsed["price"])
+                    if update.get("gap_detected") and engine.position is not None:
+                        # The stop/target path during a stream outage is unknowable.
+                        # Flatten at the first fresh reconnect tick and latch DATA_GAP.
+                        tick_event = engine.halt_for_data_gap(symbol, parsed["price"])
+                    else:
+                        tick_event = engine.process_tick(symbol, parsed["price"])
                     if tick_event:
                         self._persist_paper_engine_state(engine)
                         last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
                         trade = tick_event["trade"]
                         tick_message = "خروج حفاظتی معامله آزمایشی: {}؛ سود/زیان خالص={:.4f} USDT.".format(trade["reason"], trade["net_pnl"])
                         if tick_event["halted"]:
-                            tick_message += " موتور به سقف زیان رسیده و متوقف شد."
+                            tick_message += " موتور به‌دلیل توقف ایمنی متوقف شد: {}.".format(tick_event.get("halt_reason"))
                             self.auto_stop_event.set()
                         Clock.schedule_once(lambda dt, value=tick_message: self.update_auto_status(value), 0)
                         if self.auto_stop_event.is_set():
