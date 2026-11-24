@@ -2584,6 +2584,9 @@ class FuturesAnalyzerApp(App):
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
                                  stream_status["gaps"])
+                        rejection_reasons = stream_status.get("rejection_reasons", {})
+                        if rejection_reasons:
+                            status_text += " علل رد کندل: " + str(rejection_reasons)[:120] + "."
                         preliminary = builder.preliminary_trend()
                         if preliminary is not None:
                             trend_names = {"UP": "صعودی", "DOWN": "نزولی", "FLAT": "خنثی"}
