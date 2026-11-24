@@ -512,6 +512,9 @@ class FuturesAnalyzerApp(App):
         if not symbols:
             return
         self.verified_market_symbols = set(str(item) for item in symbols)
+        cache_manager = getattr(self, "multi_symbol_candle_cache", None)
+        if cache_manager is not None:
+            cache_manager.set_allowed_symbols(self.verified_market_symbols - {self.current_symbol})
         current = self.current_symbol
         self.symbol_spinner.values = tuple(symbols)
         if current in symbols:
