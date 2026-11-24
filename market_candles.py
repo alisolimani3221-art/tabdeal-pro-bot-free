@@ -94,7 +94,7 @@ class TradeCandleBuilder:
             # forming candle is discarded, but older fully closed candles remain
             # valid. Only one or more completely skipped minute buckets invalidate
             # the retained indicator history.
-            if bucket != self._resume_bucket + self.interval_ms:
+            if bucket > self._resume_bucket + self.interval_ms:
                 self.closed.clear()
                 self.gaps += 1
                 gap_detected = True
