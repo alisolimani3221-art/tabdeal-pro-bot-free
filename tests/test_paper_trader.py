@@ -515,6 +515,20 @@ class PaperTraderTests(unittest.TestCase):
         self.assertFalse(engine.halted)
         self.assertIsNone(engine.position)
 
+    def test_operator_rearm_cannot_bypass_active_daily_loss_limit(self):
+        engine = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
+        engine.halted = True
+        engine.halt_reason = "EMERGENCY_STOP"
+        engine.halt_detail = "operator emergency stop"
+        engine.cash = 7.9
+        engine.daily_start_equity = 8.0
+        engine.daily_loss_date = engine.daily_loss_date
+        with self.assertRaisesRegex(RuntimeError, "daily paper loss"):
+            engine.rearm_after_operator_stop()
+        self.assertTrue(engine.halted)
+        self.assertEqual(engine.halt_reason, "DAILY_MAX_LOSS")
+        self.assertIn("daily", engine.halt_detail.lower())
+
     def test_data_gap_flattens_and_latches_open_long_and_short_positions(self):
         for signal in ("BULLISH", "BEARISH"):
             with self.subTest(signal=signal):
