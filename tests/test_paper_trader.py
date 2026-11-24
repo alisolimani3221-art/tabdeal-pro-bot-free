@@ -358,6 +358,7 @@ class PaperTraderTests(unittest.TestCase):
         loss_limited.halted = True
         loss_limited.halt_reason = "EMERGENCY_STOP"
         loss_limited.cash = 7.9
+        loss_limited.daily_start_equity = 7.95
         with self.assertRaisesRegex(RuntimeError, "maximum cumulative paper loss"):
             loss_limited.rearm_after_operator_stop()
         self.assertTrue(loss_limited.halted)
