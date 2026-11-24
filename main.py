@@ -43,7 +43,7 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
-from paper_trader import (PaperTradingEngine, diagnose_signal,
+from paper_trader import (PaperTradingEngine, diagnose_signal, diagnose_entry_state,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS)
 from trade_stream_probe import (
@@ -2757,13 +2757,31 @@ class FuturesAnalyzerApp(App):
                                 app.close()
                             except Exception:
                                 pass
+                        open_position = result.get("open_position")
+                        position_text = ""
+                        if isinstance(open_position, dict):
+                            position_side = "خرید" if open_position["side"] == "BULLISH" else "فروش"
+                            estimated_open_pnl = (
+                                result["equity"] - result["cash"] - open_position["fees_entry"]
+                            )
+                            position_text = (
+                                "موقعیت باز: {} {} | ورود: {:.8g} | قیمت فعلی: {:.8g} | "
+                                "حد ضرر: {:.8g} | حد سود: {:.8g} | اهرم: {}x | "
+                                "سود/زیان شناور تخمینی: {:.4f} USDT.\n"
+                            ).format(
+                                open_position["symbol"], position_side,
+                                open_position["entry"], open_position["last_price"],
+                                open_position["stop"], open_position["target"],
+                                open_position["leverage"], estimated_open_pnl,
+                            )
                         message_text = (
                             "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت: {:.8g}\n"
                             "آخرین داده: {:.0f} ثانیه قبل | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
-                            "وضعیت ورود: {}\nحداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
+                            "وضعیت ورود: {}\n{}حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
                         ).format(symbol, technical["signal"], technical["price"], age,
                                  result["equity"], result["closed_trades"],
-                                 diagnose_signal(technical), event_text)
+                                 diagnose_entry_state(technical, open_position),
+                                 position_text, event_text)
                         Clock.schedule_once(
                             lambda dt, value=message_text: self.update_auto_status(value), 0
                         )
