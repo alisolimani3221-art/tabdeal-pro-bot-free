@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/paper-persistence-fail-closed-20261124
+      - fix/v1.52-legacy-paper-schema-v4-migration
     paths:
       - '**.py'
       - 'tests/**'
