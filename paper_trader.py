@@ -509,6 +509,29 @@ class PaperTradingEngine:
             return {"halted": False, "rearmed": True,
                     "live_order_submitted": False}
 
+    def rearm_after_data_gap(self):
+        """Resume monitoring after a gap only when the position is flat and risk limits allow it."""
+        with self._lock:
+            if not self.halted or self.halt_reason != "DATA_GAP":
+                raise RuntimeError("only a data-gap halt can be automatically recovered")
+            if self.position is not None:
+                raise RuntimeError("paper position must be flat before data-gap recovery")
+            self._refresh_daily_period()
+            if self.cash <= self.daily_loss_floor:
+                self.halt_reason = "DAILY_MAX_LOSS"
+                self.halt_detail = "UTC daily paper loss limit remains active after data gap"
+                raise RuntimeError("maximum UTC daily paper loss limit remains active")
+            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+            if self.cash <= loss_floor:
+                self.halt_reason = "MAX_LOSS"
+                self.halt_detail = "cumulative paper loss limit remains active after data gap"
+                raise RuntimeError("maximum cumulative paper loss limit remains active")
+            self.halted = False
+            self.halt_reason = None
+            self.halt_detail = None
+            return {"halted": False, "rearmed": True,
+                    "data_gap_recovered": True, "live_order_submitted": False}
+
     def emergency_close(self, detail=None):
         """Close any simulated position and persist a short, non-secret stop diagnostic."""
         with self._lock:
