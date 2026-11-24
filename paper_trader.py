@@ -641,7 +641,7 @@ class PaperTradingEngine:
         # Never close and reopen on the same scan: that can create an
         # immediate churn loop on a signal that has not changed.
         if (not self.halted and not closed_this_scan and self.position is None
-                and valid and self.cash > 0 and self.cash > loss_floor):
+                and valid and self.cash > 0 and self.cash > cumulative_floor):
             choice = next((candidate for candidate in valid
                            if self.last_entry_candle != {
                                "symbol": candidate["symbol"],
