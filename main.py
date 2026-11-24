@@ -42,6 +42,7 @@ from orderbook_poller import fetch_order_book_snapshot
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
+from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS)
@@ -2171,6 +2172,30 @@ class FuturesAnalyzerApp(App):
                 builder.reset_after_reconnect()
             else:
                 builder = TradeCandleBuilder(symbol)
+            candle_cache_dir = os.path.join(self.user_data_dir, "candle-cache")
+            candle_cache_path = os.path.join(candle_cache_dir, symbol + ".json")
+            restored_candle_count = 0
+            if previous_builder is None or previous_builder.symbol != symbol:
+                try:
+                    cached_rows = load_candle_cache(
+                        candle_cache_path, symbol, int(time.time() * 1000),
+                        interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
+                    )
+                    if len(cached_rows) >= 20:
+                        restored_candle_count = builder.restore_closed_candles(cached_rows)
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    # Invalid, stale-schema or gapped cache is never used as
+                    # an indicator source. Live collection starts from empty.
+                    try:
+                        os.remove(candle_cache_path)
+                    except OSError:
+                        pass
+            self.auto_candle_cache_path = candle_cache_path
+            self.auto_candle_cache_last_open_time = (
+                builder.closed[-1][0] if restored_candle_count else None
+            )
             state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
@@ -2446,6 +2471,40 @@ class FuturesAnalyzerApp(App):
                         )
                     return
                 update = builder.add_trade(parsed)
+                # A restored cache is usable only if the first fresh live trade
+                # proves there was no missing one-minute bucket. On a gap the
+                # builder clears the cache before any technical signal is made.
+                if update.get("gap_detected"):
+                    try:
+                        os.remove(getattr(self, "auto_candle_cache_path", ""))
+                    except (OSError, TypeError):
+                        pass
+                    self.auto_candle_cache_last_open_time = None
+                elif update.get("accepted") and builder.closed:
+                    cached_open_time = builder.closed[-1][0]
+                    if cached_open_time != getattr(self, "auto_candle_cache_last_open_time", None):
+                        try:
+                            cache_rows = validate_closed_candles(
+                                list(builder.closed), int(time.time() * 1000),
+                                interval_ms=builder.interval_ms,
+                                limit=builder.closed.maxlen,
+                            )
+                            if len(cache_rows) >= 20:
+                                save_candle_cache(
+                                    self.auto_candle_cache_path, symbol, cache_rows
+                                )
+                                self.auto_candle_cache_last_open_time = cache_rows[-1][0]
+                        except Exception as cache_exc:
+                            # Cache is an optimization only; a cache-write error
+                            # must not corrupt paper-engine state or enable stale data.
+                            now = time.monotonic()
+                            if now - last_status_update >= 10:
+                                last_status_update = now
+                                Clock.schedule_once(
+                                    lambda dt, name=type(cache_exc).__name__: self.update_auto_status(
+                                        "ذخیره تاریخچه کندل ناموفق بود؛ تحلیل فقط با داده زنده معتبر ادامه می‌یابد: " + name
+                                    ), 0
+                                )
                 self._update_engine_health(
                     candle_count=int(builder.status().get("closed_candles", 0)),
                     builder_ready=bool(builder.is_ready),
