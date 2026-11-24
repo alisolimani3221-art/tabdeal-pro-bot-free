@@ -409,7 +409,6 @@ class PaperTraderTests(unittest.TestCase):
         legacy = engine.export_state()
         legacy["schema_version"] = 3
         legacy["position"].pop("opened_at")
-        legacy.pop("halt_detail")
         restored = PaperTradingEngine.restore_state(legacy)
         self.assertIsNone(restored.position["opened_at"])
         upgraded = restored.export_state()
