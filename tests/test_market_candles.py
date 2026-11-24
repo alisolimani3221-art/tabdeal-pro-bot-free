@@ -183,6 +183,39 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertIsNone(builder.current)
         self.assertFalse(builder.is_ready)
 
+    def test_restored_cache_is_ready_after_contiguous_fresh_trade(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        rows = [[minute * 60_000, 100, 102, 99, 101, 4]
+                for minute in range(100, 120)]
+        self.assertEqual(builder.restore_closed_candles(rows), 20)
+        self.assertFalse(builder.is_ready)
+        result = builder.add_trade(self.trade(120, second=2))
+        self.assertTrue(result["accepted"])
+        self.assertFalse(result["gap_detected"])
+        self.assertTrue(builder.is_ready)
+        self.assertEqual(len(builder.closed), 20)
+
+    def test_restored_cache_is_discarded_when_live_stream_has_gap(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        rows = [[minute * 60_000, 100, 102, 99, 101, 4]
+                for minute in range(100, 120)]
+        builder.restore_closed_candles(rows)
+        result = builder.add_trade(self.trade(121, second=2))
+        self.assertTrue(result["accepted"])
+        self.assertTrue(result["gap_detected"])
+        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(builder.is_ready)
+
+    def test_restore_rejects_short_or_discontinuous_cache(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        with self.assertRaisesRegex(ValueError, "20"):
+            builder.restore_closed_candles([[60_000, 1, 1, 1, 1, 1]])
+        rows = [[minute * 60_000, 100, 102, 99, 101, 4]
+                for minute in range(100, 121)]
+        rows[10][0] += 60_000
+        with self.assertRaisesRegex(ValueError, "gap"):
+            builder.restore_closed_candles(rows)
+
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
             with self.subTest(symbol=symbol):
