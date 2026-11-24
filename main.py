@@ -2870,14 +2870,39 @@ class FuturesAnalyzerApp(App):
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
         guard = getattr(self, "runtime_guard", None)
+        persistence_failed = False
         if worker_stopped:
             engine = getattr(self, "auto_engine", None)
             if engine is not None:
                 try:
                     self._persist_paper_engine_state(engine)
-                except Exception:
-                    pass
-        if guard is not None and worker_stopped:
+                except Exception as exc:
+                    persistence_failed = True
+                    self._paper_emergency_latched = True
+                    detail = "{}: {}".format(type(exc).__name__, str(exc)[:160])
+                    session = getattr(self, "coordinator_session", None)
+                    durable_halt = False
+                    if session is not None:
+                        try:
+                            session.emergency_stop(
+                                "paper engine persistence failure during shutdown"
+                            )
+                            durable_halt = True
+                        except Exception as halt_exc:
+                            detail += "; durable halt failed: {}: {}".format(
+                                type(halt_exc).__name__, str(halt_exc)[:120]
+                            )
+                    self.update_auto_status(
+                        "ذخیره وضعیت موتور آزمایشی هنگام خاموش‌شدن شکست خورد؛ "
+                        "شروع مجدد موتور مسدود شد. علت: " + detail
+                        + (" توقف پایدار ثبت شد." if durable_halt else
+                           " ثبت توقف پایدار تأیید نشد؛ قفل اجرا تا پایان فرایند حفظ می‌شود.")
+                    )
+                    # If the durable coordinator latch could not be written,
+                    # retain the process lock until OS process termination.
+                    if not durable_halt:
+                        persistence_failed = True
+        if guard is not None and worker_stopped and not persistence_failed:
             try:
                 guard.stop()
             except Exception:
