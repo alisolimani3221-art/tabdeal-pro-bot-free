@@ -264,7 +264,7 @@ class PaperTraderTests(unittest.TestCase):
         engine = PaperTradingEngine(capital=8)
         engine.emergency_close("periodic scan failure: RuntimeError")
         saved = engine.export_state()
-        self.assertEqual(saved["schema_version"], 3)
+        self.assertEqual(saved["schema_version"], 4)
         restored = PaperTradingEngine.restore_state(saved)
         self.assertEqual(
             restored.halt_detail, "periodic scan failure: RuntimeError"
@@ -288,7 +288,7 @@ class PaperTraderTests(unittest.TestCase):
         restored_one = PaperTradingEngine.restore_state(version_one)
         self.assertIsNone(restored_one.halt_detail)
 
-        # Legacy halted files must migrate to schema v3 without losing
+        # Legacy halted files must migrate to schema v4 without losing
         # their original reason or becoming unrestorable on the next launch.
         for legacy in (version_one, version_two):
             legacy_halted = dict(legacy)
@@ -297,7 +297,7 @@ class PaperTraderTests(unittest.TestCase):
             migrated = PaperTradingEngine.restore_state(legacy_halted)
             self.assertIn("EMERGENCY_STOP", migrated.halt_detail)
             upgraded_snapshot = migrated.export_state()
-            self.assertEqual(upgraded_snapshot["schema_version"], 3)
+            self.assertEqual(upgraded_snapshot["schema_version"], 4)
             restored_again = PaperTradingEngine.restore_state(upgraded_snapshot)
             self.assertEqual(restored_again.halt_reason, "EMERGENCY_STOP")
             self.assertIn("EMERGENCY_STOP", restored_again.halt_detail)
@@ -383,6 +383,8 @@ class PaperTraderTests(unittest.TestCase):
     def test_state_round_trip_preserves_open_position_and_negative_closed_pnl(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
+        opened_at = engine.position["opened_at"]
+        self.assertGreater(opened_at, 0)
         restored = PaperTradingEngine.restore_state(engine.export_state())
         self.assertEqual(restored.position, engine.position)
         self.assertAlmostEqual(restored.cash, engine.cash)
@@ -390,12 +392,49 @@ class PaperTraderTests(unittest.TestCase):
         closed = restored.process_scan([
             dict(setup(price=98.0), signal="NEUTRAL")
         ])
-        self.assertEqual(closed["events"][0]["trade"]["reason"], "STOP")
-        self.assertLess(closed["events"][0]["trade"]["net_pnl"], 0)
+        trade = closed["events"][0]["trade"]
+        self.assertEqual(trade["reason"], "STOP")
+        self.assertLess(trade["net_pnl"], 0)
+        self.assertEqual(trade["opened_at"], opened_at)
+        self.assertGreaterEqual(trade["closed_at"], opened_at)
         recovered = PaperTradingEngine.restore_state(restored.export_state())
         self.assertIsNone(recovered.position)
         self.assertEqual(len(recovered.closed_trades), 1)
         self.assertLess(recovered.closed_trades[0]["net_pnl"], 0)
+        self.assertEqual(recovered.closed_trades[0]["opened_at"], opened_at)
+
+    def test_legacy_open_position_without_time_survives_v4_upgrade(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        legacy = engine.export_state()
+        legacy["schema_version"] = 3
+        legacy["position"].pop("opened_at")
+        legacy.pop("halt_detail")
+        restored = PaperTradingEngine.restore_state(legacy)
+        self.assertIsNone(restored.position["opened_at"])
+        upgraded = restored.export_state()
+        self.assertEqual(upgraded["schema_version"], 4)
+        reloaded = PaperTradingEngine.restore_state(upgraded)
+        self.assertIsNone(reloaded.position["opened_at"])
+        closed = reloaded.process_scan([
+            dict(setup(price=98.0), signal="NEUTRAL")
+        ])
+        trade = closed["events"][0]["trade"]
+        self.assertNotIn("opened_at", trade)
+        self.assertNotIn("closed_at", trade)
+
+    def test_restore_rejects_malformed_or_reversed_trade_timestamps(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        engine.process_scan([dict(setup(price=98.0), signal="NEUTRAL")])
+        state = engine.export_state()
+        state["closed_trades"][0]["opened_at"] = 200.0
+        state["closed_trades"][0]["closed_at"] = 100.0
+        with self.assertRaises(ValueError):
+            PaperTradingEngine.restore_state(state)
+        state["closed_trades"][0]["closed_at"] = float("nan")
+        with self.assertRaises(ValueError):
+            PaperTradingEngine.restore_state(state)
 
     def test_restore_rejects_corrupt_or_inconsistent_state(self):
         engine = PaperTradingEngine(capital=8)
