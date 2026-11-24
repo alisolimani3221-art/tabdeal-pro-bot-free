@@ -222,6 +222,42 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertFalse(health["builder_ready"])
         self.assertTrue(health["monitoring_active"])
 
+    def test_rejection_reasons_are_exposed_and_bounded_in_health_report(self):
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "rejected_trades": 3,
+                "rejection_reasons": {
+                    "out_of_order": 2,
+                    "duplicate_or_old_sequence": 1,
+                    "ignored_secret": "not-a-count",
+                },
+            },
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["rejected_trades"], 3)
+        self.assertEqual(health["rejection_reasons"], {
+            "out_of_order": 2,
+            "duplicate_or_old_sequence": 1,
+        })
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn("داده‌های ردشده کندل‌ساز: 3", rendered)
+        self.assertIn("out_of_order", rendered)
+        self.assertIn("duplicate_or_old_sequence", rendered)
+        self.assertNotIn("ignored_secret", rendered)
+
+    def test_thread_liveness_is_reported_separately_from_stream_health(self):
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(auto_trader_thread=worker, auto_health={})
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn("رشته معامله‌گر زنده: True", rendered)
+        self.assertIn("سلامت جریان معاملات: CONNECTING_OR_DISCONNECTED", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
