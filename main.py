@@ -60,6 +60,7 @@ from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
 from paper_trade_history import load_paper_history
+from paper_risk_diagnostics import build_paper_risk_diagnostic_lines
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -1694,6 +1695,7 @@ class FuturesAnalyzerApp(App):
             coordinator_status = "ERROR: {}: {}".format(
                 type(coordinator_exc).__name__, str(coordinator_exc)[:140]
             )
+        paper_state = {}
         try:
             paper_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             if os.path.isfile(paper_path):
@@ -1708,6 +1710,7 @@ class FuturesAnalyzerApp(App):
                     )
                 else:
                     paper_state_status = "ERROR: invalid JSON state shape"
+                    paper_state = {}
         except Exception as paper_exc:
             paper_state_status = "ERROR: {}: {}".format(
                 type(paper_exc).__name__, str(paper_exc)[:140]
@@ -1748,6 +1751,7 @@ class FuturesAnalyzerApp(App):
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
+        lines.extend(build_paper_risk_diagnostic_lines(paper_state))
         lines.extend(build_engine_health_report_lines(self))
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
