@@ -37,12 +37,14 @@ def build_paper_risk_diagnostic_lines(state):
     if daily_start is not None and daily_percent is not None and daily_percent <= 100:
         daily_floor = daily_start * (1.0 - daily_percent / 100.0)
         lines.append("کف مجاز وجه نقد روزانه: " + shown(daily_floor))
-        if cash is not None:
+        if cash is not None and not position_open:
             lines.append("فاصله تا کف زیان روزانه: " + shown(cash - daily_floor))
             lines.append("وضعیت سقف زیان روزانه: " + (
                 "فعال؛ بازآماده‌سازی مسدود است" if cash <= daily_floor
                 else "در محدوده مجاز"
             ))
+        elif position_open:
+            lines.append("وضعیت سقف زیان روزانه: به‌علت موقعیت باز، از وجه نقد به‌تنهایی نتیجه‌گیری نمی‌شود")
     else:
         lines.append("وضعیت سقف زیان روزانه: قابل محاسبه نیست؛ داده ریسک ناقص/نامعتبر است")
 
