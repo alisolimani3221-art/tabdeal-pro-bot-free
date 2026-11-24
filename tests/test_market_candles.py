@@ -192,8 +192,13 @@ class TradeCandleBuilderTests(unittest.TestCase):
         result = builder.add_trade(self.trade(120, second=2))
         self.assertTrue(result["accepted"])
         self.assertFalse(result["gap_detected"])
+        self.assertFalse(builder.is_ready)
+        builder.add_trade(self.trade(121, second=2))
+        self.assertFalse(builder.is_ready)
+        ready = builder.add_trade(self.trade(122, second=2))
+        self.assertTrue(ready["ready"])
         self.assertTrue(builder.is_ready)
-        self.assertEqual(len(builder.closed), 20)
+        self.assertEqual(len(builder.closed), 21)
 
     def test_restored_cache_is_discarded_when_live_stream_has_gap(self):
         builder = TradeCandleBuilder("BTC_USDT")
