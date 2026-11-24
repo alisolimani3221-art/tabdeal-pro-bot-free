@@ -6,7 +6,7 @@ A read-only GitHub Actions probe connected to:
 
 `wss://api1.tabdeal.org/special_margin/broadcast/`
 
-It subscribed using the plain-text market symbol `BTC_USDT`. In a later 15-second observation window, the client received 24 messages and 20 matched the strict parser; the redacted report is retained in the latest successful APK workflow. This remains a short empirical sample. No prices, quantities, sequence values, timestamps, or account credentials were retained in that report.
+It subscribed using the plain-text market symbol `BTC_USDT`. The official API documentation states that this subscription delivers trades for that one market only; it is not a market-wide all-symbol feed. The current Android simulator therefore collects candles only for the selected symbol. A separate subscription per market would be required to collect other symbols, and is not enabled because connection limits and sustained multi-symbol behavior have not been validated. In a later 15-second observation window, the client received 24 messages and 20 matched the strict parser; the redacted report is retained in the latest successful APK workflow. This remains a short empirical sample. No prices, quantities, sequence values, timestamps, or account credentials were retained in that report.
 
 The observed `trade` object had these fields and JSON types:
 
@@ -33,12 +33,12 @@ The strict read-only parser now recognizes `amount` as quantity and `updated` as
 
 ## Remaining validation before wider deployment
 
-1. Capture redacted schema metadata over several hours and across multiple active symbols.
+1. Capture redacted schema metadata over several hours for the selected market; validate separate per-symbol connections before attempting a multi-symbol collector.
 2. Verify sequence monotonicity, duplicate behavior, timestamp ordering, and gap detection.
 3. Test reconnect/resubscribe behavior and determine whether missed events can be recovered.
 4. Confirm the semantics of price, amount, side and timestamp against Tabdeal's official specification or exchange support.
 5. Continue testing out-of-order events, duplicate sequence IDs, missing intervals, timezone boundaries and process restarts.
 6. Compare generated candles against an authoritative Tabdeal chart/feed before relying on signals.
-7. Extend from the selected symbol to a multi-symbol service only after connection limits, rate limits and sustained data quality are known.
+7. Extend from the selected symbol to a multi-symbol service only after connection limits, rate limits and sustained data quality are known. The documented broadcast protocol accepts one market symbol per connection.
 
 The Android app's current simulator is one-symbol and foreground-only. It is not guaranteed to continue while Android suspends or closes the app. Live exchange orders remain disabled. This file records empirical observations, not an official API contract.
