@@ -2315,6 +2315,11 @@ class FuturesAnalyzerApp(App):
             )
             return
 
+        # A persisted open paper position may have crossed protective levels
+        # while this process was stopped. The first fresh selected-symbol tick
+        # after restart must therefore be reconciled as a data gap and flatten
+        # the simulated position conservatively.
+        recovered_open_position = engine.position is not None
         last_processed_bucket = None
         scan_state_lock = threading.Lock()
         scan_state = {"technical": None, "received_at": 0.0}
@@ -2509,8 +2514,13 @@ class FuturesAnalyzerApp(App):
                 try:
                     tick_event = reconcile_paper_market_tick(
                         engine, symbol, parsed["price"],
-                        gap_detected=bool(update.get("gap_detected")),
+                        gap_detected=(bool(update.get("gap_detected"))
+                                      or recovered_open_position),
                     )
+                    if recovered_open_position:
+                        # The first fresh tick has now reconciled the persisted
+                        # position against the unknown offline interval.
+                        recovered_open_position = False
                     if tick_event:
                         self._persist_paper_engine_state(engine)
                         last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
