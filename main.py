@@ -2165,7 +2165,7 @@ class FuturesAnalyzerApp(App):
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
             "candle_count": 0, "builder_ready": False,
-            "last_scan_at": None, "last_stream_error": "",
+            "last_scan_at": None, "last_stream_error": "", "monitoring_active": False,
         }
         guard = getattr(self, "runtime_guard", None)
         coordinator_session = getattr(self, "coordinator_session", None)
@@ -2274,8 +2274,7 @@ class FuturesAnalyzerApp(App):
                 "آماده‌سازی پایش: {} از ۵ کندل اولیه؛ هدف تحلیل معتبر ۲۳ کندل بسته‌شده است."
             ).format(retained_count)
         status_text = (
-            "در حال اتصال به جریان معاملات " + symbol + ".\n"
-            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪؛ "
+            undefined
             "سقف زیان روزانه: ۱٪؛ سقف زیان تجمعی: ۳٪.\n"
             + warmup_text + "\n" + candle_cache_note
             + " هیچ سفارش واقعی ارسال نمی‌شود."
@@ -2417,7 +2416,7 @@ class FuturesAnalyzerApp(App):
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
                     websocket_connected=True, connected_at=time.monotonic(),
-                    last_stream_error="",
+                    monitoring_active=False, last_stream_error="",
                 )
                 if connected_once:
                     builder.reset_after_reconnect()
@@ -2440,8 +2439,9 @@ class FuturesAnalyzerApp(App):
                     raise
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
-                        "در صورت نبود شکاف، کندل‌های معتبر قبلی حفظ می‌شوند."
+                        "اتصال برقرار شد: " + symbol + ". پایش زنده بازار شروع شد؛ " 
+                        "قیمت و وضعیت موقعیت آزمایشی از همین حالا بررسی می‌شود. " 
+                        "تحلیل و ورود فقط پس از تکمیل ۲۳ کندل معتبر مجاز است."
                     ), 0
                 )
 
@@ -2567,6 +2567,7 @@ class FuturesAnalyzerApp(App):
                     worker_phase=selected_phase,
                     selected_symbol_trade_count=selected_trade_count,
                     last_selected_symbol_trade_at=time.monotonic(),
+                    monitoring_active=True,
                     candle_count=int(candle_status.get("closed_candles", 0)),
                     builder_ready=bool(builder.is_ready),
                 )
