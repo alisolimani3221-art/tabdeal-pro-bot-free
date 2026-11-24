@@ -2,6 +2,7 @@
 import math
 import re
 import threading
+import time
 
 
 PAPER_SCAN_INTERVAL_SECONDS = 5.0
@@ -185,7 +186,7 @@ class PaperTradingEngine:
         """Return a JSON-safe snapshot suitable for atomic local persistence."""
         with self._lock:
             return {
-                "schema_version": 3,
+                "schema_version": 4,
                 "initial_capital": self.initial_capital,
                 "cash": self.cash,
                 "risk_percent": self.risk_percent,
@@ -219,6 +220,8 @@ class PaperTradingEngine:
         elif version == 2:
             expected = common | {"last_entry_candle"}
         elif version == 3:
+            expected = common | {"last_entry_candle", "halt_detail"}
+        elif version == 4:
             expected = common | {"last_entry_candle", "halt_detail"}
         else:
             raise ValueError("unsupported or malformed paper-engine state")
@@ -295,6 +298,8 @@ class PaperTradingEngine:
                 "quantity", "notional", "leverage", "risk_budget",
                 "risk_limit", "fees_entry", "score",
             }
+            if version >= 4:
+                required.add("opened_at")
             if not isinstance(position, dict) or set(position) != required:
                 raise ValueError("paper-engine position is malformed")
             if (not isinstance(position["symbol"], str)
@@ -306,6 +311,8 @@ class PaperTradingEngine:
                 finite(position[name], "position " + name,
                        allow_zero=(name in ("risk_budget", "risk_limit", "fees_entry")))
             finite(position["score"], "position score", allow_negative=True)
+            if version >= 4 and position["opened_at"] is not None:
+                finite(position["opened_at"], "position opened_at", allow_zero=True)
             leverage = position["leverage"]
             if type(leverage) is not int or not 1 <= leverage <= engine.max_leverage:
                 raise ValueError("paper-engine position leverage is invalid")
@@ -330,6 +337,9 @@ class PaperTradingEngine:
                     1e-9, abs(position["risk_limit"]) * 1e-8):
                 raise ValueError("paper-engine position exceeds its risk budget")
             engine.position = dict(position)
+            if version < 4:
+                # Legacy open positions have no trustworthy entry wall-clock time.
+                engine.position["opened_at"] = None
 
         trades = state["closed_trades"]
         if not isinstance(trades, list) or len(trades) > 10000:
@@ -345,6 +355,15 @@ class PaperTradingEngine:
                     or not isinstance(trade.get("symbol"), str)
                     or not isinstance(trade.get("reason"), str)):
                 raise ValueError("paper-engine trade metadata is invalid")
+            has_opened = "opened_at" in trade
+            has_closed = "closed_at" in trade
+            if has_opened != has_closed:
+                raise ValueError("paper-engine trade timestamps are incomplete")
+            if has_opened:
+                opened_at = finite(trade["opened_at"], "trade opened_at", allow_zero=True)
+                closed_at = finite(trade["closed_at"], "trade closed_at", allow_zero=True)
+                if closed_at < opened_at:
+                    raise ValueError("paper-engine trade timestamps are out of order")
         engine.closed_trades = [dict(item) for item in trades]
         if engine.halted and engine.position is not None:
             raise ValueError("halted paper engine cannot retain an open position")
@@ -379,6 +398,10 @@ class PaperTradingEngine:
                       "fees_exit": exit_fee,
                       "net_pnl": gross - p["fees_entry"] - exit_fee,
                       "reason": reason})
+        if p.get("opened_at") is not None:
+            # Use UTC epoch seconds; clamp only to preserve event ordering if
+            # the device wall clock was adjusted backwards during the position.
+            trade["closed_at"] = max(time.time(), float(p["opened_at"]))
         self.closed_trades.append(trade)
         self.position = None
         return {"event": "CLOSED", "trade": trade}
@@ -576,7 +599,7 @@ class PaperTradingEngine:
                         "notional": notional, "leverage": leverage,
                         "risk_budget": quantity * risk_per_unit,
                         "risk_limit": risk_cash, "fees_entry": fee,
-                        "score": choice["score"],
+                        "score": choice["score"], "opened_at": time.time(),
                     }
                     self.last_entry_candle = {
                         "symbol": choice["symbol"],
