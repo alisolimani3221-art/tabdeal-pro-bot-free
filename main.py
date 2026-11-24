@@ -2531,8 +2531,9 @@ class FuturesAnalyzerApp(App):
                             if now - last_status_update >= 10:
                                 last_status_update = now
                                 Clock.schedule_once(
-                                    lambda dt, name=type(cache_exc).__name__: self.update_auto_status(
-                                        "ذخیره تاریخچه کندل ناموفق بود؛ تحلیل فقط با داده زنده معتبر ادامه می‌یابد: " + name
+                                    lambda dt, name=type(cache_exc).__name__, detail=str(cache_exc)[:120]: self.update_auto_status(
+                                        "ذخیره تاریخچه کندل ناموفق بود؛ تحلیل فقط با داده زنده معتبر ادامه می‌یابد: "
+                                        + name + (": " + detail if detail else "")
                                     ), 0
                                 )
                 self._update_engine_health(
