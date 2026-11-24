@@ -1731,7 +1731,7 @@ class FuturesAnalyzerApp(App):
             "آخرین خطای دریافت خودکار دفتر سفارش: " + str(getattr(self, "orderbook_last_error", "") or "ندارد")[:180],
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
-            "رشته پس‌زمینه معامله‌گر: " + ("ALIVE (سلامت جریان تأیید نشده)" if auto_running else "STOPPED"),
+            "رشته پس‌زمینه معامله‌گر: " + ("زنده" if auto_running else "متوقف") + " (سلامت جریان در ردیف جداگانه مشخص شده)",
             "وضعیت پایدار هماهنگ‌کننده: " + coordinator_status,
             "وضعیت پایدار موتور آزمایشی: " + paper_state_status,
             "آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status", "هنوز گزارشی از موتور ثبت نشده"))[:240],
@@ -2569,6 +2569,8 @@ class FuturesAnalyzerApp(App):
                     monitoring_active=True,
                     candle_count=int(candle_status.get("closed_candles", 0)),
                     builder_ready=bool(builder.is_ready),
+                    rejected_trades=int(candle_status.get("rejected_trades", 0)),
+                    rejection_reasons=dict(candle_status.get("rejection_reasons", {})),
                 )
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
