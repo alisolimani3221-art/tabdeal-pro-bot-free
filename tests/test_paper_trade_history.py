@@ -62,13 +62,14 @@ class PaperTradeHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(result["net_pnl"],
                                engine.closed_trades[0]["net_pnl"])
 
-    def test_reads_live_engine_snapshot_without_mutating_it(self):
+    def test_reads_active_paper_engine_snapshot_without_mutating_it(self):
         engine = self._closed_engine()
         before = engine.export_state()
         result = load_paper_history(self.path, engine=engine)
         self.assertEqual(result["count"], 1)
         self.assertEqual(engine.export_state(), before)
-        self.assertFalse(engine.halted)
+        self.assertTrue(engine.halted)
+        self.assertEqual(engine.halt_reason, "EMERGENCY_STOP")
         self.assertIsNone(engine.position)
 
     def test_corrupt_or_non_paper_state_fails_closed(self):
