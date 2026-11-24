@@ -25,6 +25,7 @@ HEALTH_KEYS = (
     "worker_phase", "websocket_connected", "monitoring_active", "retry_attempt",
     "received_messages", "valid_market_trades", "selected_symbol_trade_count",
     "candle_count", "builder_ready", "last_stream_error",
+    "rejected_trades", "rejection_reasons",
 )
 NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
@@ -59,6 +60,14 @@ def _bounded_mapping(value, allowed_keys):
     result = {}
     for key in allowed_keys:
         if key in value:
+            if key == "rejection_reasons" and isinstance(value[key], dict):
+                result[key] = {
+                    str(reason)[:48]: int(count)
+                    for reason, count in list(value[key].items())[:12]
+                    if isinstance(reason, str) and isinstance(count, int)
+                    and not isinstance(count, bool) and 0 <= count <= 1_000_000_000
+                }
+                continue
             safe = _safe_value(value[key])
             if safe is not None:
                 result[key] = safe
@@ -236,6 +245,8 @@ def build_engine_health_report_lines(app):
         "معاملات معتبر نماد انتخابی: " + value("selected_symbol_trade_count", "0"),
         "عمر آخرین معامله نماد انتخابی (ثانیه): " + age("selected_symbol_trade_age_seconds"),
         "کندل‌های بسته: " + value("candle_count", "0"),
+        "داده‌های ردشده کندل‌ساز: " + value("rejected_trades", "0"),
+        "علل رد داده‌ها: " + value("rejection_reasons", "{}")[:240],
         "آماده‌بودن کندل‌ساز: " + value("builder_ready", "false"),
         "عمر آخرین اسکن موتور (ثانیه): " + age("last_scan_age_seconds"),
         "عمر اتصال WebSocket (ثانیه): " + age("connected_age_seconds"),
