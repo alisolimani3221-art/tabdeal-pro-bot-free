@@ -101,8 +101,9 @@ def _engine_health(app, worker_alive):
     # on_open initially labels the socket as waiting for its first trade. Once
     # selected-symbol ticks arrive, derive the visible phase from actual builder
     # telemetry so the diagnostic cannot remain stuck on that startup label.
-    if (result.get("websocket_connected") and selected_age is not None
-            and selected_age <= 30 and result.get("thread_alive", True)):
+    if (phase == "connected_waiting_for_trade" and result.get("websocket_connected")
+            and selected_age is not None and selected_age <= 30
+            and result.get("thread_alive", True)):
         closed_count = result.get("candle_count", 0)
         if result.get("builder_ready"):
             phase = "analysis_ready_waiting_for_scan"
