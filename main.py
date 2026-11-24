@@ -59,6 +59,7 @@ from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
+from paper_trade_history import load_paper_history
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -414,6 +415,14 @@ class FuturesAnalyzerApp(App):
                                   background_color=(0.12, 0.48, 0.38, 1), color=(1, 1, 1, 1))
         self.risk_button.bind(on_press=self.open_risk_calculator)
         content.add_widget(self.risk_button)
+
+        self.history_button = Button(
+            markup=True, text=fa("تاریخچه معاملات آزمایشی"), font_name=FONT_NAME,
+            font_size=sp(16), size_hint_y=None, height=dp(50),
+            background_normal="", background_color=(0.16, 0.34, 0.38, 1),
+            color=(1, 1, 1, 1))
+        self.history_button.bind(on_press=self.open_trade_history)
+        content.add_widget(self.history_button)
 
         self.diagnostics_button = Button(
             markup=True, text=fa("مرکز عیب‌یابی و تعمیر برنامه"), font_name=FONT_NAME,
@@ -2944,6 +2953,62 @@ class FuturesAnalyzerApp(App):
             label.base_direction = "ltr"
             label.text_language = "ar"
 
+    def open_trade_history(self, *_args):
+        """Show a read-only view of persisted paper trades; never starts trading."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        try:
+            state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            engine = getattr(self, "auto_engine", None)
+            history = load_paper_history(state_path, engine=engine)
+            summary = self.make_label(
+                "معاملات بسته‌شده: {} | سودده: {} | زیان‌ده: {}\\nسود/زیان خالص: {:.6f} USDT".format(
+                    history["count"], history["wins"], history["losses"],
+                    history["net_pnl"]),
+                size=13, height=dp(72), color=(0.55, 0.85, 1, 1))
+            body.add_widget(summary)
+            listing = GridLayout(cols=1, spacing=dp(7), size_hint_y=None)
+            listing.bind(minimum_height=listing.setter("height"))
+            if not history["trades"]:
+                listing.add_widget(self.make_label(
+                    "هنوز معامله بسته‌شده‌ای ثبت نشده است.",
+                    size=15, height=dp(58)))
+            else:
+                for index, trade in enumerate(reversed(history["trades"]), 1):
+                    pnl = float(trade["net_pnl"])
+                    side = "خرید" if trade["side"] == "BULLISH" else "فروش"
+                    result = "سود" if pnl > 0 else ("زیان" if pnl < 0 else "سر‌به‌سر")
+                    # The existing v4 persisted trade schema has no entry/exit
+                    # timestamps. Do not fabricate times; show stored prices instead.
+                    details = (
+                        "#{:d}  {}  {}\\nورود: {:.8g} | خروج: {:.8g}\\n"
+                        "سود/زیان خالص: {:+.6f} USDT ({})\\nعلت خروج: {}\\n"
+                        "زمان ورود/خروج در داده ذخیره‌شده موجود نیست"
+                    ).format(index, trade["symbol"], side, float(trade["entry"]),
+                             float(trade["exit"]), pnl, result,
+                             str(trade.get("reason", "نامشخص"))[:80])
+                    card = self.make_label(
+                        details, size=12, height=dp(104),
+                        color=((0.45, 0.88, 0.58, 1) if pnl > 0 else
+                               ((1, 0.48, 0.42, 1) if pnl < 0 else (0.9, 0.9, 0.9, 1))))
+                    listing.add_widget(card)
+            scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
+            scroll.add_widget(listing)
+            body.add_widget(scroll)
+        except Exception as exc:
+            body.add_widget(self.make_label(
+                "خواندن تاریخچه آزمایشی ناموفق بود؛ هیچ تغییری در معاملات انجام نشد.\\n{}: {}".format(
+                    type(exc).__name__, str(exc)[:180]),
+                size=12, height=dp(100), color=(1, 0.55, 0.45, 1)))
+        close_button = Button(
+            markup=True, text=fa("بستن"), font_name=FONT_NAME,
+            size_hint_y=None, height=dp(44))
+        body.add_widget(close_button)
+        popup = Popup(title=fa("تاریخچه معاملات آزمایشی"),
+                      content=body, size_hint=(0.94, 0.86), auto_dismiss=True)
+        close_button.bind(on_press=popup.dismiss)
+        popup.open()
+        self.trade_history_popup = popup
+
     def on_start(self):
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
@@ -2968,6 +3033,12 @@ class FuturesAnalyzerApp(App):
                 self.coordinator_session_error = (
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
+
+        # Show the read-only history once on the first app entry this session.
+        # It is deliberately independent of the paper runner and performs no trading action.
+        if not getattr(self, "_history_auto_opened", False):
+            self._history_auto_opened = True
+            Clock.schedule_once(lambda _dt: self.open_trade_history(), 1.0)
 
         # Start the paper-only public market stream automatically after Kivy's
         # UI is initialized. start_auto_paper_trader() repeats every safety gate,
