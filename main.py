@@ -2242,12 +2242,23 @@ class FuturesAnalyzerApp(App):
                 if engine.position is not None and engine.position["symbol"] != symbol:
                     raise RuntimeError("یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(engine.position["symbol"]))
                 if engine.halted:
-                    raise RuntimeError(
-                        "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
-                        "راه‌اندازی خودکار پس از توقف اضطراری یا سقف زیان مجاز نیست؛ "
-                        "وضعیت باید آگاهانه بررسی شود."
-                        .format(engine.halt_reason, engine.halt_detail or "جزئیات ثبت نشده")
-                    )
+                    if engine.halt_reason == "DATA_GAP" and engine.position is None:
+                        # The uncertain position was already flattened at the
+                        # first fresh reconnect tick. Resume monitoring only;
+                        # the candle builder still enforces a fresh 23-candle gate.
+                        engine.rearm_after_data_gap()
+                        self._persist_paper_engine_state(engine)
+                        candle_cache_note += (
+                            " توقف قبلی ناشی از شکاف داده با موفقیت بازیابی شد؛ "
+                            "پایش از نو آغاز می‌شود و ورود تا ۲۳ کندل معتبر قفل است."
+                        )
+                    else:
+                        raise RuntimeError(
+                            "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
+                            "راه‌اندازی خودکار پس از توقف اضطراری یا سقف زیان مجاز نیست؛ "
+                            "وضعیت باید آگاهانه بررسی شود."
+                            .format(engine.halt_reason, engine.halt_detail or "جزئیات ثبت نشده")
+                        )
             else:
                 engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
                                             max_leverage=3, max_loss_percent=3.0)
@@ -2647,13 +2658,30 @@ class FuturesAnalyzerApp(App):
                         # position against the unknown offline interval.
                         recovered_open_position = False
                     if tick_event:
-                        self._persist_paper_engine_state(engine)
                         last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
                         trade = tick_event["trade"]
                         tick_message = "خروج حفاظتی معامله آزمایشی: {}؛ سود/زیان خالص={:.4f} USDT.".format(trade["reason"], trade["net_pnl"])
-                        if tick_event["halted"]:
-                            tick_message += " موتور به‌دلیل توقف ایمنی متوقف شد: {}.".format(tick_event.get("halt_reason"))
+                        if (tick_event.get("halted")
+                                and tick_event.get("halt_reason") == "DATA_GAP"):
+                            try:
+                                # Flattening at the first fresh tick is mandatory,
+                                # but a data gap alone must not kill the monitor.
+                                # Re-arm only after daily/cumulative loss checks;
+                                # technical entries remain gated by 23 fresh candles.
+                                engine.rearm_after_data_gap()
+                                tick_message += (
+                                    " موقعیت بسته شد؛ پایش خودکار از نو ادامه می‌یابد. "
+                                    "ورود تا تکمیل ۲۳ کندل معتبر ممنوع است."
+                                )
+                            except Exception as recovery_exc:
+                                tick_message += (
+                                    " بازیابی خودکار به‌دلیل محدودیت ایمنی انجام نشد: {}."
+                                ).format(type(recovery_exc).__name__)
+                                self.auto_stop_event.set()
+                        elif engine.halted:
+                            tick_message += " موتور به‌دلیل توقف ایمنی متوقف شد: {}.".format(engine.halt_reason)
                             self.auto_stop_event.set()
+                        self._persist_paper_engine_state(engine)
                         Clock.schedule_once(lambda dt, value=tick_message: self.update_auto_status(value), 0)
                         if self.auto_stop_event.is_set():
                             ws.close()
