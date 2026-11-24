@@ -10,6 +10,7 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 - Persian UI font bundling and RTL support are verified during the Android build.
 - The Android app includes a bounded, read-only scan of all active USDT futures order books (four concurrent requests on-device), showing best bid/ask and spread. These snapshots are not candles and do not generate technical signals.
 - The paper simulator remains limited to the currently selected symbol. It builds one-minute OHLCV candles from the empirically observed public trade stream, requires 20 closed one-minute candles plus the current forming candle before analysis (about 20 minutes of continuous stream data on a cold start), and resets warm-up after a data gap. It is foreground-only and paper-only.
+- Tabdeal's documented broadcast subscription is per-market: the app subscribes only to the selected symbol. It does not collect or prewarm all 96 markets in parallel. Multi-symbol collection is intentionally not enabled until separate-connection limits and sustained feed quality are validated. The official public FAPI REST documentation does not list a historical-candlestick endpoint.
 - The WebSocket trade payload schema is an empirical observation only; it is not treated as an official contract. See `TRADE_STREAM_SCHEMA.md`.
 
 ## Version 1.49 — Groq conversational assistant
