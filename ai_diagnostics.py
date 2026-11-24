@@ -22,7 +22,7 @@ TECHNICAL_KEYS = (
     "trend", "support", "resistance", "data_kind", "candle_count",
 )
 HEALTH_KEYS = (
-    "worker_phase", "websocket_connected", "retry_attempt",
+    "worker_phase", "websocket_connected", "monitoring_active", "retry_attempt",
     "received_messages", "valid_market_trades", "selected_symbol_trade_count",
     "candle_count", "builder_ready", "last_stream_error",
 )
@@ -123,7 +123,8 @@ def _engine_health(app, worker_alive):
     elif selected_age > 30:
         state = "SELECTED_SYMBOL_STALE"
     elif not result.get("builder_ready"):
-        state = "WARMING_UP"
+        state = ("ACTIVE_MONITORING" if result.get("monitoring_active")
+                 else "WARMING_UP")
     elif scan_age is None:
         state = "WAITING_FOR_FIRST_SCAN"
     elif scan_age > 30:
