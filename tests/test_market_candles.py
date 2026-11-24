@@ -63,7 +63,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
     # Include 20 fully observed closed candles after discarding the first partial bucket.
     def test_gap_prevents_false_contiguous_readiness(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 122):
+        for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         builder.add_trade(self.trade(123))
@@ -72,7 +72,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_short_reconnect_preserves_closed_history_but_discards_partial_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 122):
+        for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         retained = len(builder.closed)
@@ -101,7 +101,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_reconnect_rejects_replayed_older_tick_before_resuming_same_minute(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 122):
+        for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         last_timestamp = builder.last_timestamp_ms
@@ -147,7 +147,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_reconnect_at_adjacent_minute_boundary_preserves_closed_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 122):
+        for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         retained = len(builder.closed)
@@ -170,7 +170,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_reconnect_with_missing_full_minute_invalidates_retained_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 122):
+        for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         builder.reset_after_reconnect()
@@ -194,8 +194,8 @@ class TradeCandleBuilderTests(unittest.TestCase):
     def test_restored_cache_is_ready_after_contiguous_fresh_trade(self):
         builder = TradeCandleBuilder("BTC_USDT")
         rows = [[minute * 60_000, 100, 102, 99, 101, 4]
-                for minute in range(100, 120)]
-        self.assertEqual(builder.restore_closed_candles(rows), 20)
+                for minute in range(100, 123)]
+        self.assertEqual(builder.restore_closed_candles(rows), 23)
         self.assertFalse(builder.is_ready)
         result = builder.add_trade(self.trade(120, second=2))
         self.assertTrue(result["accepted"])
@@ -203,15 +203,15 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(builder.is_ready)
         builder.add_trade(self.trade(121, second=2))
         self.assertFalse(builder.is_ready)
-        ready = builder.add_trade(self.trade(122, second=2))
+        ready = builder.add_trade(self.trade(125, second=2))
         self.assertTrue(ready["ready"])
         self.assertTrue(builder.is_ready)
-        self.assertEqual(len(builder.closed), 21)
+        self.assertEqual(len(builder.closed), 24)
 
     def test_restored_cache_is_discarded_when_live_stream_has_gap(self):
         builder = TradeCandleBuilder("BTC_USDT")
         rows = [[minute * 60_000, 100, 102, 99, 101, 4]
-                for minute in range(100, 120)]
+                for minute in range(100, 123)]
         builder.restore_closed_candles(rows)
         result = builder.add_trade(self.trade(121, second=2))
         self.assertTrue(result["accepted"])
