@@ -202,5 +202,26 @@ class AIDiagnosticContextTests(unittest.TestCase):
             "WORKER_STOPPED",
         )
 
+
+    def test_live_monitoring_is_active_while_candle_analysis_remains_gated(self):
+        import time
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "websocket_connected": True,
+                "monitoring_active": True,
+                "last_selected_symbol_trade_at": time.monotonic(),
+                "builder_ready": False,
+                "candle_count": 1,
+            },
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["health_state"], "ACTIVE_MONITORING")
+        self.assertFalse(health["builder_ready"])
+        self.assertTrue(health["monitoring_active"])
+
+
 if __name__ == "__main__":
     unittest.main()
