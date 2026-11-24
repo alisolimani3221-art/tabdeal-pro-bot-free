@@ -2274,7 +2274,6 @@ class FuturesAnalyzerApp(App):
                 "آماده‌سازی پایش: {} از ۵ کندل اولیه؛ هدف تحلیل معتبر ۲۳ کندل بسته‌شده است."
             ).format(retained_count)
         status_text = (
-            undefined
             "سقف زیان روزانه: ۱٪؛ سقف زیان تجمعی: ۳٪.\n"
             + warmup_text + "\n" + candle_cache_note
             + " هیچ سفارش واقعی ارسال نمی‌شود."
