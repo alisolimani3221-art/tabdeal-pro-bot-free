@@ -686,6 +686,69 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIsNone(persisted_again.position)
 
 
+    def test_restore_migrates_exact_legacy_v4_missing_daily_fields(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.cash = 7.92
+        trade = {
+            "symbol": "BTC_USDT", "side": "BULLISH",
+            "entry": 100.0, "exit": 101.0, "quantity": 0.1,
+            "net_pnl": 0.1, "reason": "TARGET",
+        }
+        engine.closed_trades = [dict(trade) for _ in range(15)]
+        engine.scans = 27
+        legacy = engine.export_state()
+        for field in (
+            "daily_loss_percent", "daily_loss_date", "daily_start_equity"
+        ):
+            legacy.pop(field)
+
+        restored = PaperTradingEngine.restore_state(legacy)
+        self.assertEqual(restored.cash, 7.92)
+        self.assertEqual(len(restored.closed_trades), 15)
+        self.assertEqual(restored.closed_trades, engine.closed_trades)
+        self.assertEqual(restored.scans, 27)
+        self.assertEqual(restored.daily_loss_percent, 1.0)
+        self.assertEqual(restored.daily_start_equity, restored.equity)
+        self.assertRegex(restored.daily_loss_date, r"^\\d{4}-\\d{2}-\\d{2}$")
+        self.assertFalse(restored.halted)
+        # The one-time migration is durable and does not repeat on next launch.
+        upgraded = restored.export_state()
+        self.assertEqual(upgraded["schema_version"], 4)
+        self.assertTrue({
+            "daily_loss_percent", "daily_loss_date", "daily_start_equity"
+        }.issubset(upgraded))
+        again = PaperTradingEngine.restore_state(upgraded)
+        self.assertEqual(again.closed_trades, engine.closed_trades)
+        self.assertEqual(again.daily_start_equity, restored.daily_start_equity)
+
+        # A real persisted emergency stop must survive the same migration.
+        stopped = dict(legacy)
+        stopped["halted"] = True
+        stopped["halt_reason"] = "EMERGENCY_STOP"
+        stopped["halt_detail"] = "operator emergency stop"
+        recovered_stop = PaperTradingEngine.restore_state(stopped)
+        self.assertTrue(recovered_stop.halted)
+        self.assertEqual(recovered_stop.halt_reason, "EMERGENCY_STOP")
+        self.assertEqual(recovered_stop.halt_detail, "operator emergency stop")
+        self.assertEqual(len(recovered_stop.closed_trades), 15)
+
+    def test_restore_does_not_accept_partial_or_unexpected_legacy_v4_schema(self):
+        engine = PaperTradingEngine(capital=8)
+        valid = engine.export_state()
+        partial = dict(valid)
+        partial.pop("daily_loss_date")
+        with self.assertRaisesRegex(ValueError, "daily_loss_date"):
+            PaperTradingEngine.restore_state(partial)
+
+        unexpected = dict(valid)
+        for field in (
+            "daily_loss_percent", "daily_loss_date", "daily_start_equity"
+        ):
+            unexpected.pop(field)
+        unexpected["unexpected_field"] = True
+        with self.assertRaisesRegex(ValueError, "unexpected_field"):
+            PaperTradingEngine.restore_state(unexpected)
+
     def test_restore_schema_diagnostics_report_version_and_field_names_only(self):
         engine = PaperTradingEngine(capital=8)
         valid = engine.export_state()
