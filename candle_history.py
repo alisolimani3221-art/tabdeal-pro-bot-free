@@ -48,11 +48,15 @@ def validate_closed_candles(rows, now_ms, interval_ms=60_000, limit=500):
             raise ValueError("invalid OHLC relationship")
         parsed[stamp] = [stamp, op, high, low, close, volume]
     ordered = [parsed[key] for key in sorted(parsed)]
-    # Duplicate timestamps collapse only if the payload agrees exactly.
+    # A stale cache may contain more than one run after an interrupted write or
+    # older app version. Keep only the newest contiguous suffix: never bridge a
+    # missing minute, and never let the older disconnected prefix reach analysis.
     if len(ordered) >= 2:
-        for left, right in zip(ordered, ordered[1:]):
-            if right[0] - left[0] != interval_ms:
-                raise ValueError("historical candle gap detected")
+        contiguous_start = 0
+        for index in range(1, len(ordered)):
+            if ordered[index][0] - ordered[index - 1][0] != interval_ms:
+                contiguous_start = index
+        ordered = ordered[contiguous_start:]
     return ordered[-limit:]
 
 
@@ -119,5 +123,5 @@ def warm_symbols(symbols, fetch_history, now_ms, max_workers=4, interval_ms=60_0
             except Exception as exc:
                 errors[symbol] = "{}: {}".format(type(exc).__name__, str(exc)[:160])
     return {"results": results, "errors": errors, "requested": len(unique),
-            "ready_count": sum(len(rows) >= 20 for rows in results.values()),
+            "ready_count": sum(len(rows) >= 23 for rows in results.values()),
             "live_orders": False}

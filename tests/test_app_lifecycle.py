@@ -133,11 +133,15 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             app.start_auto_paper_trader = Mock()
             app.on_start()
 
-        clock.schedule_once.assert_called_once()
-        callback, delay = clock.schedule_once.call_args.args
-        self.assertEqual(delay, 0.5)
+        # Startup schedules both the read-only history popup (1.0s) and
+        # the paper runner (0.5s). Verify the runner remains deferred until
+        # the safety-initialized callback is invoked.
+        self.assertEqual(clock.schedule_once.call_count, 2)
+        scheduled = [call.args for call in clock.schedule_once.call_args_list]
+        self.assertEqual(sorted(args[1] for args in scheduled), [0.5, 1.0])
+        runner_callback = next(args[0] for args in scheduled if args[1] == 0.5)
         app.start_auto_paper_trader.assert_not_called()
-        callback(0)
+        runner_callback(0)
         app.start_auto_paper_trader.assert_called_once_with()
         app.on_stop()
 
@@ -294,7 +298,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         engine.process_scan([{
             "symbol": "AAA_USDT", "price": 100, "sma10": 99, "sma20": 98,
             "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
-            "closed_candles": 20, "candle_open_time": 60_000,
+            "closed_candles": 23, "candle_open_time": 60_000,
         }])
         self.assertIsNotNone(engine.position)
 
@@ -430,7 +434,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         engine.process_scan([{
             "symbol": "AAA_USDT", "price": 100, "sma10": 99, "sma20": 98,
             "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
-            "closed_candles": 20, "candle_open_time": 60_000,
+            "closed_candles": 23, "candle_open_time": 60_000,
         }])
         self.assertIsNotNone(engine.position)
         app.auto_engine = engine

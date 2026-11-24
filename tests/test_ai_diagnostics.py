@@ -163,6 +163,35 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertIn("معاملات معتبر نماد انتخابی: 0", rendered)
         self.assertIn("آخرین خطای جریان: ندارد", rendered)
 
+    def test_connected_selected_trades_replace_stale_startup_phase(self):
+        import time
+        worker = Mock()
+        worker.is_alive.return_value = True
+        now = time.monotonic()
+        base = {
+            "worker_phase": "connected_waiting_for_trade",
+            "websocket_connected": True,
+            "last_selected_symbol_trade_at": now,
+            "selected_symbol_trade_count": 300,
+        }
+        cases = (
+            ({"candle_count": 3, "builder_ready": False},
+             "collecting_selected_symbol_candles", "WARMING_UP"),
+            ({"candle_count": 5, "builder_ready": False},
+             "preliminary_monitoring", "WARMING_UP"),
+            ({"candle_count": 23, "builder_ready": True},
+             "analysis_ready_waiting_for_scan", "WAITING_FOR_FIRST_SCAN"),
+        )
+        for telemetry, expected_phase, expected_health in cases:
+            with self.subTest(expected_phase=expected_phase):
+                app = SimpleNamespace(
+                    auto_trader_thread=worker,
+                    auto_health=dict(base, **telemetry),
+                )
+                health = build_ai_diagnostic_context(app)["engine"]["health"]
+                self.assertEqual(health["worker_phase"], expected_phase)
+                self.assertEqual(health["health_state"], expected_health)
+
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
         worker.is_alive.return_value = False
@@ -172,6 +201,63 @@ class AIDiagnosticContextTests(unittest.TestCase):
             build_ai_diagnostic_context(app)["engine"]["health"]["health_state"],
             "WORKER_STOPPED",
         )
+
+
+    def test_live_monitoring_is_active_while_candle_analysis_remains_gated(self):
+        import time
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "websocket_connected": True,
+                "monitoring_active": True,
+                "last_selected_symbol_trade_at": time.monotonic(),
+                "builder_ready": False,
+                "candle_count": 1,
+            },
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["health_state"], "ACTIVE_MONITORING")
+        self.assertFalse(health["builder_ready"])
+        self.assertTrue(health["monitoring_active"])
+
+    def test_rejection_reasons_are_exposed_and_bounded_in_health_report(self):
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "rejected_trades": 3,
+                "rejection_reasons": {
+                    "out_of_order": 2,
+                    "duplicate_or_old_sequence": 1,
+                    "ignored_secret": "not-a-count",
+                },
+            },
+        )
+        health = build_ai_diagnostic_context(app)["engine"]["health"]
+        self.assertEqual(health["rejected_trades"], 3)
+        self.assertEqual(health["rejection_reasons"], {
+            "out_of_order": 2,
+            "duplicate_or_old_sequence": 1,
+        })
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn("داده‌های ردشده کندل‌ساز: 3", rendered)
+        self.assertIn("out_of_order", rendered)
+        self.assertIn("duplicate_or_old_sequence", rendered)
+        self.assertNotIn("ignored_secret", rendered)
+
+    def test_thread_liveness_is_reported_separately_from_stream_health(self):
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(auto_trader_thread=worker, auto_health={})
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn("رشته معامله‌گر زنده: True", rendered)
+        self.assertIn("سلامت جریان معاملات: CONNECTING_OR_DISCONNECTED", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

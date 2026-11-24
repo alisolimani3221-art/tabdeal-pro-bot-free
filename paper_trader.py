@@ -83,7 +83,7 @@ def rank_signal(technical):
     # provenance produced by analyze_klines. Hand-built/stale indicator
     # dictionaries must not be enough to open even a paper position.
     closed_candles = technical.get("closed_candles")
-    if type(closed_candles) is not int or closed_candles < 20:
+    if type(closed_candles) is not int or closed_candles < 23:
         return None
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
@@ -133,8 +133,8 @@ def diagnose_signal(technical):
     if signal not in ("BULLISH", "BEARISH"):
         return "جهت سیگنال قابل‌شناسایی نیست"
     count = technical.get("closed_candles")
-    if type(count) is not int or count < 20:
-        return "داده کافی نیست: حداقل ۲۰ کندل بسته‌شده لازم است"
+    if type(count) is not int or count < 23:
+        return "داده کافی نیست: حداقل ۲۳ کندل بسته‌شده لازم است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
@@ -508,6 +508,29 @@ class PaperTradingEngine:
             self.halt_detail = None
             return {"halted": False, "rearmed": True,
                     "live_order_submitted": False}
+
+    def rearm_after_data_gap(self):
+        """Resume monitoring after a gap only when the position is flat and risk limits allow it."""
+        with self._lock:
+            if not self.halted or self.halt_reason != "DATA_GAP":
+                raise RuntimeError("only a data-gap halt can be automatically recovered")
+            if self.position is not None:
+                raise RuntimeError("paper position must be flat before data-gap recovery")
+            self._refresh_daily_period()
+            if self.cash <= self.daily_loss_floor:
+                self.halt_reason = "DAILY_MAX_LOSS"
+                self.halt_detail = "UTC daily paper loss limit remains active after data gap"
+                raise RuntimeError("maximum UTC daily paper loss limit remains active")
+            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+            if self.cash <= loss_floor:
+                self.halt_reason = "MAX_LOSS"
+                self.halt_detail = "cumulative paper loss limit remains active after data gap"
+                raise RuntimeError("maximum cumulative paper loss limit remains active")
+            self.halted = False
+            self.halt_reason = None
+            self.halt_detail = None
+            return {"halted": False, "rearmed": True,
+                    "data_gap_recovered": True, "live_order_submitted": False}
 
     def emergency_close(self, detail=None):
         """Close any simulated position and persist a short, non-secret stop diagnostic."""

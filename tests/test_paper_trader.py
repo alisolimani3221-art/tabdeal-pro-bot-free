@@ -8,10 +8,10 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
         return {"symbol": symbol, "price": price, "sma10": 99, "sma20": 98,
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
-                "closed_candles": 20, "candle_open_time": 60_000}
+                "closed_candles": 23, "candle_open_time": 60_000}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
-            "closed_candles": 20, "candle_open_time": 60_000}
+            "closed_candles": 23, "candle_open_time": 60_000}
 
 
 class PaperTraderTests(unittest.TestCase):
@@ -52,13 +52,16 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIn("تأیید شده", diagnose_signal(setup()))
 
     def test_rejects_signal_without_minimum_closed_candle_provenance(self):
-        for value in (None, 0, 19, 19.9, True, "20"):
+        for value in (None, 0, 22, 22.9, True, "23"):
             with self.subTest(closed_candles=value):
                 self.assertIsNone(rank_signal(dict(setup(), closed_candles=value)))
 
     def test_accepts_signal_with_minimum_closed_candle_provenance(self):
         self.assertIsNotNone(rank_signal(setup()))
-        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=21)))
+        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=24)))
+
+    def test_diagnostics_keep_entry_blocked_below_23_closed_candles(self):
+        self.assertIn("۲۳", diagnose_signal(dict(setup(), closed_candles=22)))
 
     def test_rejects_signal_without_valid_closed_candle_timestamp(self):
         for value in (None, 0, -1, True, "60000"):
@@ -569,6 +572,47 @@ class PaperTraderTests(unittest.TestCase):
                 blocked = restored.process_scan([setup("BBB_USDT")])
                 self.assertTrue(blocked["halted"])
                 self.assertEqual(blocked["events"], [])
+
+    def test_data_gap_rearm_resumes_monitoring_only_after_flatten_and_risk_checks(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        original_cash = engine.cash
+        result = engine.halt_for_data_gap("AAA_USDT", 99.5)
+        self.assertTrue(result["halted"])
+        self.assertIsNone(engine.position)
+        closed_before = list(engine.closed_trades)
+        cash_after_gap = engine.cash
+
+        rearmed = engine.rearm_after_data_gap()
+        self.assertEqual(rearmed, {
+            "halted": False, "rearmed": True,
+            "data_gap_recovered": True, "live_order_submitted": False,
+        })
+        self.assertFalse(engine.halted)
+        self.assertIsNone(engine.halt_reason)
+        self.assertIsNone(engine.position)
+        self.assertEqual(engine.cash, cash_after_gap)
+        self.assertEqual(engine.closed_trades, closed_before)
+        # A subsequent scan still requires the full 23-candle provenance.
+        blocked = engine.process_scan([dict(setup(), closed_candles=22)])
+        self.assertIsNone(blocked["open_position"])
+        self.assertEqual(blocked["events"], [])
+
+    def test_data_gap_rearm_cannot_bypass_loss_limits_or_other_halts(self):
+        manual = PaperTradingEngine(capital=8)
+        manual.emergency_close()
+        with self.assertRaisesRegex(RuntimeError, "data-gap halt"):
+            manual.rearm_after_data_gap()
+
+        loss_limited = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
+        loss_limited.halted = True
+        loss_limited.halt_reason = "DATA_GAP"
+        loss_limited.cash = 7.9
+        loss_limited.daily_start_equity = 8.0
+        with self.assertRaisesRegex(RuntimeError, "daily paper loss"):
+            loss_limited.rearm_after_data_gap()
+        self.assertTrue(loss_limited.halted)
+        self.assertEqual(loss_limited.halt_reason, "DAILY_MAX_LOSS")
 
     def test_data_gap_does_not_close_a_different_symbol_or_create_position(self):
         engine = PaperTradingEngine(capital=8)

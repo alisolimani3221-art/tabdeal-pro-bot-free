@@ -22,9 +22,10 @@ TECHNICAL_KEYS = (
     "trend", "support", "resistance", "data_kind", "candle_count",
 )
 HEALTH_KEYS = (
-    "worker_phase", "websocket_connected", "retry_attempt",
+    "worker_phase", "websocket_connected", "monitoring_active", "retry_attempt",
     "received_messages", "valid_market_trades", "selected_symbol_trade_count",
     "candle_count", "builder_ready", "last_stream_error",
+    "rejected_trades", "rejection_reasons",
 )
 NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
@@ -59,6 +60,14 @@ def _bounded_mapping(value, allowed_keys):
     result = {}
     for key in allowed_keys:
         if key in value:
+            if key == "rejection_reasons" and isinstance(value[key], dict):
+                result[key] = {
+                    str(reason)[:48]: int(count)
+                    for reason, count in list(value[key].items())[:12]
+                    if isinstance(reason, str) and isinstance(count, int)
+                    and not isinstance(count, bool) and 0 <= count <= 1_000_000_000
+                }
+                continue
             safe = _safe_value(value[key])
             if safe is not None:
                 result[key] = safe
@@ -98,6 +107,20 @@ def _engine_health(app, worker_alive):
     selected_age = result["selected_symbol_trade_age_seconds"]
     scan_age = result["last_scan_age_seconds"]
     phase = result.get("worker_phase")
+    # on_open initially labels the socket as waiting for its first trade. Once
+    # selected-symbol ticks arrive, derive the visible phase from actual builder
+    # telemetry so the diagnostic cannot remain stuck on that startup label.
+    if (phase == "connected_waiting_for_trade" and result.get("websocket_connected")
+            and selected_age is not None and selected_age <= 30
+            and result.get("thread_alive", True)):
+        closed_count = result.get("candle_count", 0)
+        if result.get("builder_ready"):
+            phase = "analysis_ready_waiting_for_scan"
+        elif isinstance(closed_count, int) and closed_count >= 5:
+            phase = "preliminary_monitoring"
+        elif isinstance(closed_count, int) and closed_count >= 0:
+            phase = "collecting_selected_symbol_candles"
+        result["worker_phase"] = phase
     if phase in ("blocked_by_safety", "blocked_by_persisted_state"):
         state = "BLOCKED_BY_SAFETY"
     elif not worker_alive:
@@ -109,7 +132,8 @@ def _engine_health(app, worker_alive):
     elif selected_age > 30:
         state = "SELECTED_SYMBOL_STALE"
     elif not result.get("builder_ready"):
-        state = "WARMING_UP"
+        state = ("ACTIVE_MONITORING" if result.get("monitoring_active")
+                 else "WARMING_UP")
     elif scan_age is None:
         state = "WAITING_FOR_FIRST_SCAN"
     elif scan_age > 30:
@@ -221,6 +245,8 @@ def build_engine_health_report_lines(app):
         "معاملات معتبر نماد انتخابی: " + value("selected_symbol_trade_count", "0"),
         "عمر آخرین معامله نماد انتخابی (ثانیه): " + age("selected_symbol_trade_age_seconds"),
         "کندل‌های بسته: " + value("candle_count", "0"),
+        "داده‌های ردشده کندل‌ساز: " + value("rejected_trades", "0"),
+        "علل رد داده‌ها: " + value("rejection_reasons", "{}")[:240],
         "آماده‌بودن کندل‌ساز: " + value("builder_ready", "false"),
         "عمر آخرین اسکن موتور (ثانیه): " + age("last_scan_age_seconds"),
         "عمر اتصال WebSocket (ثانیه): " + age("connected_age_seconds"),

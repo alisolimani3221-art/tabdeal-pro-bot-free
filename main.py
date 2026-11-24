@@ -59,6 +59,8 @@ from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
+from paper_trade_history import load_paper_history
+from paper_risk_diagnostics import build_paper_risk_diagnostic_lines
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -346,7 +348,7 @@ class FuturesAnalyzerApp(App):
             background_normal="", background_color=(0.08, 0.28, 0.42, 1),
             color=(0.35, 0.78, 1, 1),
         )
-        book_title_button.bind(on_press=self.show_status)
+        book_title_button.bind(on_press=self._manual_refresh_order_book)
         content.add_widget(book_title_button)
         self.orderbook_freshness = self.make_label(
             "به‌روزرسانی خودکار پس از دریافت نخستین دفتر سفارش فعال می‌شود",
@@ -414,6 +416,14 @@ class FuturesAnalyzerApp(App):
                                   background_color=(0.12, 0.48, 0.38, 1), color=(1, 1, 1, 1))
         self.risk_button.bind(on_press=self.open_risk_calculator)
         content.add_widget(self.risk_button)
+
+        self.history_button = Button(
+            markup=True, text=fa("تاریخچه معاملات آزمایشی"), font_name=FONT_NAME,
+            font_size=sp(16), size_hint_y=None, height=dp(50),
+            background_normal="", background_color=(0.16, 0.34, 0.38, 1),
+            color=(1, 1, 1, 1))
+        self.history_button.bind(on_press=self.open_trade_history)
+        content.add_widget(self.history_button)
 
         self.diagnostics_button = Button(
             markup=True, text=fa("مرکز عیب‌یابی و تعمیر برنامه"), font_name=FONT_NAME,
@@ -747,6 +757,18 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(lambda dt, res=results: self.show_result(res), 0)
 
 
+
+    def _manual_refresh_order_book(self, *_args):
+        """Refresh the visible order book immediately when its header is tapped."""
+        if self.orderbook_poll_stop.is_set():
+            self.orderbook_freshness.text = fa("به‌روزرسانی در دسترس نیست؛ پایش بازار متوقف است.")
+            return
+        if self.current_symbol not in self.verified_market_symbols:
+            self.orderbook_freshness.text = fa("ابتدا نماد را با بررسی اتصال تأیید کنید.")
+            return
+        self.orderbook_freshness.text = fa("درخواست دفتر سفارش جدید ارسال شد…")
+        self.orderbook_freshness.color = (0.85, 0.78, 0.35, 1)
+        self._schedule_order_book_poll(0)
 
     def _start_order_book_polling(self):
         """Start one foreground-only Kivy timer; network reads run off the UI thread."""
@@ -1673,6 +1695,7 @@ class FuturesAnalyzerApp(App):
             coordinator_status = "ERROR: {}: {}".format(
                 type(coordinator_exc).__name__, str(coordinator_exc)[:140]
             )
+        paper_state = {}
         try:
             paper_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             if os.path.isfile(paper_path):
@@ -1687,6 +1710,7 @@ class FuturesAnalyzerApp(App):
                     )
                 else:
                     paper_state_status = "ERROR: invalid JSON state shape"
+                    paper_state = {}
         except Exception as paper_exc:
             paper_state_status = "ERROR: {}: {}".format(
                 type(paper_exc).__name__, str(paper_exc)[:140]
@@ -1719,7 +1743,7 @@ class FuturesAnalyzerApp(App):
             "آخرین خطای دریافت خودکار دفتر سفارش: " + str(getattr(self, "orderbook_last_error", "") or "ندارد")[:180],
             "تعداد ردیف خرید: " + str(len(results.get("bids", []))),
             "تعداد ردیف فروش: " + str(len(results.get("asks", []))),
-            "رشته پس‌زمینه معامله‌گر: " + ("ALIVE (سلامت جریان تأیید نشده)" if auto_running else "STOPPED"),
+            "رشته پس‌زمینه معامله‌گر: " + ("زنده" if auto_running else "متوقف") + " (سلامت جریان در ردیف جداگانه مشخص شده)",
             "وضعیت پایدار هماهنگ‌کننده: " + coordinator_status,
             "وضعیت پایدار موتور آزمایشی: " + paper_state_status,
             "آخرین وضعیت موتور: " + str(getattr(self, "auto_worker_status", "هنوز گزارشی از موتور ثبت نشده"))[:240],
@@ -1727,6 +1751,7 @@ class FuturesAnalyzerApp(App):
             "آخرین بررسی اتصال: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
             "وضعیت کلید امن API: " + credential_status,
         ]
+        lines.extend(build_paper_risk_diagnostic_lines(paper_state))
         lines.extend(build_engine_health_report_lines(self))
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
@@ -2153,7 +2178,7 @@ class FuturesAnalyzerApp(App):
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
             "candle_count": 0, "builder_ready": False,
-            "last_scan_at": None, "last_stream_error": "",
+            "last_scan_at": None, "last_stream_error": "", "monitoring_active": False,
         }
         guard = getattr(self, "runtime_guard", None)
         coordinator_session = getattr(self, "coordinator_session", None)
@@ -2221,12 +2246,23 @@ class FuturesAnalyzerApp(App):
                 if engine.position is not None and engine.position["symbol"] != symbol:
                     raise RuntimeError("یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(engine.position["symbol"]))
                 if engine.halted:
-                    raise RuntimeError(
-                        "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
-                        "راه‌اندازی خودکار پس از توقف اضطراری یا سقف زیان مجاز نیست؛ "
-                        "وضعیت باید آگاهانه بررسی شود."
-                        .format(engine.halt_reason, engine.halt_detail or "جزئیات ثبت نشده")
-                    )
+                    if engine.halt_reason == "DATA_GAP" and engine.position is None:
+                        # The uncertain position was already flattened at the
+                        # first fresh reconnect tick. Resume monitoring only;
+                        # the candle builder still enforces a fresh 23-candle gate.
+                        engine.rearm_after_data_gap()
+                        self._persist_paper_engine_state(engine)
+                        candle_cache_note += (
+                            " توقف قبلی ناشی از شکاف داده با موفقیت بازیابی شد؛ "
+                            "پایش از نو آغاز می‌شود و ورود تا ۲۳ کندل معتبر قفل است."
+                        )
+                    else:
+                        raise RuntimeError(
+                            "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
+                            "راه‌اندازی خودکار پس از توقف اضطراری یا سقف زیان مجاز نیست؛ "
+                            "وضعیت باید آگاهانه بررسی شود."
+                            .format(engine.halt_reason, engine.halt_detail or "جزئیات ثبت نشده")
+                        )
             else:
                 engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
                                             max_leverage=3, max_loss_percent=3.0)
@@ -2250,16 +2286,18 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
-        retained_count = min(builder.status()["closed_candles"], 20)
-        if retained_count >= 20:
-            warmup_text = "تاریخچه معتبر: ۲۰ از ۲۰؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
+        retained_count = min(builder.status()["closed_candles"], 23)
+        if retained_count >= 23:
+            warmup_text = "تاریخچه معتبر: ۲۳ از ۲۳؛ تحلیل و ورود آزمایشی پس از تأیید اتصال مجاز است."
+        elif retained_count >= 5:
+            warmup_text = (
+                "پایش اولیه فعال: {} از ۲۳ کندل بسته‌شده؛ تحلیل نهایی و ورود هنوز قفل است."
+            ).format(retained_count)
         else:
             warmup_text = (
-                "آماده‌سازی: {} از ۲۰ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
+                "آماده‌سازی پایش: {} از ۵ کندل اولیه؛ هدف تحلیل معتبر ۲۳ کندل بسته‌شده است."
             ).format(retained_count)
         status_text = (
-            "در حال اتصال به جریان معاملات " + symbol + ".\n"
-            "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪؛ "
             "سقف زیان روزانه: ۱٪؛ سقف زیان تجمعی: ۳٪.\n"
             + warmup_text + "\n" + candle_cache_note
             + " هیچ سفارش واقعی ارسال نمی‌شود."
@@ -2401,7 +2439,7 @@ class FuturesAnalyzerApp(App):
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
                     websocket_connected=True, connected_at=time.monotonic(),
-                    last_stream_error="",
+                    monitoring_active=False, last_stream_error="",
                 )
                 if connected_once:
                     builder.reset_after_reconnect()
@@ -2424,8 +2462,9 @@ class FuturesAnalyzerApp(App):
                     raise
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
-                        "در صورت نبود شکاف، کندل‌های معتبر قبلی حفظ می‌شوند."
+                        "اتصال برقرار شد: " + symbol + ". پایش زنده بازار شروع شد؛ " 
+                        "قیمت و وضعیت موقعیت آزمایشی از همین حالا بررسی می‌شود. " 
+                        "تحلیل و ورود فقط پس از تکمیل ۲۳ کندل معتبر مجاز است."
                     ), 0
                 )
 
@@ -2515,8 +2554,9 @@ class FuturesAnalyzerApp(App):
                             if now - last_status_update >= 10:
                                 last_status_update = now
                                 Clock.schedule_once(
-                                    lambda dt, name=type(cache_exc).__name__: self.update_auto_status(
-                                        "ذخیره تاریخچه کندل ناموفق بود؛ تحلیل فقط با داده زنده معتبر ادامه می‌یابد: " + name
+                                    lambda dt, name=type(cache_exc).__name__, detail=str(cache_exc)[:120]: self.update_auto_status(
+                                        "ذخیره تاریخچه کندل ناموفق بود؛ تحلیل فقط با داده زنده معتبر ادامه می‌یابد: "
+                                        + name + (": " + detail if detail else "")
                                     ), 0
                                 )
                 self._update_engine_health(
@@ -2529,18 +2569,32 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         status = (
                             "پیام معتبر دریافت شد، اما برای کندل‌سازی رد شد. "
-                            "معتبر: {} | کندل بسته: {}/20 | علت: {}"
+                            "معتبر: {} | کندل بسته: {}/23 | علت: {}"
                         ).format(valid_messages, builder.status()["closed_candles"],
                                  str(update.get("reason", "unknown"))[:48])
                         Clock.schedule_once(
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                selected_trade_count = int(
+                    getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
+                ) + 1
+                candle_status = builder.status()
+                if builder.is_ready:
+                    selected_phase = "analysis_ready_waiting_for_scan"
+                elif builder.monitor_ready:
+                    selected_phase = "preliminary_monitoring"
+                else:
+                    selected_phase = "collecting_selected_symbol_candles"
                 self._update_engine_health(
-                    selected_symbol_trade_count=int(
-                        getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
-                    ) + 1,
+                    worker_phase=selected_phase,
+                    selected_symbol_trade_count=selected_trade_count,
                     last_selected_symbol_trade_at=time.monotonic(),
+                    monitoring_active=True,
+                    candle_count=int(candle_status.get("closed_candles", 0)),
+                    builder_ready=bool(builder.is_ready),
+                    rejected_trades=int(candle_status.get("rejected_trades", 0)),
+                    rejection_reasons=dict(candle_status.get("rejection_reasons", {})),
                 )
                 # Surface periodic stream and warm-up diagnostics while preserving
                 # the v1.22 persistence, tick-level protection and signal gates.
@@ -2550,12 +2604,23 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         stream_status = builder.status()
                         status_text = (
-                            "جریان معاملات فعال است. کندل بسته معتبر: {}/20 | "
+                            "جریان معاملات فعال است. کندل بسته معتبر: {}/23 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
-                            "پس از تکمیل داده کافی، تحلیل شروع می‌شود."
+                            "از ۵ کندل پایش اولیه فعال می‌شود؛ تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
                                  stream_status["gaps"])
+                        rejection_reasons = stream_status.get("rejection_reasons", {})
+                        if rejection_reasons:
+                            status_text += " علل رد کندل: " + str(rejection_reasons)[:120] + "."
+                        preliminary = builder.preliminary_trend()
+                        if preliminary is not None:
+                            trend_names = {"UP": "صعودی", "DOWN": "نزولی", "FLAT": "خنثی"}
+                            status_text += (
+                                " روند مقدماتی ۵ کندل: {} ({:+.3f}٪). "
+                                "این فقط پایش است و سیگنال یا اجازه معامله نیست."
+                            ).format(trend_names[preliminary["trend"]],
+                                     preliminary["change_pct"])
                         Clock.schedule_once(
                             lambda dt, value=status_text: self.update_auto_status(value), 0
                         )
@@ -2564,9 +2629,10 @@ class FuturesAnalyzerApp(App):
                             closed_count == 0 or closed_count % 5 == 0):
                         last_progress_count = closed_count
                         progress = (
-                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۲۰ | "
-                            "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
-                        ).format(symbol, min(closed_count, 20))
+                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۲۳ | "
+                            "{} | تحلیل و ورود آزمایشی فقط پس از ۲۳ کندل معتبر فعال می‌شود."
+                        ).format(symbol, min(closed_count, 23),
+                                 "پایش اولیه فعال است" if builder.monitor_ready else "در انتظار ۵ کندل اولیه")
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
@@ -2578,7 +2644,7 @@ class FuturesAnalyzerApp(App):
                     status = builder.status()
                     gap_message = (
                         "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
-                        "کندل معتبر: {}/۲۰ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                        "کندل معتبر: {}/۲۳ | تعداد شکاف‌ها: {} | داده ردشده: {}"
                     ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
                     Clock.schedule_once(
                         lambda dt, value=gap_message: self.update_auto_status(value), 0
@@ -2596,13 +2662,30 @@ class FuturesAnalyzerApp(App):
                         # position against the unknown offline interval.
                         recovered_open_position = False
                     if tick_event:
-                        self._persist_paper_engine_state(engine)
                         last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
                         trade = tick_event["trade"]
                         tick_message = "خروج حفاظتی معامله آزمایشی: {}؛ سود/زیان خالص={:.4f} USDT.".format(trade["reason"], trade["net_pnl"])
-                        if tick_event["halted"]:
-                            tick_message += " موتور به‌دلیل توقف ایمنی متوقف شد: {}.".format(tick_event.get("halt_reason"))
+                        if (tick_event.get("halted")
+                                and tick_event.get("halt_reason") == "DATA_GAP"):
+                            try:
+                                # Flattening at the first fresh tick is mandatory,
+                                # but a data gap alone must not kill the monitor.
+                                # Re-arm only after daily/cumulative loss checks;
+                                # technical entries remain gated by 23 fresh candles.
+                                engine.rearm_after_data_gap()
+                                tick_message += (
+                                    " موقعیت بسته شد؛ پایش خودکار از نو ادامه می‌یابد. "
+                                    "ورود تا تکمیل ۲۳ کندل معتبر ممنوع است."
+                                )
+                            except Exception as recovery_exc:
+                                tick_message += (
+                                    " بازیابی خودکار به‌دلیل محدودیت ایمنی انجام نشد: {}."
+                                ).format(type(recovery_exc).__name__)
+                                self.auto_stop_event.set()
+                        elif engine.halted:
+                            tick_message += " موتور به‌دلیل توقف ایمنی متوقف شد: {}.".format(engine.halt_reason)
                             self.auto_stop_event.set()
+                        self._persist_paper_engine_state(engine)
                         Clock.schedule_once(lambda dt, value=tick_message: self.update_auto_status(value), 0)
                         if self.auto_stop_event.is_set():
                             ws.close()
@@ -2902,6 +2985,62 @@ class FuturesAnalyzerApp(App):
             label.base_direction = "ltr"
             label.text_language = "ar"
 
+    def open_trade_history(self, *_args):
+        """Show a read-only view of persisted paper trades; never starts trading."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        try:
+            state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            engine = getattr(self, "auto_engine", None)
+            history = load_paper_history(state_path, engine=engine)
+            summary = self.make_label(
+                "معاملات بسته‌شده: {} | سودده: {} | زیان‌ده: {}\nسود/زیان خالص: {:.6f} USDT".format(
+                    history["count"], history["wins"], history["losses"],
+                    history["net_pnl"]),
+                size=13, height=dp(72), color=(0.55, 0.85, 1, 1))
+            body.add_widget(summary)
+            listing = GridLayout(cols=1, spacing=dp(7), size_hint_y=None)
+            listing.bind(minimum_height=listing.setter("height"))
+            if not history["trades"]:
+                listing.add_widget(self.make_label(
+                    "هنوز معامله بسته‌شده‌ای ثبت نشده است.",
+                    size=15, height=dp(58)))
+            else:
+                for index, trade in enumerate(reversed(history["trades"]), 1):
+                    pnl = float(trade["net_pnl"])
+                    side = "خرید" if trade["side"] == "BULLISH" else "فروش"
+                    result = "سود" if pnl > 0 else ("زیان" if pnl < 0 else "سر‌به‌سر")
+                    # The existing v4 persisted trade schema has no entry/exit
+                    # timestamps. Do not fabricate times; show stored prices instead.
+                    details = (
+                        "#{:d}  {}  {}\nورود: {:.8g} | خروج: {:.8g}\n"
+                        "سود/زیان خالص: {:+.6f} USDT ({})\nعلت خروج: {}\n"
+                        "زمان ورود/خروج در داده ذخیره‌شده موجود نیست"
+                    ).format(index, trade["symbol"], side, float(trade["entry"]),
+                             float(trade["exit"]), pnl, result,
+                             str(trade.get("reason", "نامشخص"))[:80])
+                    card = self.make_label(
+                        details, size=12, height=dp(104),
+                        color=((0.45, 0.88, 0.58, 1) if pnl > 0 else
+                               ((1, 0.48, 0.42, 1) if pnl < 0 else (0.9, 0.9, 0.9, 1))))
+                    listing.add_widget(card)
+            scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
+            scroll.add_widget(listing)
+            body.add_widget(scroll)
+        except Exception as exc:
+            body.add_widget(self.make_label(
+                "خواندن تاریخچه آزمایشی ناموفق بود؛ هیچ تغییری در معاملات انجام نشد.\n{}: {}".format(
+                    type(exc).__name__, str(exc)[:180]),
+                size=12, height=dp(100), color=(1, 0.55, 0.45, 1)))
+        close_button = Button(
+            markup=True, text=fa("بستن"), font_name=FONT_NAME,
+            size_hint_y=None, height=dp(44))
+        body.add_widget(close_button)
+        popup = Popup(title=fa("تاریخچه معاملات آزمایشی"),
+                      content=body, size_hint=(0.94, 0.86), auto_dismiss=True)
+        close_button.bind(on_press=popup.dismiss)
+        popup.open()
+        self.trade_history_popup = popup
+
     def on_start(self):
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
@@ -2926,6 +3065,12 @@ class FuturesAnalyzerApp(App):
                 self.coordinator_session_error = (
                     "{}: {}".format(type(exc).__name__, str(exc)[:160])
                 )
+
+        # Show the read-only history once on the first app entry this session.
+        # It is deliberately independent of the paper runner and performs no trading action.
+        if not getattr(self, "_history_auto_opened", False):
+            self._history_auto_opened = True
+            Clock.schedule_once(lambda _dt: self.open_trade_history(), 1.0)
 
         # Start the paper-only public market stream automatically after Kivy's
         # UI is initialized. start_auto_paper_trader() repeats every safety gate,
