@@ -133,11 +133,15 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             app.start_auto_paper_trader = Mock()
             app.on_start()
 
-        clock.schedule_once.assert_called_once()
-        callback, delay = clock.schedule_once.call_args.args
-        self.assertEqual(delay, 0.5)
+        # Startup schedules both the read-only history popup (1.0s) and
+        # the paper runner (0.5s). Verify the runner remains deferred until
+        # the safety-initialized callback is invoked.
+        self.assertEqual(clock.schedule_once.call_count, 2)
+        scheduled = [call.args for call in clock.schedule_once.call_args_list]
+        self.assertEqual(sorted(args[1] for args in scheduled), [0.5, 1.0])
+        runner_callback = next(args[0] for args in scheduled if args[1] == 0.5)
         app.start_auto_paper_trader.assert_not_called()
-        callback(0)
+        runner_callback(0)
         app.start_auto_paper_trader.assert_called_once_with()
         app.on_stop()
 
