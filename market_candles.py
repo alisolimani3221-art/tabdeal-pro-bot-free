@@ -221,6 +221,21 @@ class TradeCandleBuilder:
         """Five complete candles permit early monitoring, never technical entry."""
         return len(self.closed) >= MIN_MONITOR_CANDLES
 
+    def preliminary_trend(self):
+        """Summarize the last five closed candles without creating a trade signal."""
+        if not self.monitor_ready:
+            return None
+        rows = list(self.closed)[-MIN_MONITOR_CANDLES:]
+        first_close = float(rows[0][4])
+        last_close = float(rows[-1][4])
+        change_pct = (last_close / first_close - 1.0) * 100.0
+        if not math.isfinite(change_pct):
+            return None
+        direction = "UP" if change_pct > 0 else "DOWN" if change_pct < 0 else "FLAT"
+        return {"trend": direction, "change_pct": change_pct,
+                "candles": MIN_MONITOR_CANDLES, "signal": None,
+                "trade_allowed": False}
+
     @property
     def is_ready(self):
         # Keep technical signals/entries gated until 23 closed candles and a
