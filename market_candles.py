@@ -94,10 +94,14 @@ class TradeCandleBuilder:
             # forming candle is discarded, but older fully closed candles remain
             # valid. Only one or more completely skipped minute buckets invalidate
             # the retained indicator history.
-            if bucket > self._resume_bucket + self.interval_ms:
+            if bucket != self._resume_bucket + self.interval_ms:
                 self.closed.clear()
                 self.gaps += 1
                 gap_detected = True
+                self._reconnect_warmup_pending = False
+            else:
+                # The first fresh trade proves the cached history joins the
+                # live stream without a missing minute.
                 self._reconnect_warmup_pending = False
             self._resume_bucket = None
             self._resume_last_timestamp_ms = None
@@ -133,6 +137,35 @@ class TradeCandleBuilder:
             self.last_sequence = sequence
         return {"accepted": True, "gap_detected": gap_detected,
                 "closed_candles": len(self.closed), "ready": self.is_ready}
+
+    def restore_closed_candles(self, rows):
+        """Seed indicators from a verified contiguous cache, pending live continuity."""
+        if not isinstance(rows, (list, tuple)) or len(rows) < 20:
+            raise ValueError("at least 20 closed candles are required")
+        previous = None
+        normalized = []
+        for row in rows:
+            if not isinstance(row, (list, tuple)) or len(row) != 6:
+                raise ValueError("cached candle must have six OHLCV fields")
+            stamp = row[0]
+            if isinstance(stamp, bool) or not isinstance(stamp, int):
+                raise ValueError("cached candle timestamp must be an integer")
+            if stamp <= 0 or stamp % self.interval_ms:
+                raise ValueError("cached candle timestamp is not interval-aligned")
+            if previous is not None and stamp - previous != self.interval_ms:
+                raise ValueError("cached candle history contains a gap")
+            previous = stamp
+            normalized.append(list(row))
+        self.closed.clear()
+        self.closed.extend(normalized[-self.closed.maxlen:])
+        self.current = None
+        self.last_timestamp_ms = None
+        self.last_sequence = None
+        self.discard_next_close = False
+        self._resume_bucket = self.closed[-1][0]
+        self._resume_last_timestamp_ms = self._resume_bucket + self.interval_ms - 1
+        self._reconnect_warmup_pending = True
+        return len(self.closed)
 
     def reset_after_reconnect(self):
         """Retain closed candles only when the stream resumes in the same minute."""
