@@ -422,6 +422,38 @@ class PaperTraderTests(unittest.TestCase):
                 PaperTradingEngine(capital=8, max_loss_percent=value)
 
 
+    def test_data_gap_flattens_and_latches_open_long_and_short_positions(self):
+        for signal in ("BULLISH", "BEARISH"):
+            with self.subTest(signal=signal):
+                engine = PaperTradingEngine(
+                    capital=8, fee_rate=0.0005, slippage_rate=0
+                )
+                engine.process_scan([setup(signal=signal)])
+                reconnect_price = 99.5
+                result = engine.halt_for_data_gap("AAA_USDT", reconnect_price)
+                self.assertIsNotNone(result)
+                self.assertTrue(result["halted"])
+                self.assertEqual(result["halt_reason"], "DATA_GAP")
+                self.assertEqual(result["trade"]["reason"], "DATA_GAP")
+                self.assertEqual(result["trade"]["exit"], reconnect_price)
+                self.assertIsNone(engine.position)
+                restored = PaperTradingEngine.restore_state(engine.export_state())
+                self.assertTrue(restored.halted)
+                self.assertEqual(restored.halt_reason, "DATA_GAP")
+                blocked = restored.process_scan([setup("BBB_USDT")])
+                self.assertTrue(blocked["halted"])
+                self.assertEqual(blocked["events"], [])
+
+    def test_data_gap_does_not_close_a_different_symbol_or_create_position(self):
+        engine = PaperTradingEngine(capital=8)
+        self.assertIsNone(engine.halt_for_data_gap("AAA_USDT", 100))
+        engine.process_scan([setup()])
+        self.assertIsNone(engine.halt_for_data_gap("BBB_USDT", 100))
+        self.assertIsNotNone(engine.position)
+        with self.assertRaises(ValueError):
+            engine.halt_for_data_gap("AAA_USDT", float("nan"))
+        self.assertIsNotNone(engine.position)
+
     def test_tick_level_stop_closes_long_and_short_positions(self):
         long_engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         long_engine.process_scan([setup()])
