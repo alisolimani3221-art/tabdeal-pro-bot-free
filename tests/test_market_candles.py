@@ -45,12 +45,20 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.status()["gaps"], 1)
         self.assertFalse(builder.is_ready)
 
-    def test_ready_requires_20_closed_and_one_forming_candle(self):
+    def test_five_closed_candles_enable_monitoring_but_not_analysis(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        for minute in range(100, 122):
+        for minute in range(100, 107):
+            builder.add_trade(self.trade(minute))
+        self.assertTrue(builder.monitor_ready)
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(builder.status()["analysis_required_candles"], 23)
+
+    def test_analysis_requires_23_closed_and_one_forming_candle(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
-        self.assertEqual(len(builder.candles_for_analysis()), 21)
+        self.assertEqual(len(builder.candles_for_analysis()), 24)
 
     # Include 20 fully observed closed candles after discarding the first partial bucket.
     def test_gap_prevents_false_contiguous_readiness(self):
