@@ -2583,7 +2583,7 @@ class FuturesAnalyzerApp(App):
                             "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۲۳ | "
                             "{} | تحلیل و ورود آزمایشی فقط پس از ۲۳ کندل معتبر فعال می‌شود."
                         ).format(symbol, min(closed_count, 23),
-                                 "پایش اولیه فعال است" if stream_status["monitor_ready"] else "در انتظار ۵ کندل اولیه")
+                                 "پایش اولیه فعال است" if builder.monitor_ready else "در انتظار ۵ کندل اولیه")
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
