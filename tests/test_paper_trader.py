@@ -656,5 +656,35 @@ class PaperTraderTests(unittest.TestCase):
                 )
                 self.assertLessEqual(engine.equity, optimistic + 1e-12)
 
+    def test_recovered_open_position_is_flattened_on_first_fresh_tick(self):
+        engine = PaperTradingEngine(
+            capital=8, fee_rate=0.0005, slippage_rate=0
+        )
+        engine.process_scan([setup()])
+        snapshot = engine.export_state()
+
+        # Simulate a process restart while a paper position is still open.
+        recovered = PaperTradingEngine.restore_state(snapshot)
+        self.assertIsNotNone(recovered.position)
+        reconnect_price = 97.25
+
+        result = reconcile_paper_market_tick(
+            recovered, "AAA_USDT", reconnect_price, gap_detected=True
+        )
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result["halted"])
+        self.assertEqual(result["halt_reason"], "DATA_GAP")
+        self.assertEqual(result["trade"]["reason"], "DATA_GAP")
+        self.assertEqual(result["trade"]["exit"], reconnect_price)
+        self.assertIsNone(recovered.position)
+
+        # The persisted recovery result remains halted after another restart.
+        persisted_again = PaperTradingEngine.restore_state(recovered.export_state())
+        self.assertTrue(persisted_again.halted)
+        self.assertEqual(persisted_again.halt_reason, "DATA_GAP")
+        self.assertIsNone(persisted_again.position)
+
+
 if __name__ == "__main__":
     unittest.main()
