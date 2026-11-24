@@ -1670,19 +1670,17 @@ class FuturesAnalyzerApp(App):
                 type(coordinator_exc).__name__, str(coordinator_exc)[:140]
             )
         try:
-            paper_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
-            if os.path.isfile(paper_path):
-                with open(paper_path, "r", encoding="utf-8") as paper_file:
-                    paper_state = json.load(paper_file)
-                if isinstance(paper_state, dict):
-                    paper_state_status = "halted={}; reason={!r}; detail={!r}; has_position={}; closed_trades={}".format(
-                        paper_state.get("halted"), paper_state.get("halt_reason"),
-                        paper_state.get("halt_detail"), paper_state.get("position") is not None,
-                        len(paper_state.get("closed_trades", []))
-                        if isinstance(paper_state.get("closed_trades"), list) else "INVALID"
-                    )
-                else:
-                    paper_state_status = "ERROR: invalid JSON state shape"
+            paper_state = self._paper_engine_snapshot()
+            if paper_state is not None:
+                paper_state_status = "source={}; halted={}; reason={!r}; detail={!r}; has_position={}; closed_trades={}".format(
+                    paper_state.get("_source", "unknown"),
+                    paper_state.get("halted"), paper_state.get("halt_reason"),
+                    paper_state.get("halt_detail"), paper_state.get("position") is not None,
+                    len(paper_state.get("closed_trades", []))
+                    if isinstance(paper_state.get("closed_trades"), list) else "INVALID"
+                )
+            else:
+                paper_state_status = "NOT FOUND"
         except Exception as paper_exc:
             paper_state_status = "ERROR: {}: {}".format(
                 type(paper_exc).__name__, str(paper_exc)[:140]
@@ -1949,8 +1947,14 @@ class FuturesAnalyzerApp(App):
                       title_font=FONT_NAME, content=body,
                       size_hint=(0.96, 0.78), auto_dismiss=False)
         self.auto_popup = popup
+        history_button = Button(
+            markup=True, text=fa("تاریخچه معاملات آزمایشی"),
+            font_name=FONT_NAME, size_hint_y=None, height=dp(44),
+        )
+        body.add_widget(history_button)
         start_button.bind(on_press=lambda _button: self.start_auto_paper_trader())
         stop_button.bind(on_press=lambda _button: self.stop_auto_paper_trader())
+        history_button.bind(on_press=lambda _button: self.open_paper_trade_history())
         close_button.bind(on_press=popup.dismiss)
         popup.open()
         if not getattr(self, "runtime_lock_ready", False):
@@ -1966,6 +1970,136 @@ class FuturesAnalyzerApp(App):
             ))
         else:
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
+
+    def _paper_engine_snapshot(self):
+        """Read one authoritative paper-engine snapshot for UI and diagnostics."""
+        engine = getattr(self, "auto_engine", None)
+        if engine is not None:
+            try:
+                snapshot = engine.export_state()
+                snapshot["_source"] = "active_engine"
+                return snapshot
+            except Exception:
+                # Fall back to the last atomically persisted state if the
+                # in-memory engine cannot provide a consistent snapshot.
+                pass
+        try:
+            state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+            with getattr(self, "_paper_state_lock", threading.RLock()):
+                if not os.path.isfile(state_path):
+                    return None
+                with open(state_path, "r", encoding="utf-8") as state_file:
+                    snapshot = json.load(state_file)
+            if not isinstance(snapshot, dict):
+                return None
+            snapshot["_source"] = "persisted_state"
+            return snapshot
+        except Exception:
+            return None
+
+    def open_paper_trade_history(self):
+        """Display a read-only view of closed paper trades and their accounting."""
+        snapshot = self._paper_engine_snapshot()
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
+        report = BoxLayout(orientation="vertical", spacing=dp(8),
+                           size_hint_y=None, padding=[0, dp(4), 0, dp(8)])
+        report.bind(minimum_height=report.setter("height"))
+        trades = snapshot.get("closed_trades", []) if snapshot else []
+        if not isinstance(trades, list):
+            trades = []
+        valid = [item for item in trades if isinstance(item, dict)]
+        wins = sum(1 for item in valid
+                   if isinstance(item.get("net_pnl"), (int, float))
+                   and not isinstance(item.get("net_pnl"), bool)
+                   and item.get("net_pnl") > 0)
+        losses = sum(1 for item in valid
+                     if isinstance(item.get("net_pnl"), (int, float))
+                     and not isinstance(item.get("net_pnl"), bool)
+                     and item.get("net_pnl") < 0)
+        net_total = sum(float(item["net_pnl"]) for item in valid
+                        if isinstance(item.get("net_pnl"), (int, float))
+                        and not isinstance(item.get("net_pnl"), bool))
+        source = snapshot.get("_source", "unavailable") if snapshot else "unavailable"
+        summary = (
+            "تعداد معاملات بسته: {} | سودده: {} | زیان‌ده: {}\n"
+            "سود/زیان خالص تجمعی: {:.6f} USDT\n"
+            "سرمایه نقدی: {} | ارزش تقریبی حساب: {}\n"
+            "منبع داده: {} | این صفحه فقط‌خواندنی است."
+        ).format(
+            len(valid), wins, losses, net_total,
+            "{:.6f}".format(snapshot.get("cash"))
+            if snapshot and isinstance(snapshot.get("cash"), (int, float)) else "ناموجود",
+            "{:.6f}".format(
+                snapshot.get("cash", 0.0) if not snapshot.get("position")
+                else snapshot.get("cash", 0.0)
+            ) if snapshot and isinstance(snapshot.get("cash"), (int, float)) else "ناموجود",
+            source,
+        )
+        summary_label = Label(
+            text=assistant_rtl_text(summary), font_name=FONT_NAME,
+            font_size=sp(13), markup=False, base_direction="ltr",
+            text_language="ar", size_hint=(1, None), height=dp(104),
+            halign="center", valign="middle",
+            text_size=(Window.width - dp(58), None),
+        )
+        summary_label.bind(texture_size=lambda widget, size: setattr(
+            widget, "height", max(dp(104), size[1] + dp(18))))
+        report.add_widget(summary_label)
+        if not valid:
+            empty = "هنوز معامله بسته‌شده‌ای در تاریخچه ثبت نشده است."
+            empty_label = Label(
+                text=assistant_rtl_text(empty), font_name=FONT_NAME,
+                font_size=sp(13), markup=False, base_direction="ltr",
+                text_language="ar", size_hint=(1, None), height=dp(58),
+                halign="center", valign="middle",
+                text_size=(Window.width - dp(58), None),
+            )
+            report.add_widget(empty_label)
+        else:
+            for index, trade in enumerate(reversed(valid[-30:]), 1):
+                side = "خرید" if trade.get("side") == "BULLISH" else (
+                    "فروش" if trade.get("side") == "BEARISH" else "ناموجود")
+                def number_text(key):
+                    value = trade.get(key)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        return "{:.8g}".format(value)
+                    return "ناموجود"
+                lines = (
+                    "{}. {} | {}\nورود: {} | خروج: {} | مقدار: {}\n"
+                    "سود ناخالص: {} | کارمزد ورود/خروج: {}/{}\n"
+                    "سود/زیان خالص: {} USDT | علت خروج: {}\n"
+                    "حد ضرر: {} | حد سود: {}"
+                ).format(
+                    index, str(trade.get("symbol", "ناموجود")), side,
+                    number_text("entry"), number_text("exit"),
+                    number_text("quantity"), number_text("gross_pnl"),
+                    number_text("fees_entry"), number_text("fees_exit"),
+                    number_text("net_pnl"), str(trade.get("reason", "ناموجود")),
+                    number_text("stop"), number_text("target"),
+                )
+                item_label = Label(
+                    text=assistant_rtl_text(lines), font_name=FONT_NAME,
+                    font_size=sp(12), markup=False, base_direction="ltr",
+                    text_language="ar", size_hint=(1, None), height=dp(142),
+                    halign="center", valign="middle",
+                    text_size=(Window.width - dp(58), None),
+                    color=(0.9, 0.94, 1, 1),
+                )
+                item_label.bind(texture_size=lambda widget, size: setattr(
+                    widget, "height", max(dp(142), size[1] + dp(18))))
+                report.add_widget(item_label)
+        scroll.add_widget(report)
+        body.add_widget(scroll)
+        close_button = Button(
+            markup=True, text=fa("بستن"), font_name=FONT_NAME,
+            size_hint_y=None, height=dp(46))
+        body.add_widget(close_button)
+        popup = Popup(
+            title=fa_plain("تاریخچه معاملات آزمایشی"),
+            title_font=FONT_NAME, content=body, size_hint=(0.96, 0.86))
+        close_button.bind(on_press=popup.dismiss)
+        popup.open()
 
     def _persist_paper_engine_state(self, engine):
         """Atomically persist the latest paper-only snapshot under one writer lock."""
