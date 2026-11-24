@@ -506,6 +506,24 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(result["trade"]["reason"], "DATA_GAP")
         self.assertIsNone(engine.position)
 
+    def test_restored_open_position_is_flattened_on_first_recovery_tick(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        recovered = PaperTradingEngine.restore_state(engine.export_state())
+        self.assertIsNotNone(recovered.position)
+
+        # A restarted process has no candle history for its offline interval.
+        # Its first fresh tick must be treated as a data gap.
+        result = reconcile_paper_market_tick(
+            recovered, "AAA_USDT", 99.5, gap_detected=True,
+            now=recovered.daily_loss_date,
+        )
+        self.assertTrue(result["halted"])
+        self.assertEqual(result["halt_reason"], "DATA_GAP")
+        self.assertEqual(result["trade"]["reason"], "DATA_GAP")
+        self.assertIsNone(recovered.position)
+        self.assertEqual(recovered.closed_trades[-1]["reason"], "DATA_GAP")
+
     def test_gap_without_open_position_does_not_create_a_halt(self):
         engine = PaperTradingEngine(capital=8)
         result = reconcile_paper_market_tick(
