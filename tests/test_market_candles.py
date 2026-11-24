@@ -36,6 +36,21 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.add_trade(self.trade(100, 30, sequence=9))["reason"],
                          "duplicate_or_old_sequence")
 
+    def test_rejection_reasons_are_counted_without_changing_acceptance(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, second=20, sequence=9))
+        builder.add_trade(self.trade(100, second=10, sequence=10))
+        builder.add_trade(self.trade(100, second=30, sequence=9))
+        status = builder.status()
+        self.assertEqual(status["rejected_trades"], 2)
+        self.assertEqual(status["rejection_reasons"], {
+            "out_of_order": 1,
+            "duplicate_or_old_sequence": 1,
+        })
+        accepted = builder.add_trade(self.trade(100, second=40, sequence=10))
+        self.assertTrue(accepted["accepted"])
+        self.assertEqual(builder.status()["rejected_trades"], 2)
+
     def test_gap_clears_warmup_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100))
