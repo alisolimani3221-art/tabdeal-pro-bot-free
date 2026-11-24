@@ -420,6 +420,36 @@ class PaperTradingEngine:
                 return {"event": "STOPPED", "trade": None}
             return self._close(self.position["last_price"], "EMERGENCY_STOP")
 
+    def halt_for_data_gap(self, symbol, price):
+        """Flatten and permanently halt an open paper position after missing market data.
+
+        A reconnect tick cannot reveal whether the stop or target was crossed
+        while the stream was unavailable. Closing at the first fresh price is
+        deliberately conservative; the ambiguous interval must never be
+        silently treated as if no protective level was crossed.
+        """
+        with self._lock:
+            if self.halted or self.position is None:
+                return None
+            if not isinstance(symbol, str) or symbol.upper() != self.position["symbol"]:
+                return None
+            latest = _positive(price, "reconnect tick price")
+            self.position["last_price"] = latest
+            self.halted = True
+            self.halt_reason = "DATA_GAP"
+            self.halt_detail = (
+                "market data gap; position flattened at first fresh reconnect tick"
+            )
+            closed = self._close(latest, "DATA_GAP")
+            return {
+                "event": closed["event"],
+                "trade": closed["trade"],
+                "halted": True,
+                "halt_reason": self.halt_reason,
+                "cash": self.cash,
+                "equity": self.equity,
+            }
+
     def process_tick(self, symbol, price):
         """Reconcile an open paper position against each validated live trade tick."""
         with self._lock:
