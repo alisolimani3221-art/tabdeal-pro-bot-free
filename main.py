@@ -4,6 +4,7 @@ import json
 import re
 import threading
 import time
+import math
 import requests
 import certifi
 from android_tls import (mount_tabdeal_tls_compat,
@@ -2061,13 +2062,26 @@ class FuturesAnalyzerApp(App):
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
                         return "{:.8g}".format(value)
                     return "ناموجود"
+                def time_text(key):
+                    value = trade.get(key)
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        return "ثبت نشده"
+                    try:
+                        timestamp = float(value)
+                        if not math.isfinite(timestamp) or timestamp < 0:
+                            return "ثبت نشده"
+                        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+                    except (OverflowError, OSError, ValueError):
+                        return "ثبت نشده"
                 lines = (
-                    "{}. {} | {}\nورود: {} | خروج: {} | مقدار: {}\n"
+                    "{}. {} | {}\nزمان ورود: {} | زمان خروج: {}\n"
+                    "ورود: {} | خروج: {} | مقدار: {}\n"
                     "سود ناخالص: {} | کارمزد ورود/خروج: {}/{}\n"
                     "سود/زیان خالص: {} USDT | علت خروج: {}\n"
                     "حد ضرر: {} | حد سود: {}"
                 ).format(
                     index, str(trade.get("symbol", "ناموجود")), side,
+                    time_text("opened_at"), time_text("closed_at"),
                     number_text("entry"), number_text("exit"),
                     number_text("quantity"), number_text("gross_pnl"),
                     number_text("fees_entry"), number_text("fees_exit"),
@@ -2077,13 +2091,13 @@ class FuturesAnalyzerApp(App):
                 item_label = Label(
                     text=assistant_rtl_text(lines), font_name=FONT_NAME,
                     font_size=sp(12), markup=False, base_direction="ltr",
-                    text_language="ar", size_hint=(1, None), height=dp(142),
+                    text_language="ar", size_hint=(1, None), height=dp(164),
                     halign="center", valign="middle",
                     text_size=(Window.width - dp(58), None),
                     color=(0.9, 0.94, 1, 1),
                 )
                 item_label.bind(texture_size=lambda widget, size: setattr(
-                    widget, "height", max(dp(142), size[1] + dp(18))))
+                    widget, "height", max(dp(164), size[1] + dp(18))))
                 report.add_widget(item_label)
         scroll.add_widget(report)
         body.add_widget(scroll)
