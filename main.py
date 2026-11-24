@@ -1968,18 +1968,13 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("قفل انحصاری اجرای برنامه در حافظه داخلی برقرار است؛ شبیه‌ساز فقط آزمایشی است و سفارش واقعی ارسال نمی‌کند.")
 
     def _persist_paper_engine_state(self, engine):
-        """Atomically persist the latest paper-only snapshot under one writer lock."""
+        """Durably persist the latest paper-only snapshot under one writer lock."""
         # Snapshot creation must happen inside the same lock as the file write.
         # Otherwise an older snapshot could overwrite a newer concurrent update.
+        from paper_engine_state_store import atomic_write_json
         with self._paper_state_lock:
             state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
-            temporary_path = state_path + ".tmp"
-            with open(temporary_path, "w", encoding="utf-8") as state_file:
-                json.dump(engine.export_state(), state_file, ensure_ascii=False,
-                          allow_nan=False, separators=(",", ":"))
-                state_file.flush()
-                os.fsync(state_file.fileno())
-            os.replace(temporary_path, state_path)
+            atomic_write_json(state_path, engine.export_state())
 
     def _schedule_rearmed_paper_runner(self):
         """Start paper mode after explicit operator confirmation."""
