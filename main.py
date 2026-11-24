@@ -2934,6 +2934,10 @@ class FuturesAnalyzerApp(App):
         # restores persisted state, and refuses emergency/loss halts. It never
         # submits exchange orders. Scheduling avoids starting worker/UI updates
         # before the application has completed its startup lifecycle.
+        # Discover active Futures symbols so side-caches can cover verified markets.
+        Clock.schedule_once(
+            lambda _dt: self.show_status(self.check_button), 0.1
+        )
         Clock.schedule_once(
             lambda _dt: self.start_auto_paper_trader(), 0.5
         )
