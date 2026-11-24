@@ -2900,8 +2900,7 @@ class FuturesAnalyzerApp(App):
                     )
                     # If the durable coordinator latch could not be written,
                     # retain the process lock until OS process termination.
-                    if not durable_halt:
-                        persistence_failed = True
+                    persistence_failed = not durable_halt
         if guard is not None and worker_stopped and not persistence_failed:
             try:
                 guard.stop()
