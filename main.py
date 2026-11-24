@@ -2545,7 +2545,7 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         status = (
                             "پیام معتبر دریافت شد، اما برای کندل‌سازی رد شد. "
-                            "معتبر: {} | کندل بسته: {}/20 | علت: {}"
+                            "معتبر: {} | کندل بسته: {}/23 | علت: {}"
                         ).format(valid_messages, builder.status()["closed_candles"],
                                  str(update.get("reason", "unknown"))[:48])
                         Clock.schedule_once(
@@ -2603,7 +2603,7 @@ class FuturesAnalyzerApp(App):
                     status = builder.status()
                     gap_message = (
                         "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
-                        "کندل معتبر: {}/۲۰ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                        "کندل معتبر: {}/۲۳ | تعداد شکاف‌ها: {} | داده ردشده: {}"
                     ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
                     Clock.schedule_once(
                         lambda dt, value=gap_message: self.update_auto_status(value), 0
