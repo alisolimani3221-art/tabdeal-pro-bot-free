@@ -2572,6 +2572,14 @@ class FuturesAnalyzerApp(App):
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
                                  stream_status["gaps"])
+                        preliminary = builder.preliminary_trend()
+                        if preliminary is not None:
+                            trend_names = {"UP": "صعودی", "DOWN": "نزولی", "FLAT": "خنثی"}
+                            status_text += (
+                                " روند مقدماتی ۵ کندل: {} ({:+.3f}٪). "
+                                "این فقط پایش است و سیگنال یا اجازه معامله نیست."
+                            ).format(trend_names[preliminary["trend"]],
+                                     preliminary["change_pct"])
                         Clock.schedule_once(
                             lambda dt, value=status_text: self.update_auto_status(value), 0
                         )
