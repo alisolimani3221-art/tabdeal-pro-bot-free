@@ -1,7 +1,7 @@
 import unittest
 from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal,
                           prepare_live_market_snapshot, PAPER_SCAN_INTERVAL_SECONDS,
-                          paper_scan_due)
+                          paper_scan_due, reconcile_paper_market_tick)
 
 
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
@@ -491,6 +491,28 @@ class PaperTraderTests(unittest.TestCase):
         self.assertTrue(result["halted"])
         self.assertEqual(result["halt_reason"], "MAX_LOSS")
         self.assertEqual(result["trade"]["reason"], "MAX_LOSS")
+        self.assertIsNone(engine.position)
+
+    def test_reconnect_tick_reconciler_flattens_open_position_on_gap(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        result = reconcile_paper_market_tick(
+            engine, "AAA_USDT", 99.5, gap_detected=True,
+            now=engine.daily_loss_date,
+        )
+        self.assertTrue(result["halted"])
+        self.assertEqual(result["halt_reason"], "DATA_GAP")
+        self.assertEqual(result["trade"]["reason"], "DATA_GAP")
+        self.assertIsNone(engine.position)
+
+    def test_gap_without_open_position_does_not_create_a_halt(self):
+        engine = PaperTradingEngine(capital=8)
+        result = reconcile_paper_market_tick(
+            engine, "AAA_USDT", 100, gap_detected=True,
+            now=engine.daily_loss_date,
+        )
+        self.assertIsNone(result)
+        self.assertFalse(engine.halted)
         self.assertIsNone(engine.position)
 
     def test_data_gap_flattens_and_latches_open_long_and_short_positions(self):
