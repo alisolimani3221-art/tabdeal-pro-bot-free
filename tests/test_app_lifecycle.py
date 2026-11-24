@@ -336,6 +336,17 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertEqual(blocked["events"], [])
         self.assertIsNone(blocked["open_position"])
 
+    def test_worker_treats_restored_open_position_as_a_recovery_data_gap(self):
+        source = MAIN_SOURCE.read_text(encoding="utf-8")
+        self.assertIn(
+            "recovered_open_position = engine.position is not None", source
+        )
+        self.assertIn("nonlocal recovered_open_position", source)
+        self.assertIn("or recovered_open_position", source)
+        self.assertIn(
+            "first fresh tick has now reconciled the persisted", source
+        )
+
     def test_websocket_close_callback_records_close_reason_for_diagnostics(self):
         source = MAIN_SOURCE.read_text(encoding="utf-8")
         start = source.index("            def on_close(ws, close_status_code, close_message):")
