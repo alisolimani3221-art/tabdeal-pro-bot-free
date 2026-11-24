@@ -153,7 +153,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         retained = len(builder.closed)
         builder.reset_after_reconnect()
 
-        result = builder.add_trade(self.trade(124))
+        result = builder.add_trade(self.trade(124, second=20))
         self.assertTrue(result["accepted"])
         self.assertFalse(result["gap_detected"])
         self.assertEqual(len(builder.closed), retained)
