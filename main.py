@@ -9,7 +9,7 @@ import certifi
 from android_tls import (mount_tabdeal_tls_compat,
                          tabdeal_websocket_ssl_options)
 
-APP_VERSION = "1.52"
+APP_VERSION = "1.53"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -2184,6 +2184,7 @@ class FuturesAnalyzerApp(App):
             candle_cache_dir = os.path.join(self.user_data_dir, "candle-cache")
             candle_cache_path = os.path.join(candle_cache_dir, symbol + ".json")
             restored_candle_count = 0
+            candle_cache_note = "هنوز تاریخچه کندل ذخیره‌شده‌ای وجود ندارد."
             if previous_builder is None or previous_builder.symbol != symbol:
                 try:
                     cached_rows = load_candle_cache(
@@ -2192,15 +2193,23 @@ class FuturesAnalyzerApp(App):
                     )
                     if len(cached_rows) >= 20:
                         restored_candle_count = builder.restore_closed_candles(cached_rows)
+                        candle_cache_note = "تاریخچه معتبر ذخیره‌شده بازیابی شد: {} کندل.".format(
+                            restored_candle_count
+                        )
+                    else:
+                        candle_cache_note = (
+                            "تاریخچه ذخیره‌شده کافی نیست: {} از ۲۰ کندل؛ "
+                            "گرم‌سازی با معاملات زنده ادامه می‌یابد."
+                        ).format(len(cached_rows))
                 except FileNotFoundError:
                     pass
-                except Exception:
-                    # Invalid, stale-schema or gapped cache is never used as
-                    # an indicator source. Live collection starts from empty.
-                    try:
-                        os.remove(candle_cache_path)
-                    except OSError:
-                        pass
+                except Exception as cache_exc:
+                    # Never delete a user's cache automatically. Invalid or
+                    # stale data is excluded from indicators, but retained for
+                    # diagnosis and possible recovery.
+                    candle_cache_note = (
+                        "کش کندل استفاده نشد و برای بررسی حفظ شد: {}."
+                    ).format(type(cache_exc).__name__)
             self.auto_candle_cache_path = candle_cache_path
             self.auto_candle_cache_last_open_time = (
                 builder.closed[-1][0] if restored_candle_count else None
@@ -2252,7 +2261,8 @@ class FuturesAnalyzerApp(App):
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪؛ "
             "سقف زیان روزانه: ۱٪؛ سقف زیان تجمعی: ۳٪.\n"
-            + warmup_text + " هیچ سفارش واقعی ارسال نمی‌شود."
+            + warmup_text + "\\n" + candle_cache_note
+            + " هیچ سفارش واقعی ارسال نمی‌شود."
         ).format(self.capital_usdt)
         self.update_auto_status(status_text)
 
