@@ -241,9 +241,19 @@ class PaperTradingEngine:
             "max_leverage", "fee_rate", "slippage_rate", "max_loss_percent",
             "position", "closed_trades", "scans", "halted", "halt_reason",
         }
-        if not isinstance(state, dict) or type(state.get("schema_version")) is not int:
-            raise ValueError("unsupported or malformed paper-engine state")
-        version = state["schema_version"]
+        if not isinstance(state, dict):
+            raise ValueError(
+                "paper-engine state container is invalid (expected JSON object)"
+            )
+        version_value = state.get("schema_version")
+        if type(version_value) is not int:
+            value_type = type(version_value).__name__
+            if "schema_version" not in state:
+                reason = "schema_version is missing"
+            else:
+                reason = "schema_version has invalid type {}".format(value_type)
+            raise ValueError("paper-engine state schema is invalid: " + reason)
+        version = version_value
         if version == 1:
             expected = common
         elif version == 2:
@@ -256,9 +266,23 @@ class PaperTradingEngine:
                 "daily_loss_date", "daily_start_equity",
             }
         else:
-            raise ValueError("unsupported or malformed paper-engine state")
-        if set(state) != expected:
-            raise ValueError("unsupported or malformed paper-engine state")
+            raise ValueError(
+                "unsupported paper-engine schema_version {}; supported versions: 1-4"
+                .format(version)
+            )
+        actual = set(state)
+        if actual != expected:
+            missing = sorted(expected - actual)
+            unexpected = sorted(actual - expected)
+            # Report only field names, never persisted values, balances, or positions.
+            def describe_fields(fields):
+                shown = [str(name)[:40] for name in fields[:8]]
+                suffix = " (+{} more)".format(len(fields) - 8) if len(fields) > 8 else ""
+                return ", ".join(shown) + suffix if shown else "none"
+            raise ValueError(
+                "paper-engine schema fields mismatch; missing=[{}]; unexpected=[{}]"
+                .format(describe_fields(missing), describe_fields(unexpected))
+            )
 
         engine = cls(
             capital=state["initial_capital"],
