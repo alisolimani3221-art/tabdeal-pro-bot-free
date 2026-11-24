@@ -28,6 +28,7 @@ on:
       - fix/paper-persistence-fail-closed-20261124
       - fix/v1.52-legacy-paper-schema-v4-migration
       - work/v1.53-integrated
+      - fix/v1.53-five-candle-warmup-orderbook-refresh
     paths:
       - 'main.py'
       - 'android_tls.py'
