@@ -161,7 +161,9 @@ class TradeCandleBuilder:
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
-        self.discard_next_close = False
+        # The first minute after restoring a cache may be only partially
+        # observed; discard it and require a complete fresh minute to close.
+        self.discard_next_close = True
         self._resume_bucket = self.closed[-1][0]
         self._resume_last_timestamp_ms = self._resume_bucket + self.interval_ms - 1
         self._reconnect_warmup_pending = True
