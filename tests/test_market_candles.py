@@ -53,6 +53,18 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(builder.is_ready)
         self.assertEqual(builder.status()["analysis_required_candles"], 23)
 
+    def test_preliminary_trend_after_five_candles_is_not_a_trade_signal(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        self.assertIsNone(builder.preliminary_trend())
+        for minute in range(100, 107):
+            builder.add_trade(self.trade(minute, price=100 + minute))
+        trend = builder.preliminary_trend()
+        self.assertEqual(trend["trend"], "UP")
+        self.assertEqual(trend["candles"], 5)
+        self.assertIsNone(trend["signal"])
+        self.assertFalse(trend["trade_allowed"])
+        self.assertFalse(builder.is_ready)
+
     def test_analysis_requires_23_closed_and_one_forming_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 125):
