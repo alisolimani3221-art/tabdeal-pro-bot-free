@@ -43,7 +43,6 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
-from multi_symbol_candle_cache import MultiSymbolCandleCache
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS)
@@ -2232,12 +2231,8 @@ class FuturesAnalyzerApp(App):
                                     + type(exc).__name__ + ": " + str(exc)[:160])
             return
         self.auto_stop_event.clear()
-        # Cache candles for other active markets observed on the public broadcast.
-        # This side cache never drives signals or orders.
-        self.multi_symbol_candle_cache = MultiSymbolCandleCache(
-            os.path.join(self.user_data_dir, "candle-cache"),
-            set(getattr(self, "verified_market_symbols", set())) - {symbol},
-        )
+        # Tabdeal broadcast is subscribed to exactly the selected symbol.
+        # No other market is assumed to arrive on this socket.
         self.auto_engine = engine
         self.auto_candle_builder = builder
         self.auto_trader_thread = threading.Thread(
@@ -2474,23 +2469,10 @@ class FuturesAnalyzerApp(App):
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
-                # Persist independently validated candles for every other active
-                # symbol observed on the broadcast; this never drives trading.
+                # Broadcast subscriptions are market-specific. If an unexpected
+                # symbol arrives, ignore it rather than treating this socket as
+                # a market-wide feed or caching candles for unrelated markets.
                 if parsed.get("symbol") != symbol:
-                    cache_manager = getattr(self, "multi_symbol_candle_cache", None)
-                    if cache_manager is not None:
-                        cache_manager.add_trade(parsed, int(time.time() * 1000))
-                if parsed.get("symbol") != symbol:
-                    now = time.monotonic()
-                    if now - last_status_update >= 10:
-                        last_status_update = now
-                        status = (
-                            "جریان عمومی بازار زنده است؛ پیام معتبر از نمادهای دیگر دریافت می‌شود. "
-                            "هنوز معامله تازه‌ای برای {} نرسیده؛ کندل‌سازی و ورود با قیمت کهنه انجام نمی‌شود."
-                        ).format(symbol)
-                        Clock.schedule_once(
-                            lambda dt, value=status: self.update_auto_status(value), 0
-                        )
                     return
                 update = builder.add_trade(parsed)
                 # A restored cache is usable only if the first fresh live trade
