@@ -168,6 +168,22 @@ def diagnose_signal(technical):
     return "شرایط سیگنال تأیید شده؛ ورود آزمایشی مجاز است"
 
 
+def diagnose_entry_state(technical, open_position=None):
+    """Prefer actual position state over a signal-only entry eligibility message."""
+    if open_position is not None:
+        if not isinstance(open_position, dict):
+            return "وضعیت موقعیت آزمایشی نامعتبر است؛ ورود جدید مسدود شد"
+        symbol = str(open_position.get("symbol", "")).strip().upper()
+        side = open_position.get("side")
+        if not re.fullmatch(r"[A-Z0-9]+_?USDT", symbol) or side not in ("BULLISH", "BEARISH"):
+            return "مشخصات موقعیت آزمایشی نامعتبر است؛ ورود جدید مسدود شد"
+        direction = "خرید" if side == "BULLISH" else "فروش"
+        return "موقعیت آزمایشی {} در {} باز است؛ تا بسته‌شدن آن ورود جدید مسدود است".format(
+            direction, symbol
+        )
+    return diagnose_signal(technical)
+
+
 class PaperTradingEngine:
     """One-position paper trader with fixed fractional risk and no live orders."""
 
