@@ -686,5 +686,35 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIsNone(persisted_again.position)
 
 
+    def test_restore_schema_diagnostics_report_version_and_field_names_only(self):
+        engine = PaperTradingEngine(capital=8)
+        valid = engine.export_state()
+
+        unsupported = dict(valid, schema_version=99)
+        with self.assertRaisesRegex(
+                ValueError, r"schema_version 99.*supported versions: 1-4"):
+            PaperTradingEngine.restore_state(unsupported)
+
+        missing = dict(valid)
+        missing.pop("daily_loss_date")
+        missing["unexpected_private_payload"] = "must-not-be-echoed"
+        with self.assertRaises(ValueError) as caught:
+            PaperTradingEngine.restore_state(missing)
+        message = str(caught.exception)
+        self.assertIn("daily_loss_date", message)
+        self.assertIn("unexpected_private_payload", message)
+        self.assertNotIn("must-not-be-echoed", message)
+
+    def test_restore_schema_diagnostics_distinguish_missing_and_invalid_version(self):
+        for state, expected in (
+            ({}, "schema_version is missing"),
+            ({"schema_version": "4"}, "schema_version has invalid type str"),
+            (None, "expected JSON object"),
+        ):
+            with self.subTest(state=state):
+                with self.assertRaisesRegex(ValueError, expected):
+                    PaperTradingEngine.restore_state(state)
+
+
 if __name__ == "__main__":
     unittest.main()
