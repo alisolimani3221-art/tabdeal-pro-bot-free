@@ -2,6 +2,7 @@
 import math
 import re
 import threading
+from datetime import date, datetime, timezone
 
 
 PAPER_SCAN_INTERVAL_SECONDS = 5.0
@@ -21,6 +22,27 @@ def paper_scan_due(now, last_scan):
         raise ValueError("scan timestamps must be finite nonnegative numbers")
     # A zero last-scan value means the first available fresh snapshot is due.
     return previous == 0.0 or current - previous >= PAPER_SCAN_INTERVAL_SECONDS
+
+
+def _utc_date_key(now=None):
+    """Return a validated UTC calendar-day key for deterministic daily limits."""
+    if now is None:
+        return datetime.now(timezone.utc).date().isoformat()
+    if isinstance(now, datetime):
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("daily risk clock must be timezone-aware")
+        return now.astimezone(timezone.utc).date().isoformat()
+    if isinstance(now, date):
+        return now.isoformat()
+    if isinstance(now, str):
+        try:
+            parsed = date.fromisoformat(now)
+        except ValueError:
+            raise ValueError("daily risk date must be an ISO calendar date")
+        if parsed.isoformat() != now:
+            raise ValueError("daily risk date must be an ISO calendar date")
+        return now
+    raise ValueError("daily risk clock must be a date, aware datetime, or ISO date")
 
 
 def _positive(value, name):
@@ -151,7 +173,7 @@ class PaperTradingEngine:
 
     def __init__(self, capital=8.0, risk_percent=0.5, max_leverage=3,
                  fee_rate=0.0005, slippage_rate=0.0002,
-                 max_loss_percent=3.0):
+                 max_loss_percent=3.0, daily_loss_percent=1.0):
         self.initial_capital = _positive(capital, "capital")
         self.cash = self.initial_capital
         self.risk_percent = float(risk_percent)
@@ -170,6 +192,11 @@ class PaperTradingEngine:
         self.max_loss_percent = _positive(max_loss_percent, "max_loss_percent")
         if self.max_loss_percent > 25:
             raise ValueError("max loss must be above 0 and at most 25 percent")
+        self.daily_loss_percent = _positive(daily_loss_percent, "daily_loss_percent")
+        if self.daily_loss_percent > 1.0:
+            raise ValueError("daily loss limit must be above 0 and at most 1 percent")
+        self.daily_loss_date = _utc_date_key()
+        self.daily_start_equity = self.initial_capital
         self.position = None
         # Persist the last candle on which an entry was opened. Repeated
         # 15-second scans must not reopen after a stop/target within that candle.
@@ -185,7 +212,7 @@ class PaperTradingEngine:
         """Return a JSON-safe snapshot suitable for atomic local persistence."""
         with self._lock:
             return {
-                "schema_version": 3,
+                "schema_version": 4,
                 "initial_capital": self.initial_capital,
                 "cash": self.cash,
                 "risk_percent": self.risk_percent,
@@ -193,6 +220,9 @@ class PaperTradingEngine:
                 "fee_rate": self.fee_rate,
                 "slippage_rate": self.slippage_rate,
                 "max_loss_percent": self.max_loss_percent,
+                "daily_loss_percent": self.daily_loss_percent,
+                "daily_loss_date": self.daily_loss_date,
+                "daily_start_equity": self.daily_start_equity,
                 "position": dict(self.position) if self.position else None,
                 "last_entry_candle": (dict(self.last_entry_candle)
                                       if self.last_entry_candle else None),
@@ -220,6 +250,11 @@ class PaperTradingEngine:
             expected = common | {"last_entry_candle"}
         elif version == 3:
             expected = common | {"last_entry_candle", "halt_detail"}
+        elif version == 4:
+            expected = common | {
+                "last_entry_candle", "halt_detail", "daily_loss_percent",
+                "daily_loss_date", "daily_start_equity",
+            }
         else:
             raise ValueError("unsupported or malformed paper-engine state")
         if set(state) != expected:
@@ -232,6 +267,7 @@ class PaperTradingEngine:
             fee_rate=state["fee_rate"],
             slippage_rate=state["slippage_rate"],
             max_loss_percent=state["max_loss_percent"],
+            daily_loss_percent=(state["daily_loss_percent"] if version >= 4 else 1.0),
         )
 
         def finite(value, name, allow_zero=False, allow_negative=False):
@@ -346,9 +382,33 @@ class PaperTradingEngine:
                     or not isinstance(trade.get("reason"), str)):
                 raise ValueError("paper-engine trade metadata is invalid")
         engine.closed_trades = [dict(item) for item in trades]
+        if version >= 4:
+            daily_date = state["daily_loss_date"]
+            engine.daily_loss_date = _utc_date_key(daily_date)
+            if engine.daily_loss_date != daily_date:
+                raise ValueError("paper-engine daily loss date is invalid")
+            engine.daily_start_equity = finite(
+                state["daily_start_equity"], "daily start equity"
+            )
+        else:
+            # One-time conservative migration: begin tracking from the recovered
+            # equity today, then persist this anchor so subsequent restarts cannot reset it.
+            engine.daily_loss_date = _utc_date_key()
+            engine.daily_start_equity = _positive(engine.equity, "recovered daily equity")
         if engine.halted and engine.position is not None:
             raise ValueError("halted paper engine cannot retain an open position")
         return engine
+
+    def _refresh_daily_period(self, now=None):
+        """Roll the UTC daily baseline once, preserving it across process restarts."""
+        current_date = _utc_date_key(now)
+        if current_date != self.daily_loss_date:
+            self.daily_loss_date = current_date
+            self.daily_start_equity = _positive(self.equity, "daily starting equity")
+
+    @property
+    def daily_loss_floor(self):
+        return self.daily_start_equity * (1.0 - self.daily_loss_percent / 100.0)
 
     @property
     def equity(self):
@@ -383,10 +443,10 @@ class PaperTradingEngine:
         self.position = None
         return {"event": "CLOSED", "trade": trade}
 
-    def process_scan(self, candidates):
+    def process_scan(self, candidates, now=None):
         """Thread-safe scan; serializes against the emergency stop."""
         with self._lock:
-            return self._process_scan(candidates)
+            return self._process_scan(candidates, now=now)
 
     def rearm_after_operator_stop(self):
         """Re-arm only a manually stopped engine after its simulated position is closed."""
@@ -450,8 +510,8 @@ class PaperTradingEngine:
                 "equity": self.equity,
             }
 
-    def process_tick(self, symbol, price):
-        """Reconcile an open paper position against each validated live trade tick."""
+    def process_tick(self, symbol, price, now=None):
+        """Reconcile an open paper position and both loss limits on every valid tick."""
         with self._lock:
             if self.halted or self.position is None:
                 return None
@@ -460,36 +520,47 @@ class PaperTradingEngine:
             latest = _positive(price, "tick price")
             p = self.position
             p["last_price"] = latest
+            event = None
             if p["side"] == "BULLISH":
                 if latest <= p["stop"]:
                     event = self._close(min(p["stop"], latest), "STOP_TICK")
                 elif latest >= p["target"]:
                     event = self._close(p["target"], "TARGET_TICK")
-                else:
-                    return None
             else:
                 if latest >= p["stop"]:
                     event = self._close(max(p["stop"], latest), "STOP_TICK")
                 elif latest <= p["target"]:
                     event = self._close(p["target"], "TARGET_TICK")
-                else:
-                    return None
 
-            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
-            if self.cash <= loss_floor:
+            self._refresh_daily_period(now)
+            cumulative_floor = self.initial_capital * (
+                1.0 - self.max_loss_percent / 100.0
+            )
+            current_equity = self.equity
+            if current_equity <= cumulative_floor:
+                if self.position is not None:
+                    event = self._close(latest, "MAX_LOSS")
                 self.halted = True
                 self.halt_reason = "MAX_LOSS"
                 self.halt_detail = "cumulative paper loss limit reached during tick reconciliation"
+            elif current_equity <= self.daily_loss_floor:
+                if self.position is not None:
+                    event = self._close(latest, "DAILY_MAX_LOSS")
+                self.halted = True
+                self.halt_reason = "DAILY_MAX_LOSS"
+                self.halt_detail = "UTC daily paper loss limit reached during tick reconciliation"
+            if event is None and not self.halted:
+                return None
             return {
-                "event": event["event"],
-                "trade": event["trade"],
+                "event": event["event"] if event else "STOPPED",
+                "trade": event["trade"] if event else None,
                 "halted": self.halted,
                 "halt_reason": self.halt_reason,
                 "cash": self.cash,
                 "equity": self.equity,
             }
 
-    def _process_scan(self, candidates):
+    def _process_scan(self, candidates, now=None):
         """Update the open position and optionally enter the best valid setup."""
         if self.halted:
             return {"events": [], "candidates": [], "equity": self.equity,
@@ -544,16 +615,27 @@ class PaperTradingEngine:
                 events.append(self._close(p["target"], "TARGET"))
                 closed_this_scan = True
 
-        # Enforce a hard cumulative-loss stop using marked equity, including
-        # estimated exit fees. If breached, flatten the paper position and
-        # permanently halt this engine instead of merely suppressing entries.
-        loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
-        if self.equity <= loss_floor:
+        # Refresh the UTC day only after marking any open position at the
+        # latest validated candle price, so midnight rollover starts from a
+        # defensible current equity rather than a stale previous-day mark.
+        self._refresh_daily_period(now)
+        cumulative_floor = self.initial_capital * (
+            1.0 - self.max_loss_percent / 100.0
+        )
+        current_equity = self.equity
+        if current_equity <= cumulative_floor:
             if self.position is not None:
                 events.append(self._close(self.position["last_price"], "MAX_LOSS"))
             self.halted = True
             self.halt_reason = "MAX_LOSS"
             self.halt_detail = "cumulative paper loss limit reached during scan"
+            closed_this_scan = True
+        elif current_equity <= self.daily_loss_floor:
+            if self.position is not None:
+                events.append(self._close(self.position["last_price"], "DAILY_MAX_LOSS"))
+            self.halted = True
+            self.halt_reason = "DAILY_MAX_LOSS"
+            self.halt_detail = "UTC daily paper loss limit reached during scan"
             closed_this_scan = True
 
         # Never close and reopen on the same scan: that can create an
