@@ -1995,43 +1995,9 @@ class FuturesAnalyzerApp(App):
         if guard is None or not guard.held or session is None:
             self.update_auto_status("بازآماده‌سازی ممکن نیست؛ قفل اجرا یا نشست ایمنی در دسترس نیست.")
             return
-        try:
-            state = session.snapshot()
-            coordinator_halted = state.get("halted") is True
-            if coordinator_halted and state.get("halt_reason") != "operator emergency stop":
-                self.update_auto_status("بازآماده‌سازی رد شد؛ توقف هماهنگ‌کننده از نوع توقف دستیِ قابل‌بازیابی نیست.")
-                return
-            if state.get("intents") != {}:
-                self.update_auto_status("بازآماده‌سازی رد شد؛ درخواست آماده‌سازی معلق وجود دارد.")
-                return
-            # A worker-side failure can persist EMERGENCY_STOP in the paper
-            # engine without setting the coordinator halt. Permit recovery only
-            # after explicit confirmation, with no position and above MAX_LOSS.
-            paper_state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
-            paper_engine = None
-            if os.path.isfile(paper_state_path):
-                with open(paper_state_path, "r", encoding="utf-8") as state_file:
-                    paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if paper_engine.position is not None or (
-                    paper_engine.halted and paper_engine.halt_reason != "EMERGENCY_STOP"
-                ):
-                    self.update_auto_status(
-                        "بازآماده‌سازی رد شد؛ موقعیت باز یا توقف سقف زیان/ایمنی غیرقابل‌بازیابی وجود دارد."
-                    )
-                    return
-            paper_halted = paper_engine is not None and paper_engine.halted
-            if not coordinator_halted and not paper_halted:
-                self.update_auto_status("هیچ توقف قابل‌بازیابی فعالی وجود ندارد.")
-                return
-        except Exception as exc:
-            # Keep the fail-closed behavior, but expose the concrete validation
-            # reason so an operator can distinguish coordinator vs paper-state
-            # corruption without weakening or bypassing either safety gate.
-            detail = "{}: {}".format(type(exc).__name__, str(exc)[:180])
-            self.update_auto_status(
-                "خواندن وضعیت ایمنی ناموفق بود؛ قفل حفظ شد: " + detail
-            )
-            return
+        # Defer persisted-state parsing until after the confirmation dialog is visible.
+        # The confirmation handler below re-reads and validates coordinator and paper
+        # state before changing either halt, and rolls back to emergency stop on failure.
 
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
         explanation = (
