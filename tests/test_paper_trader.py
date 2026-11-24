@@ -279,6 +279,9 @@ class PaperTraderTests(unittest.TestCase):
         version_two = dict(current)
         version_two["schema_version"] = 2
         version_two.pop("halt_detail")
+        version_two.pop("daily_loss_percent")
+        version_two.pop("daily_loss_date")
+        version_two.pop("daily_start_equity")
         restored_two = PaperTradingEngine.restore_state(version_two)
         self.assertIsNone(restored_two.halt_detail)
 
