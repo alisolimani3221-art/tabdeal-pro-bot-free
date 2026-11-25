@@ -18,8 +18,8 @@ _SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT")
 class MultiSymbolPaperCoordinator:
     def __init__(self, symbols, analyze, prepare_snapshot,
                  builder_factory=TradeCandleBuilder, max_snapshot_age=30.0):
-        if not isinstance(symbols, (list, tuple)) or not 2 <= len(symbols) <= 20:
-            raise ValueError("symbols must contain 2-20 USDT futures markets")
+        if not isinstance(symbols, (list, tuple)) or not 1 <= len(symbols) <= 20:
+            raise ValueError("symbols must contain 1-20 USDT futures markets")
         normalized = []
         for symbol in symbols:
             if not isinstance(symbol, str) or not _SYMBOL_RE.fullmatch(symbol):
