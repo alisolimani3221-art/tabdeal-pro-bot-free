@@ -30,6 +30,15 @@ def extract_active_symbols(payload):
     return list_market_symbols(symbols)
 
 
+def load_active_market_symbols(fetch_json=None):
+    """Return every active USDT perpetual contract from exchangeInfo."""
+    fetch = fetch_json or _request_json
+    symbols = extract_active_symbols(fetch("/exchangeInfo", None))
+    if not symbols:
+        raise RuntimeError("No active USDT futures symbols were returned")
+    return symbols
+
+
 def _request_json(path, params=None, timeout=18):
     with requests.Session() as session:
         mount_tabdeal_tls_compat(session, certifi.where())
