@@ -245,9 +245,15 @@ def build_engine_health_report_lines(app):
         "عمر آخرین اسکن موتور (ثانیه): " + (
             age("last_scan_age_seconds")
             if health.get("last_scan_age_seconds") is not None
-            else ("هنوز اجرا نشده؛ در انتظار تکمیل کندل‌های معتبر"
-                  if health.get("health_state") == "WARMING_UP"
-                  else "not recorded")
+            else (
+                "هنوز اجرا نشده؛ در انتظار تکمیل کندل‌های معتبر"
+                if health.get("health_state") == "WARMING_UP"
+                else (
+                    "کندل‌ساز آماده است؛ در انتظار نخستین تصویر تحلیلی و اسکن"
+                    if health.get("health_state") == "WAITING_FOR_FIRST_SCAN"
+                    else "اسکن هنوز ثبت نشده یا دادهٔ زمان‌بندی در دسترس نیست"
+                )
+            )
         ),
         "عمر اتصال WebSocket (ثانیه): " + age("connected_age_seconds"),
         "آخرین خطای جریان: " + value("last_stream_error", "ندارد")[:240],
