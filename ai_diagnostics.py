@@ -22,7 +22,7 @@ TECHNICAL_KEYS = (
     "trend", "support", "resistance", "data_kind", "candle_count",
 )
 HEALTH_KEYS = (
-    "worker_phase", "websocket_connected", "retry_attempt",
+    "worker_phase", "websocket_connected", "retry_attempt", "reconnect_count",
     "received_messages", "valid_market_trades", "control_messages", "selected_symbol_trade_count",
     "candle_count", "builder_ready", "analysis_required_candles",
     "candle_interval_seconds", "last_stream_error",
@@ -230,7 +230,8 @@ def build_engine_health_report_lines(app):
         "مرحله کاری موتور: " + value("worker_phase"),
         "اتصال WebSocket: " + value("websocket_connected", "false"),
         "رشته معامله‌گر زنده: " + value("thread_alive", "false"),
-        "تلاش اتصال مجدد: " + value("retry_attempt", "0"),
+        "تلاش اتصال مجدد متوالی: " + value("retry_attempt", "0"),
+        "اتصال‌های مجدد در این اجرا: " + value("reconnect_count", "0"),
         "پیام‌های دریافتی: " + value("received_messages", "0"),
         "پیام‌های کنترلی/غیرمعاملاتی: " + value("control_messages", "0"),
         "معاملات معتبر همه نمادها: " + value("valid_market_trades", "0"),
