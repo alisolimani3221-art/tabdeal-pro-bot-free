@@ -2512,17 +2512,17 @@ class FuturesAnalyzerApp(App):
                 nonlocal connected_once, last_processed_bucket, total_reconnects
                 socket_diagnostics["opened"] = True
                 stream_watchdog.connected()
+                if connected_once:
+                    total_reconnects += 1
+                    builder.reset_after_reconnect()
+                    last_processed_bucket = None
+                connected_once = True
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
                     websocket_connected=True, connected_at=time.monotonic(),
                     last_stream_error="",
                     reconnect_count=total_reconnects,
                 )
-                if connected_once:
-                    total_reconnects += 1
-                    builder.reset_after_reconnect()
-                    last_processed_bucket = None
-                connected_once = True
                 # Match the previously observed working public-feed protocol:
                 # send the market symbol as plain text after the socket opens.
                 # This is a read-only market subscription, never an order action.
