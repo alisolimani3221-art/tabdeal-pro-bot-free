@@ -249,7 +249,10 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.restore_closed_candles(rows), 5)
         self.assertTrue(builder.monitor_ready)
         self.assertFalse(builder.is_ready)
-        self.assertIsNone(builder.preliminary_trend() if False else None)
+        trend = builder.preliminary_trend()
+        self.assertIsNotNone(trend)
+        self.assertFalse(trend["trade_allowed"])
+        self.assertIsNone(trend["signal"])
 
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
