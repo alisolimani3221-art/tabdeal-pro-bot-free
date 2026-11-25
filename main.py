@@ -2298,7 +2298,7 @@ class FuturesAnalyzerApp(App):
                         )
                     else:
                         candle_cache_note = (
-                            "تاریخچه ذخیره‌شده کافی نیست: {} از ۲۰ کندل؛ "
+                            "تاریخچه ذخیره‌شده کافی نیست: {} از ۲۳ کندل؛ "
                             "گرم‌سازی با معاملات زنده ادامه می‌یابد."
                         ).format(len(cached_rows))
                 except FileNotFoundError:
