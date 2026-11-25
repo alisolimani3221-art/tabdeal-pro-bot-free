@@ -63,7 +63,7 @@ from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
-from multi_symbol_stream import select_broadcast_symbols
+from multi_symbol_stream import (select_broadcast_symbols, subscribe_broadcast_symbols)
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -2564,8 +2564,7 @@ class FuturesAnalyzerApp(App):
                 # send the market symbol as plain text after the socket opens.
                 # This is a read-only market subscription, never an order action.
                 try:
-                    for subscribed_symbol in subscription_symbols:
-                        ws.send(subscribed_symbol)
+                    subscribe_broadcast_symbols(ws, subscription_symbols)
                 except Exception as subscribe_exc:
                     detail = "{}: {}".format(
                         type(subscribe_exc).__name__, str(subscribe_exc)[:180]
