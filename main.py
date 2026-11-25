@@ -2591,6 +2591,7 @@ class FuturesAnalyzerApp(App):
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket, total_reconnects
+                nonlocal recovered_open_symbol
                 socket_diagnostics["opened"] = True
                 stream_watchdog.connected()
                 if connected_once:
