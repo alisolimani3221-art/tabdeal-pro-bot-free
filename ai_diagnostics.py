@@ -98,6 +98,20 @@ def _engine_health(app, worker_alive):
     selected_age = result["selected_symbol_trade_age_seconds"]
     scan_age = result["last_scan_age_seconds"]
     phase = result.get("worker_phase")
+    # on_open initially labels the socket as waiting for its first trade. Once
+    # selected-symbol ticks arrive, derive the visible phase from actual builder
+    # telemetry so the diagnostic cannot remain stuck on that startup label.
+    if (phase == "connected_waiting_for_trade" and result.get("websocket_connected")
+            and selected_age is not None and selected_age <= 30
+            and result.get("thread_alive", True)):
+        closed_count = result.get("candle_count", 0)
+        if result.get("builder_ready"):
+            phase = "analysis_ready_waiting_for_scan"
+        elif isinstance(closed_count, int) and closed_count >= 5:
+            phase = "preliminary_monitoring"
+        elif isinstance(closed_count, int) and closed_count >= 0:
+            phase = "collecting_selected_symbol_candles"
+        result["worker_phase"] = phase
     if phase in ("blocked_by_safety", "blocked_by_persisted_state"):
         state = "BLOCKED_BY_SAFETY"
     elif not worker_alive:

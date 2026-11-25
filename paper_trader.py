@@ -83,7 +83,7 @@ def rank_signal(technical):
     # provenance produced by analyze_klines. Hand-built/stale indicator
     # dictionaries must not be enough to open even a paper position.
     closed_candles = technical.get("closed_candles")
-    if type(closed_candles) is not int or closed_candles < 20:
+    if type(closed_candles) is not int or closed_candles < 23:
         return None
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
@@ -133,8 +133,8 @@ def diagnose_signal(technical):
     if signal not in ("BULLISH", "BEARISH"):
         return "جهت سیگنال قابل‌شناسایی نیست"
     count = technical.get("closed_candles")
-    if type(count) is not int or count < 20:
-        return "داده کافی نیست: حداقل ۲۰ کندل بسته‌شده لازم است"
+    if type(count) is not int or count < 23:
+        return "داده کافی نیست: حداقل ۲۳ کندل بسته‌شده لازم است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):

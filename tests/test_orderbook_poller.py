@@ -19,6 +19,9 @@ class OrderBookPollerTests(unittest.TestCase):
         self.assertIn("self.orderbook_poll_lock.acquire(False)", source)
         self.assertIn("poll_stop.set()", source)
         self.assertIn("fetch_order_book_snapshot(", source)
+        self.assertIn("book_title_button.bind(on_press=self._manual_refresh_order_book)", source)
+        self.assertIn("def _manual_refresh_order_book", source)
+        self.assertIn("self._schedule_order_book_poll(0)", source)
 
     def test_fetches_one_valid_depth_snapshot_and_closes_response(self):
         response = Mock()

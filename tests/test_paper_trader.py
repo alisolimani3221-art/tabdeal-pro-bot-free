@@ -8,10 +8,10 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
         return {"symbol": symbol, "price": price, "sma10": 99, "sma20": 98,
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
-                "closed_candles": 20, "candle_open_time": 60_000}
+                "closed_candles": 23, "candle_open_time": 60_000}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
-            "closed_candles": 20, "candle_open_time": 60_000}
+            "closed_candles": 23, "candle_open_time": 60_000}
 
 
 class PaperTraderTests(unittest.TestCase):
@@ -52,13 +52,16 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIn("تأیید شده", diagnose_signal(setup()))
 
     def test_rejects_signal_without_minimum_closed_candle_provenance(self):
-        for value in (None, 0, 19, 19.9, True, "20"):
+        for value in (None, 0, 22, 22.9, True, "23"):
             with self.subTest(closed_candles=value):
                 self.assertIsNone(rank_signal(dict(setup(), closed_candles=value)))
 
     def test_accepts_signal_with_minimum_closed_candle_provenance(self):
         self.assertIsNotNone(rank_signal(setup()))
-        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=21)))
+        self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=24)))
+
+    def test_diagnostics_keep_entry_blocked_below_23_closed_candles(self):
+        self.assertIn("۲۳", diagnose_signal(dict(setup(), closed_candles=22)))
 
     def test_rejects_signal_without_valid_closed_candle_timestamp(self):
         for value in (None, 0, -1, True, "60000"):
