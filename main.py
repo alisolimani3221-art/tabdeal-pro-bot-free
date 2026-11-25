@@ -2572,6 +2572,13 @@ class FuturesAnalyzerApp(App):
                 Clock.schedule_once(
                     lambda _dt, value=live_price: self.update_live_price_chart(value), 0
                 )
+                selected_trade_count = int(
+                    getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
+                ) + 1
+                self._update_engine_health(
+                    selected_symbol_trade_count=selected_trade_count,
+                    last_selected_symbol_trade_at=time.monotonic(),
+                )
                 update = builder.add_trade(parsed)
                 # A restored cache is usable only if the first fresh live trade
                 # proves there was no missing one-minute bucket. On a gap the
@@ -2625,9 +2632,6 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
-                selected_trade_count = int(
-                    getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
-                ) + 1
                 candle_status = builder.status()
                 if builder.is_ready:
                     selected_phase = "analysis_ready_waiting_for_scan"
@@ -2637,8 +2641,6 @@ class FuturesAnalyzerApp(App):
                     selected_phase = "collecting_selected_symbol_candles"
                 self._update_engine_health(
                     worker_phase=selected_phase,
-                    selected_symbol_trade_count=selected_trade_count,
-                    last_selected_symbol_trade_at=time.monotonic(),
                     candle_count=int(candle_status.get("closed_candles", 0)),
                     builder_ready=bool(builder.is_ready),
                 )
