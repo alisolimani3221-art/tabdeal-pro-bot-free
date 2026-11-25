@@ -24,7 +24,8 @@ TECHNICAL_KEYS = (
 HEALTH_KEYS = (
     "worker_phase", "websocket_connected", "retry_attempt",
     "received_messages", "valid_market_trades", "selected_symbol_trade_count",
-    "candle_count", "builder_ready", "last_stream_error",
+    "candle_count", "builder_ready", "analysis_required_candles",
+    "candle_interval_seconds", "last_stream_error",
 )
 NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
@@ -235,8 +236,19 @@ def build_engine_health_report_lines(app):
         "معاملات معتبر نماد انتخابی: " + value("selected_symbol_trade_count", "0"),
         "عمر آخرین معامله نماد انتخابی (ثانیه): " + age("selected_symbol_trade_age_seconds"),
         "کندل‌های بسته: " + value("candle_count", "0"),
+        "کندل‌های باقی‌مانده تا تحلیل: " + str(max(
+            0, int(health.get("analysis_required_candles", 23) or 23)
+            - int(health.get("candle_count", 0) or 0)
+        )),
+        "بازه هر کندل (ثانیه): " + value("candle_interval_seconds", "60"),
         "آماده‌بودن کندل‌ساز: " + value("builder_ready", "false"),
-        "عمر آخرین اسکن موتور (ثانیه): " + age("last_scan_age_seconds"),
+        "عمر آخرین اسکن موتور (ثانیه): " + (
+            age("last_scan_age_seconds")
+            if health.get("last_scan_age_seconds") is not None
+            else ("هنوز اجرا نشده؛ در انتظار تکمیل کندل‌های معتبر"
+                  if health.get("health_state") == "WARMING_UP"
+                  else "not recorded")
+        ),
         "عمر اتصال WebSocket (ثانیه): " + age("connected_age_seconds"),
         "آخرین خطای جریان: " + value("last_stream_error", "ندارد")[:240],
     ]
