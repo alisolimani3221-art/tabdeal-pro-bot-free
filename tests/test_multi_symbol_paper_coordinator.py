@@ -7,7 +7,7 @@ class FakeBuilder:
     def __init__(self, symbol):
         self.symbol = symbol
         self.is_ready = False
-        self.closed = []
+        self.closed = [(60_000, 1, 1, 1, 1, 1)]
         self.received = []
         self.resets = 0
 
