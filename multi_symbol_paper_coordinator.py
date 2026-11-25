@@ -52,6 +52,7 @@ class MultiSymbolPaperCoordinator:
                 "last_analysis_error": None,
                 "accepted_trades": 0,
                 "rejected_trades": 0,
+                "pending_tick": None,
             }
 
     def on_trade(self, trade, received_at=None):
@@ -93,6 +94,16 @@ class MultiSymbolPaperCoordinator:
             state["accepted_trades"] += 1
             state["last_trade_monotonic"] = now
             state["last_price"] = price
+            # Only this exact event may reach tick-level position reconciliation.
+            # The pending slot is consumed once, preventing duplicate callbacks
+            # from applying the same mark/exit twice.
+            state["pending_tick"] = {
+                "symbol": symbol,
+                "price": price,
+                "quantity": float(trade["quantity"]),
+                "timestamp_ms": int(trade["timestamp_ms"]),
+                "sequence": trade.get("sequence"),
+            }
             if update.get("gap_detected"):
                 # No pre-gap technical snapshot may remain eligible for entry.
                 state["latest_technical"] = None
@@ -154,6 +165,28 @@ class MultiSymbolPaperCoordinator:
         if (isinstance(timestamp, bool) or not isinstance(timestamp, int)
                 or timestamp <= 0 or timestamp > 10_000_000_000_000):
             return None
+        sequence = trade.get("sequence")
+        if sequence is not None and (
+                isinstance(sequence, bool) or not isinstance(sequence, int)
+                or sequence < 0):
+            return None
+
+        with self.lock:
+            state = self.states[symbol]
+            pending = state.get("pending_tick")
+            if not isinstance(pending, dict):
+                return None
+            event_key = (symbol, price, quantity, timestamp, sequence)
+            pending_key = (
+                pending.get("symbol"), pending.get("price"),
+                pending.get("quantity"), pending.get("timestamp_ms"),
+                pending.get("sequence"),
+            )
+            if event_key != pending_key:
+                return None
+            # Consume before mutating the shared engine. A repeated callback,
+            # even after an exception, cannot replay this tick.
+            state["pending_tick"] = None
 
         if gap_detected:
             return engine.halt_for_data_gap(symbol, price)
@@ -192,6 +225,7 @@ class MultiSymbolPaperCoordinator:
                 state["last_trade_monotonic"] = None
                 state["last_price"] = None
                 state["latest_technical"] = None
+                state["pending_tick"] = None
 
     def status(self, now=None):
         try:
