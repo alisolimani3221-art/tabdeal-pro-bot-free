@@ -23,6 +23,7 @@ on:
   push:
     branches:
       - audit/v1.49-preserve-halt-diagnostics
+      - fix/multi-symbol-paper-stream-probe
       - release/v1.49
     paths:
       - 'main.py'
@@ -37,6 +38,7 @@ on:
       - 'ai_diagnostics.py'
       - 'market_format.py'
       - 'trade_stream_probe.py'
+      - 'multi_symbol_stream_probe.py'
       - 'market_candles.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
@@ -309,6 +311,44 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+
+      - name: Verify whether one trade stream supports multiple market subscriptions
+        timeout-minutes: 3
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from multi_symbol_stream_probe import probe_multi_symbol_subscription
+
+          report = probe_multi_symbol_subscription(
+              symbols=("BTC_USDT", "ETH_USDT"),
+              timeout_seconds=75,
+              switch_after_seconds=15,
+              settle_seconds=3,
+          )
+          Path("multi-symbol-stream-probe-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          if not report["connected"]:
+              raise SystemExit("The multi-symbol compatibility probe did not connect")
+          if report["classification"] != "multi_symbol_confirmed":
+              raise SystemExit(
+                  "Multi-symbol subscription is not proven; refusing to enable a "
+                  "multi-symbol paper runner. Classification: "
+                  + report["classification"]
+              )
+          PY
+
+      - name: Upload multi-symbol stream probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-symbol-stream-probe-report
+          path: multi-symbol-stream-probe-report.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Install Buildozer and Android Python packaging tools
         if: ${{ inputs.build_apk == true || (github.event_name == 'push' && (github.ref == 'refs/heads/audit/v1.49-preserve-halt-diagnostics' || github.ref == 'refs/heads/release/v1.49')) }}
