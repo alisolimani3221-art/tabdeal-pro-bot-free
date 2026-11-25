@@ -2248,6 +2248,7 @@ class FuturesAnalyzerApp(App):
             "worker_phase": "starting", "websocket_connected": False,
             "connected_at": None, "retry_attempt": 0,
             "received_messages": 0, "valid_market_trades": 0,
+            "control_messages": 0,
             "selected_symbol_trade_count": 0,
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
@@ -2483,6 +2484,7 @@ class FuturesAnalyzerApp(App):
         last_status_update = 0.0
         received_messages = 0
         valid_messages = 0
+        control_messages = 0
         connected_once = False
         retry_attempt = 0
         while not self.auto_stop_event.is_set():
@@ -2541,7 +2543,7 @@ class FuturesAnalyzerApp(App):
 
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
-                nonlocal last_status_update, received_messages, valid_messages, retry_attempt
+                nonlocal last_status_update, received_messages, valid_messages, control_messages, retry_attempt
                 nonlocal recovered_open_position
                 received_messages += 1
                 self._update_engine_health(received_messages=received_messages)
@@ -2550,6 +2552,21 @@ class FuturesAnalyzerApp(App):
                 # alive, even when the selected low-volume symbol has no trade.
                 parsed = parse_trade_message(message)
                 if self.auto_stop_event.is_set():
+                    return
+                if not parsed.get("ok") and parsed.get("reason") == "non_trade_event":
+                    control_messages += 1
+                    self._update_engine_health(control_messages=control_messages)
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "اتصال برقرار است؛ پیام‌های کنترلی/غیرمعاملاتی نادیده گرفته شدند. "
+                            "دریافتی: {} | پیام کنترلی: {} | معامله معتبر: {}. "
+                            "این پیام‌ها وارد کندل‌سازی نمی‌شوند."
+                        ).format(received_messages, control_messages, valid_messages)
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
                     return
                 if not parsed.get("ok"):
                     now = time.monotonic()
