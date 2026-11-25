@@ -23,7 +23,9 @@ class TradeCandleBuilder:
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
+        self.accepted_trades = 0
         self.rejected = 0
+        self.rejection_reasons = {}
         self.gaps = 0
         # The first bucket after subscription/reconnect may be only partially observed.
         self.discard_next_close = True
@@ -40,14 +42,17 @@ class TradeCandleBuilder:
             raise ValueError("{} must be positive and finite".format(name))
         return number
 
+    def _reject(self, reason):
+        self.rejected += 1
+        self.rejection_reasons[reason] = self.rejection_reasons.get(reason, 0) + 1
+        return {"accepted": False, "reason": reason}
+
     def add_trade(self, trade):
         """Add one normalized trade; return a compact acceptance diagnostic."""
         if not isinstance(trade, dict) or trade.get("ok") is False:
-            self.rejected += 1
-            return {"accepted": False, "reason": "invalid_trade"}
+            return self._reject("invalid_trade")
         if str(trade.get("symbol", "")).upper() != self.symbol:
-            self.rejected += 1
-            return {"accepted": False, "reason": "symbol_mismatch"}
+            return self._reject("symbol_mismatch")
         try:
             price = self._positive(trade.get("price"), "price")
             quantity = self._positive(trade.get("quantity"), "quantity")
@@ -61,28 +66,23 @@ class TradeCandleBuilder:
                     not isinstance(sequence, int) or sequence < 0):
                 raise ValueError("sequence must be a nonnegative integer")
         except (ValueError, TypeError, OverflowError):
-            self.rejected += 1
-            return {"accepted": False, "reason": "invalid_fields"}
+            return self._reject("invalid_fields")
 
         if self.last_timestamp_ms is not None and timestamp < self.last_timestamp_ms:
-            self.rejected += 1
-            return {"accepted": False, "reason": "out_of_order"}
+            return self._reject("out_of_order")
         if (sequence is not None and self.last_sequence is not None
                 and sequence <= self.last_sequence):
-            self.rejected += 1
-            return {"accepted": False, "reason": "duplicate_or_old_sequence"}
+            return self._reject("duplicate_or_old_sequence")
 
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
         if self.current is None:
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
-            self.rejected += 1
-            return {"accepted": False, "reason": "out_of_order"}
+            return self._reject("out_of_order")
         elif bucket == self.current["open_time"]:
             if timestamp < self.current["last_timestamp"]:
-                self.rejected += 1
-                return {"accepted": False, "reason": "out_of_order"}
+                return self._reject("out_of_order")
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
@@ -101,6 +101,7 @@ class TradeCandleBuilder:
         self.last_timestamp_ms = timestamp
         if sequence is not None:
             self.last_sequence = sequence
+        self.accepted_trades += 1
         return {"accepted": True, "gap_detected": gap_detected,
                 "closed_candles": len(self.closed), "ready": self.is_ready}
 
@@ -145,7 +146,17 @@ class TradeCandleBuilder:
         return rows
 
     def status(self):
-        return {"symbol": self.symbol, "closed_candles": len(self.closed),
-                "has_forming_candle": self.current is not None,
-                "ready": self.is_ready, "gaps": self.gaps,
-                "rejected_trades": self.rejected}
+        return {
+            "symbol": self.symbol,
+            "closed_candles": len(self.closed),
+            "has_forming_candle": self.current is not None,
+            "forming_bucket_open_time_ms": (
+                self.current["open_time"] if self.current is not None else None
+            ),
+            "ready": self.is_ready,
+            "required_closed_candles": 51,
+            "accepted_trades": self.accepted_trades,
+            "rejected_trades": self.rejected,
+            "rejection_reasons": dict(self.rejection_reasons),
+            "gaps": self.gaps,
+        }
