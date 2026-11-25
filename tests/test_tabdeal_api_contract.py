@@ -33,14 +33,16 @@ class TabdealApiContractTests(unittest.TestCase):
         self.assertIn("TradeCandleBuilder", source)
         self.assertIn("PaperTradingEngine", source)
         self.assertIn("parse_trade_message", source)
-        # Gap detection and history invalidation are owned by TradeCandleBuilder.add_trade().
-        # The UI worker must consume that diagnostic rather than resetting twice.
-        self.assertIn("update = builder.add_trade(parsed)", source)
+        # Per-symbol builders are owned by the coordinator. Each accepted,
+        # normalized broadcast event is routed once before tick-level risk handling.
+        self.assertIn("MultiSymbolPaperCoordinator", source)
+        self.assertIn("update = coordinator.on_trade(parsed, received_at=time.monotonic())", source)
         self.assertIn('if update.get("gap_detected"):', source)
         gap_guard = source.index('if update.get("gap_detected"):')
-        self.assertIn("reconcile_paper_market_tick", source)
-        tick_processing = source.index("reconcile_paper_market_tick(")
+        self.assertIn("coordinator.reconcile_tick(", source)
+        tick_processing = source.index("coordinator.reconcile_tick(")
         self.assertLess(gap_guard, tick_processing)
+        self.assertIn("coordinator.candidate_snapshots(now=now)", source)
         self.assertNotIn("builder.reset_after_gap()", source)
         self.assertIn("risk_percent=0.5", source)
         self.assertIn("max_leverage=3", source)
