@@ -135,6 +135,14 @@ def parse_trade_message(message, expected_symbol=None):
         return {"ok": False, "reason": "payload_not_object"}
     if "error" in payload:
         return {"ok": False, "reason": "exchange_error"}
+    # The broadcast socket can emit control/acknowledgement frames as well
+    # as trade events. A frame without a trade key is not a malformed trade:
+    # classify it separately and never feed it into candle construction.
+    if "trade" not in payload:
+        event_type = payload.get("type") or payload.get("event") or payload.get("e")
+        return {"ok": False, "reason": "non_trade_event",
+                "event_type": str(event_type)[:40] if event_type is not None else None,
+                "top_level_keys": sorted(str(k) for k in payload.keys())[:20]}
     trade = payload.get("trade")
     if not isinstance(trade, dict):
         return {"ok": False, "reason": "missing_trade_object",
