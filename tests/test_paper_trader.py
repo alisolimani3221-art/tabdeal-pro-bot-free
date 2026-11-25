@@ -1,7 +1,8 @@
 import unittest
 from paper_trader import (PaperTradingEngine, rank_signal, diagnose_signal,
                           prepare_live_market_snapshot, PAPER_SCAN_INTERVAL_SECONDS,
-                          paper_scan_due, reconcile_paper_market_tick)
+                          paper_scan_due, reconcile_paper_market_tick,
+                          summarize_closed_trades)
 
 
 def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
@@ -12,6 +13,53 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
             "closed_candles": 23, "candle_open_time": 60_000}
+
+
+class PaperTradeSummaryTests(unittest.TestCase):
+    def test_summary_reports_last_ten_win_loss_fees_and_profit_factor(self):
+        trades = []
+        for index in range(12):
+            trades.append({
+                "side": "BULLISH" if index % 2 == 0 else "BEARISH",
+                "net_pnl": 2.0 if index in (10, 11) else -1.0,
+                "fees_entry": 0.1, "fees_exit": 0.1,
+                "reason": "STOP" if index % 2 else "TARGET",
+            })
+        result = summarize_closed_trades(trades, limit=10)
+        self.assertEqual(result["requested"], 10)
+        self.assertEqual(result["valid"], 10)
+        self.assertEqual(result["wins"], 2)
+        self.assertEqual(result["losses"], 8)
+        self.assertEqual(result["breakeven"], 0)
+        self.assertAlmostEqual(result["win_rate_percent"], 20.0)
+        self.assertAlmostEqual(result["net_pnl"], -4.0)
+        self.assertAlmostEqual(result["average_win"], 2.0)
+        self.assertAlmostEqual(result["average_loss"], -1.0)
+        self.assertAlmostEqual(result["profit_factor"], 0.5)
+        self.assertAlmostEqual(result["fees_total"], 2.0)
+        self.assertEqual(result["reasons"], {"STOP": 5, "TARGET": 5})
+        self.assertEqual(result["sides"]["BULLISH"]["count"], 5)
+        self.assertEqual(result["sides"]["BEARISH"]["count"], 5)
+
+    def test_summary_skips_invalid_pnl_without_crashing(self):
+        result = summarize_closed_trades([
+            {"net_pnl": 1.0, "side": "BULLISH"},
+            {"net_pnl": float("nan"), "side": "BEARISH"},
+            {"net_pnl": "bad", "side": "BEARISH"},
+            None,
+        ])
+        self.assertEqual(result["requested"], 4)
+        self.assertEqual(result["valid"], 1)
+        self.assertEqual(result["wins"], 1)
+        self.assertEqual(result["win_rate_percent"], 100.0)
+
+    def test_summary_validates_history_and_limit(self):
+        with self.assertRaises(ValueError):
+            summarize_closed_trades({})
+        for limit in (0, -1, 101, True, 1.5):
+            with self.subTest(limit=limit):
+                with self.assertRaises(ValueError):
+                    summarize_closed_trades([], limit=limit)
 
 
 class PaperTraderTests(unittest.TestCase):
