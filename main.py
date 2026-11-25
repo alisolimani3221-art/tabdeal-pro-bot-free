@@ -2003,6 +2003,13 @@ class FuturesAnalyzerApp(App):
         self.live_price_chart = LivePriceChart(size_hint_y=None, height=dp(150))
         body.add_widget(self.live_price_label)
         body.add_widget(self.live_price_chart)
+        history_button = Button(
+            markup=True, text=fa("مشاهده تاریخچه معاملات انجام‌شده"),
+            font_name=FONT_NAME, size_hint_y=None, height=dp(44),
+            background_normal="", background_color=(0.12, 0.34, 0.42, 1),
+        )
+        history_button.bind(on_press=lambda _button: self.open_paper_trade_history())
+        body.add_widget(history_button)
         rearm_button = Button(
             markup=True, text=fa("بازآماده‌سازی قفل آزمایش"),
             font_name=FONT_NAME, size_hint_y=None, height=dp(42),
@@ -3037,6 +3044,124 @@ class FuturesAnalyzerApp(App):
                 "SMA10: {:.6g} | SMA20: {:.6g} | RSI14: {:.2f} | ATR14: {:.6g}"
             ).format(technical["sma10"], technical["sma20"],
                      technical["rsi14"], technical["atr14"])
+
+    def open_paper_trade_history(self):
+        """Display persisted paper trades read-only; never changes trading state."""
+        body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+        scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
+        rows = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
+        rows.bind(minimum_height=rows.setter("height"))
+
+        def add_row(message, height=dp(94), color=(0.88, 0.93, 0.98, 1)):
+            label = Label(
+                text=assistant_rtl_text(message), font_name=FONT_NAME,
+                font_size=sp(12), markup=False, base_direction="ltr",
+                text_language="ar", size_hint_y=None, height=height,
+                halign="center", valign="middle",
+                text_size=(Window.width - dp(64), None), color=color,
+            )
+            label.bind(texture_size=lambda widget, size: setattr(
+                widget, "height", max(height, size[1] + dp(16))
+            ))
+            rows.add_widget(label)
+
+        def number(value, default="—"):
+            try:
+                parsed = float(value)
+                if not math.isfinite(parsed):
+                    return default
+                return "{:.8g}".format(parsed)
+            except (TypeError, ValueError, OverflowError):
+                return default
+
+        state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
+        try:
+            with open(state_path, "r", encoding="utf-8") as state_file:
+                state = json.load(state_file)
+            if not isinstance(state, dict):
+                raise ValueError("invalid paper state shape")
+            trades = state.get("closed_trades", [])
+            if not isinstance(trades, list):
+                raise ValueError("invalid closed-trades history")
+        except FileNotFoundError:
+            trades = []
+            state = {}
+            add_row("هنوز فایل تاریخچه معاملات آزمایشی ایجاد نشده است.", dp(72),
+                    (1, 0.72, 0.35, 1))
+        except Exception as exc:
+            trades = []
+            state = {}
+            add_row("خواندن تاریخچه ممکن نشد؛ اطلاعات دست‌نخورده باقی مانده است. علت: {}".format(
+                type(exc).__name__
+            ), dp(90), (1, 0.55, 0.42, 1))
+
+        if isinstance(state, dict) and "closed_trades" in state:
+            add_row("تعداد معاملات بسته‌شده ذخیره‌شده: {}".format(len(trades)), dp(44),
+                    (0.35, 0.82, 1, 1))
+            if not trades:
+                add_row("هنوز معامله بسته‌شده‌ای ثبت نشده است.", dp(60))
+            for index, trade in enumerate(reversed(trades[-100:]), 1):
+                if not isinstance(trade, dict):
+                    add_row("رکورد شماره {} نامعتبر است و نمایش داده نشد.".format(index),
+                            dp(60), (1, 0.55, 0.42, 1))
+                    continue
+                side = "خرید" if trade.get("side") == "BULLISH" else (
+                    "فروش" if trade.get("side") == "BEARISH" else "نامشخص"
+                )
+                pnl = number(trade.get("net_pnl"))
+                pnl_color = (0.30, 0.88, 0.58, 1)
+                try:
+                    if float(trade.get("net_pnl")) < 0:
+                        pnl_color = (1, 0.48, 0.42, 1)
+                except (TypeError, ValueError, OverflowError):
+                    pass
+                details = (
+                    "معامله بسته‌شده {} | {} {}\n"
+                    "ورود: {} | خروج: {} | مقدار: {}\n"
+                    "حد ضرر: {} | حد سود: {} | اهرم: {}x\n"
+                    "سود/زیان خالص: {} USDT | علت خروج: {}"
+                ).format(
+                    index, trade.get("symbol", "—"), side,
+                    number(trade.get("entry")), number(trade.get("exit")),
+                    number(trade.get("quantity")), number(trade.get("stop")),
+                    number(trade.get("target")), number(trade.get("leverage")),
+                    pnl, trade.get("reason", "—")
+                )
+                add_row(details, dp(112), pnl_color)
+            position = state.get("position")
+            if isinstance(position, dict):
+                side = "خرید" if position.get("side") == "BULLISH" else "فروش"
+                add_row(
+                    "موقعیت آزمایشی باز (جزو معاملات بسته‌شده نیست)\n"
+                    "{} {} | ورود: {} | قیمت آخر: {}\n"
+                    "حد ضرر: {} | حد سود: {} | اهرم: {}x".format(
+                        position.get("symbol", "—"), side,
+                        number(position.get("entry")), number(position.get("last_price")),
+                        number(position.get("stop")), number(position.get("target")),
+                        number(position.get("leverage"))
+                    ),
+                    dp(100), (1, 0.78, 0.35, 1)
+                )
+            add_row(
+                "توجه: فایل فعلی برای معاملات آزمایشی زمان ورود و خروج را ذخیره نمی‌کند؛ "
+                "بنابراین زمان برای سوابق قدیمی نمایش داده نمی‌شود. این صفحه فقط‌خواندنی است.",
+                dp(76), (0.72, 0.80, 0.90, 1)
+            )
+
+        scroll.add_widget(rows)
+        body.add_widget(scroll)
+        close_button = Button(
+            markup=True, text=fa("بستن"), font_name=FONT_NAME,
+            size_hint_y=None, height=dp(44)
+        )
+        body.add_widget(close_button)
+        popup = Popup(
+            title=fa_plain("تاریخچه معاملات آزمایشی"),
+            title_font=FONT_NAME, content=body,
+            size_hint=(0.96, 0.84), auto_dismiss=False
+        )
+        close_button.bind(on_press=popup.dismiss)
+        popup.open()
 
     def update_auto_status(self, message):
         # Keep the actual worker phase for diagnostics. A live Python thread
