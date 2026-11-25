@@ -179,9 +179,307 @@ jobs:
           app = Path("main.py").read_text(encoding="utf-8")
           spec = Path("buildozer.spec").read_text(encoding="utf-8")
           diagnostics = Path("ai_diagnostics.py").read_text(encoding="utf-8")
+          workflow = Path(".github/workflows/android.yml").read_text(encoding="utf-8")
           app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
           diagnostics_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', diagnostics, re.M)
           package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
+          workflow_version = re.search(r'^name:.*\(v([^\)]+)\)\s*
+          if not app_version or not package_version or app_version.group(1) != package_version.group(1):
+              raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
+          if not diagnostics_version or diagnostics_version.group(1) != app_version.group(1):
+              raise SystemExit("APP_VERSION in ai_diagnostics.py must match the app version")
+          if not workflow_version or workflow_version.group(1) != app_version.group(1):
+              raise SystemExit("Android workflow display version must match the app version")
+          if not numeric_version or int(numeric_version.group(1)) < 125:
+              raise SystemExit("android.numeric_version must be set and monotonically increased")
+          if int(numeric_version.group(1)) != int(app_version.group(1).replace(".", "")):
+              raise SystemExit("android.numeric_version must match the dotted app version")
+          print("App/APK/diagnostics/workflow versions match:", app_version.group(1), "versionCode:", numeric_version.group(1))
+          PY
+
+      - name: Smoke test live Tabdeal Futures API
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from market_symbols import select_market_symbol
+          from orderbook import parse_order_book
+          from risk_analysis import calculate_position_risk
+
+          base = "https://api1.tabdeal.org/r/fapi/v1"
+          def get(path, params=None):
+              url = base + path
+              if params:
+                  url += "?" + urllib.parse.urlencode(params)
+              request = urllib.request.Request(url, headers={"User-Agent": "FuturesAnalyzer-SmokeTest/1.0", "Accept": "application/json"})
+              last_error = None
+              for attempt in range(3):
+                  try:
+                      with urllib.request.urlopen(request, timeout=60) as response:
+                          if response.status != 200:
+                              raise RuntimeError("{} returned HTTP {}".format(path, response.status))
+                          return json.loads(response.read().decode("utf-8"))
+                  except (TimeoutError, OSError, urllib.error.URLError) as exc:
+                      last_error = exc
+                      if attempt < 2:
+                          delay = 3 * (attempt + 1)
+                          print("Transient Tabdeal API failure for {} (attempt {}/3): {}; retrying in {}s".format(path, attempt + 1, exc, delay))
+                          time.sleep(delay)
+              raise RuntimeError("Tabdeal API {} failed after 3 attempts: {}".format(path, last_error))
+
+          get("/ping")
+          info = get("/exchangeInfo")
+          if isinstance(info, list):
+              symbols = info
+          elif isinstance(info, dict):
+              symbols = info.get("symbols")
+              if symbols is None:
+                  nested = info.get("data")
+                  if isinstance(nested, dict):
+                      symbols = nested.get("symbols")
+                  elif isinstance(nested, list):
+                      symbols = nested
+              if symbols is None:
+                  raise RuntimeError("exchangeInfo response has no symbols list")
+          else:
+              raise RuntimeError("exchangeInfo response is not a list or object")
+          symbol = select_market_symbol(symbols, "BTCUSDT")
+          book = get("/depth", {"symbol": symbol, "limit": 5})
+          bids, asks = parse_order_book(book)
+          if not bids or not asks or asks[0][0] < bids[0][0]:
+              raise RuntimeError("Live order book failed validation")
+          sizing = calculate_position_risk(1000, 1, bids[0][0], 1, 3, 2)
+          if sizing["risk_amount"] > 10.000001:
+              raise RuntimeError("Risk sizing validation failed")
+          # The published public Futures REST API documents ping,
+          # time, exchangeInfo and depth, but not historical klines or a
+          # public 24h ticker. Do not probe Binance-compatible paths.
+          print("Tabdeal public REST candle/ticker feed: not documented; technical scanner remains disabled.")
+          print("LIVE API OK: symbol={}, bid={}, ask={}, technical_candles=disabled, risk={}".format(
+              symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
+          PY
+
+      - name: Live read-only scan of every active futures order book
+        timeout-minutes: 5
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from multi_market_scan import scan_market_universe
+
+          report = scan_market_universe(max_workers=4)
+          Path("live-market-scan-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "active_count": report["active_count"],
+              "success_count": report["success_count"],
+              "error_count": report["error_count"],
+              "data_type": report["data_type"],
+              "technical_signals": report["technical_signals"],
+              "live_orders": report["live_orders"],
+              "sample_errors": report["errors"][:5],
+          }, sort_keys=True))
+          if report["active_count"] < 1 or report["success_count"] != report["active_count"] or report["error_count"] != 0:
+              raise SystemExit("Order-book scan incomplete: {}/{} succeeded; {} errors".format(
+                  report["success_count"], report["active_count"], report["error_count"]))
+          PY
+
+      - name: Upload live market scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-market-scan-report
+          path: live-market-scan-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Read-only Tabdeal trade broadcast probe
+        timeout-minutes: 2
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_stream_probe import probe_broadcast
+
+          report = probe_broadcast(symbol="BTC_USDT", timeout_seconds=60)
+          Path("trade-stream-probe-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          if not report["connected"]:
+              raise SystemExit("Public trade broadcast connection was not established")
+          if report["messages"] == 0:
+              raise SystemExit("No public trade-broadcast messages received during the 60-second observation")
+          if report["valid_trades"] == 0:
+              raise SystemExit("Messages arrived but none matched the observed strict schema")
+          PY
+
+      - name: Upload redacted trade-stream probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-stream-probe-report
+          path: trade-stream-probe-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+
+      - name: Install Buildozer and Android Python packaging tools
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install buildozer==1.5.0 cython==0.29.36
+          python -m pip install --target vendor arabic-reshaper==3.0.0 python-bidi==0.4.2 future==1.0.0
+          python -m pip install fonttools
+
+      - name: Restore v1.15 unified Arabic and Latin runtime font
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        run: |
+          python - <<'PY'
+          import os
+          from fontTools.merge import Merger
+          arabic = "NotoSansArabic-Regular.ttf"
+          latin = "NotoSans-Regular.ttf"
+          if not os.path.isfile(arabic) or not os.path.isfile(latin):
+              raise SystemExit("Arabic and Latin source fonts are both required")
+          merged = Merger().merge([arabic, latin])
+          merged.save(arabic)
+          os.makedirs("assets", exist_ok=True)
+          merged.save("assets/NotoSansArabic-Regular.ttf")
+          print("Unified Arabic+Latin Noto font restored from the v1.15 build path")
+          PY
+
+      - name: Verify bundled fonts and RTL runtime dependencies
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        run: |
+          test -s NotoSansArabic-Regular.ttf
+          test -s NotoNaskhArabic-Regular.ttf
+          test -s NotoSans-Regular.ttf
+          test -s assets/NotoSansArabic-Regular.ttf
+          test -s assets/NotoNaskhArabic-Regular.ttf
+          test -s assets/NotoSans-Regular.ttf
+          PYTHONPATH=vendor python -c "import arabic_reshaper; from bidi.algorithm import get_display; print(get_display(arabic_reshaper.reshape('آزمایش فارسی'), base_dir='R'))"
+          PYTHONPATH=vendor python - <<'PY'
+          from fontTools.ttLib import TTFont
+          font = TTFont("NotoSansArabic-Regular.ttf")
+          cmap = set().union(*(table.cmap.keys() for table in font["cmap"].tables))
+          import arabic_reshaper
+          import unicodedata
+          from bidi.algorithm import get_display
+          samples = [
+              "مرکز عیب‌یابی برنامه",
+              "اتصال به بازار برقرار شد",
+              "بهترین قیمت خرید و فروش",
+              "دفتر سفارش خرید و فروش",
+              "نمادهای فعال فیوچرز",
+              "شروع آزمایش و توقف اضطراری",
+              "دریافت داده بازار ناموفق بود",
+              "قیمت میانی و اختلاف خرید و فروش",
+          ]
+          shaped = set()
+          for sample in samples:
+              visual = get_display(arabic_reshaper.reshape(sample), base_dir="R")
+              shaped.update(
+                  ord(ch) for ch in visual
+                  if not ch.isspace() and unicodedata.category(ch) != "Cf"
+              )
+          missing = sorted(shaped - cmap)
+          if missing:
+              raise SystemExit("Unified Noto Sans Arabic font lacks shaped UI glyphs: {}".format(
+                  ["U+{:04X}".format(cp) for cp in missing]))
+          print("Unified Noto Sans Arabic + Latin glyph coverage for representative Persian UI strings: OK")
+          PY
+          python -m compileall -q .
+
+      - name: Configure persistent Android signing (required)
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        id: signing
+        shell: bash
+        env:
+          ANDROID_SIGNING_BUNDLE_BASE64: ${{ secrets.ANDROID_SIGNING_BUNDLE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_SIGNING_BUNDLE_BASE64:-}" ]]; then
+            echo "Required GitHub Actions secret ANDROID_SIGNING_BUNDLE_BASE64 is missing." >&2
+            exit 1
+          fi
+          SIGN_DIR="$RUNNER_TEMP/tabdeal-signing"
+          mkdir -p "$SIGN_DIR"
+          printf '%s' "$ANDROID_SIGNING_BUNDLE_BASE64" | base64 --decode > "$SIGN_DIR/bundle.zip"
+          unzip -q "$SIGN_DIR/bundle.zip" -d "$SIGN_DIR"
+          test -s "$SIGN_DIR/tabdeal-release.p12"
+          test -s "$SIGN_DIR/signing.env"
+          source "$SIGN_DIR/signing.env"
+          test -n "${STORE_PASSWORD:-}"
+          test -n "${KEY_ALIAS:-}"
+          test -n "${KEY_PASSWORD:-}"
+          keytool -list -keystore "$SIGN_DIR/tabdeal-release.p12" -storetype PKCS12 \
+            -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          echo "Persistent release keystore validated."
+
+      - name: Build signed release APK (paper-only)
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        env:
+          BUILDOZER_WARN_ON_ROOT: "0"
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/tabdeal-signing/signing.env"
+          export P4A_RELEASE_KEYSTORE="$RUNNER_TEMP/tabdeal-signing/tabdeal-release.p12"
+          export P4A_RELEASE_KEYSTORE_PASSWD="$STORE_PASSWORD"
+          export P4A_RELEASE_KEYALIAS="$KEY_ALIAS"
+          export P4A_RELEASE_KEYALIAS_PASSWD="$KEY_PASSWORD"
+          buildozer -v android release
+
+      - name: Verify persistent APK signing certificate
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK" && test -s "$APK"
+          APKSIGNER="$(find "$HOME/.buildozer/android/platform/android-sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
+          ACTUAL="$(awk -F': ' '/certificate SHA-256 digest:/ {print tolower($NF); exit}' "$RUNNER_TEMP/apk-signature.txt" | tr -d ':')"
+          EXPECTED="9a41c32295b7723ee8dfadd4c40ee7dbdca9fb8a6c62e43aabc09c9bef741ae5"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "APK signing certificate does not match the established release certificate." >&2
+            cat "$RUNNER_TEMP/apk-signature.txt"
+            exit 1
+          fi
+          echo "APK signature verified against the established release certificate."
+
+      - name: Verify APK output and packaged Persian fonts
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        run: |
+          set -eu
+          APK="$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          unzip -t "$APK"
+          unzip -p "$APK" assets/private.tar > /tmp/private.tar
+          test -s /tmp/private.tar
+          tar -tf /tmp/private.tar | grep -F 'NotoNaskhArabic-Regular.ttf'
+          tar -tf /tmp/private.tar | grep -F 'NotoSansArabic-Regular.ttf'
+          tar -tf /tmp/private.tar | grep -F 'NotoSans-Regular.ttf'
+          echo "Verified APK: $APK"
+          sha256sum "$APK"
+
+      - name: Upload installable APK
+        if: ${{ inputs.build_apk == true || ((github.event_name == 'push' && (github.ref == 'refs/heads/release/v1.49' || github.ref == 'refs/heads/fix/v1.50-orderbook-2s' || github.ref == 'refs/heads/fix/paper-persistence-fail-closed-20261124' || github.ref == 'refs/heads/fix/v1.52-legacy-paper-schema-v4-migration' || github.ref == 'refs/heads/work/v1.53-integrated' || github.ref == 'refs/heads/fix/v1.53-five-candle-warmup-orderbook-refresh' || github.ref == 'refs/heads/fix/v1.53-cache-gap-and-diagnostics-20261124' || github.ref == 'refs/heads/fix/v1.53-stream-phase-diagnostics-20261124' || github.ref == 'refs/heads/feature/v1.54-live-price-chart-20261125' || github.ref == 'refs/heads/fix/v1.55-candle-reset-diagnostics-20261125'))) || (github.event_name == 'pull_request' && (github.head_ref == 'fix/v1.49-safe-paper-rearm' || github.head_ref == 'fix/v1.49-auto-paper-startup' || github.head_ref == 'fix/v1.50-orderbook-2s' || github.head_ref == 'fix/v1.53-cache-gap-and-diagnostics-20261124' || github.head_ref == 'fix/v1.53-stream-phase-diagnostics-20261124' || github.head_ref == 'feature/v1.54-live-price-chart-20261125' || github.head_ref == 'fix/v1.56-websocket-control-message-classification' || github.head_ref == 'fix/v1.55-candle-reset-diagnostics-20261125')) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Futures-Analyzer-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 14
+, workflow, re.M)
           numeric_version = re.search(r'^android\.numeric_version\s*=\s*(\d+)', spec, re.M)
           if not app_version or not package_version or app_version.group(1) != package_version.group(1):
               raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
