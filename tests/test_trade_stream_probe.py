@@ -68,6 +68,21 @@ class TradeStreamProbeTests(unittest.TestCase):
         raw += '"quantity":"1","timestamp":"1700000000"}}'
         self.assertEqual(parse_trade_message(raw)["reason"], "invalid_json")
 
+    def test_frames_without_trade_object_are_classified_as_non_trade_events(self):
+        for raw in (
+            '{"result":null,"id":1}',
+            '{"type":"subscribed","symbol":"BTC_USDT"}',
+            '{"event":"heartbeat"}',
+        ):
+            with self.subTest(raw=raw):
+                result = parse_trade_message(raw, "BTC_USDT")
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["reason"], "non_trade_event")
+
+    def test_present_but_non_object_trade_remains_schema_error(self):
+        result = parse_trade_message('{"trade":[]}', "BTC_USDT")
+        self.assertEqual(result["reason"], "missing_trade_object")
+
     def test_invalid_expected_symbol_is_rejected_safely(self):
         for expected in (True, 123, [], "", "BTC/USDT", "BTC__USDT", "BTC USDT"):
             with self.subTest(expected=expected):
