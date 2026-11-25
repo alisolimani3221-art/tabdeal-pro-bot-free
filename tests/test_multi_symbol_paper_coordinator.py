@@ -101,6 +101,13 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         result = self.make_coordinator().on_trade(self.trade("SOL_USDT"), received_at=10)
         self.assertEqual(result["reason"], "symbol_not_subscribed")
 
+    def test_single_symbol_coordinator_is_supported_for_safe_fallback(self):
+        coordinator = MultiSymbolPaperCoordinator(
+            ("BTC_USDT",), analyze, prepare,
+            builder_factory=FakeBuilder, max_snapshot_age=30,
+        )
+        self.assertEqual(coordinator.symbols, ("BTC_USDT",))
+
     def test_unready_symbol_cannot_create_candidate(self):
         coordinator = self.make_coordinator()
         coordinator.on_trade(self.trade("BTC_USDT"), received_at=10)
@@ -206,7 +213,7 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         )
 
     def test_duplicate_symbols_and_invalid_universe_are_rejected(self):
-        for symbols in (("BTC_USDT",), ("BTC_USDT", "BTC_USDT"),
+        for symbols in ((), ("BTC_USDT", "BTC_USDT"),
                         ("BTC/USDT", "ETH_USDT")):
             with self.subTest(symbols=symbols), self.assertRaises(ValueError):
                 MultiSymbolPaperCoordinator(symbols, analyze, prepare, builder_factory=FakeBuilder)
