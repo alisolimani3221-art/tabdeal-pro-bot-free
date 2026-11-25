@@ -126,6 +126,9 @@ class MultiSymbolPaperCoordinator:
         if not isinstance(trade, dict):
             return None
         symbol = trade.get("symbol")
+        if not isinstance(symbol, str):
+            return None
+        symbol = symbol.upper()
         if symbol not in self.states:
             return None
         if gap_detected:
@@ -179,14 +182,14 @@ class MultiSymbolPaperCoordinator:
                 state = self.states[symbol]
                 builder_status = state["builder"].status()
                 received = state["last_trade_monotonic"]
-                age = None if received is None else max(0.0, current - received)
+                age = None if received is None else current - received
                 result[symbol] = {
                     "accepted_trades": state["accepted_trades"],
                     "rejected_trades": state["rejected_trades"],
                     "last_trade_age_seconds": age,
                     "snapshot_fresh": bool(
                         state["latest_technical"] is not None
-                        and age is not None and age <= self.max_snapshot_age
+                        and age is not None and 0 <= age <= self.max_snapshot_age
                     ),
                     "last_analysis_error": state["last_analysis_error"],
                     "builder": builder_status,
