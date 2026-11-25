@@ -35,7 +35,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.add_trade(self.trade(100, 10, sequence=10))["reason"],
                          "out_of_order")
         self.assertEqual(builder.add_trade(self.trade(100, 30, sequence=9))["reason"],
-                         "duplicate_or_old_sequence")
+                         "duplicate_sequence")
 
     def test_gap_clears_warmup_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -305,6 +305,17 @@ class TradeCandleBuilderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TradeCandleBuilder("BTC_USDT", max_candles=10)
 
+    def test_older_sequence_is_distinguished_from_exact_duplicate(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        self.assertTrue(builder.add_trade(self.trade(100, second=10, sequence=12))["accepted"])
+        duplicate = builder.add_trade(self.trade(100, second=20, sequence=12))
+        older = builder.add_trade(self.trade(100, second=30, sequence=11))
+        self.assertEqual(duplicate["reason"], "duplicate_sequence")
+        self.assertEqual(older["reason"], "older_sequence")
+        self.assertEqual(builder.status()["rejection_reasons"], {
+            "duplicate_sequence": 1, "older_sequence": 1
+        })
+
     def test_rejection_reasons_are_counted_without_losing_total(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100, second=20, sequence=9))
@@ -313,7 +324,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         status = builder.status()
         self.assertEqual(status["rejected_trades"], 2)
         self.assertEqual(status["rejection_reasons"], {
-            "out_of_order": 1, "duplicate_or_old_sequence": 1
+            "out_of_order": 1, "duplicate_sequence": 1
         })
 
 
