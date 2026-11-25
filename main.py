@@ -346,7 +346,7 @@ class FuturesAnalyzerApp(App):
             background_normal="", background_color=(0.08, 0.28, 0.42, 1),
             color=(0.35, 0.78, 1, 1),
         )
-        book_title_button.bind(on_press=self.show_status)
+        book_title_button.bind(on_press=self._manual_refresh_order_book)
         content.add_widget(book_title_button)
         self.orderbook_freshness = self.make_label(
             "به‌روزرسانی خودکار پس از دریافت نخستین دفتر سفارش فعال می‌شود",
@@ -747,6 +747,18 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(lambda dt, res=results: self.show_result(res), 0)
 
 
+
+    def _manual_refresh_order_book(self, *_args):
+        """Refresh the visible order book immediately when its header is tapped."""
+        if self.orderbook_poll_stop.is_set():
+            self.orderbook_freshness.text = fa("به‌روزرسانی در دسترس نیست؛ پایش بازار متوقف است.")
+            return
+        if self.current_symbol not in self.verified_market_symbols:
+            self.orderbook_freshness.text = fa("ابتدا نماد را با بررسی اتصال تأیید کنید.")
+            return
+        self.orderbook_freshness.text = fa("درخواست دفتر سفارش جدید ارسال شد…")
+        self.orderbook_freshness.color = (0.85, 0.78, 0.35, 1)
+        self._schedule_order_book_poll(0)
 
     def _start_order_book_polling(self):
         """Start one foreground-only Kivy timer; network reads run off the UI thread."""
@@ -2250,12 +2262,16 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
-        retained_count = min(builder.status()["closed_candles"], 20)
-        if retained_count >= 20:
-            warmup_text = "تاریخچه معتبر: ۲۰ از ۲۰؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
+        retained_count = min(builder.status()["closed_candles"], 23)
+        if retained_count >= 23:
+            warmup_text = "تاریخچه معتبر: ۲۳ از ۲۳؛ تحلیل و ورود آزمایشی پس از تأیید اتصال مجاز است."
+        elif retained_count >= 5:
+            warmup_text = (
+                "پایش اولیه فعال: {} از ۲۳ کندل بسته‌شده؛ تحلیل نهایی و ورود هنوز قفل است."
+            ).format(retained_count)
         else:
             warmup_text = (
-                "آماده‌سازی: {} از ۲۰ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
+                "آماده‌سازی پایش: {} از ۵ کندل اولیه؛ هدف تحلیل معتبر ۲۳ کندل بسته‌شده است."
             ).format(retained_count)
         status_text = (
             "در حال اتصال به جریان معاملات " + symbol + ".\n"
@@ -2515,8 +2531,9 @@ class FuturesAnalyzerApp(App):
                             if now - last_status_update >= 10:
                                 last_status_update = now
                                 Clock.schedule_once(
-                                    lambda dt, name=type(cache_exc).__name__: self.update_auto_status(
-                                        "ذخیره تاریخچه کندل ناموفق بود؛ تحلیل فقط با داده زنده معتبر ادامه می‌یابد: " + name
+                                    lambda dt, name=type(cache_exc).__name__, detail=str(cache_exc)[:120]: self.update_auto_status(
+                                        "ذخیره تاریخچه کندل ناموفق بود؛ تحلیل فقط با داده زنده معتبر ادامه می‌یابد: "
+                                        + name + (": " + detail if detail else "")
                                     ), 0
                                 )
                 self._update_engine_health(
@@ -2529,7 +2546,7 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         status = (
                             "پیام معتبر دریافت شد، اما برای کندل‌سازی رد شد. "
-                            "معتبر: {} | کندل بسته: {}/20 | علت: {}"
+                            "معتبر: {} | کندل بسته: {}/23 | علت: {}"
                         ).format(valid_messages, builder.status()["closed_candles"],
                                  str(update.get("reason", "unknown"))[:48])
                         Clock.schedule_once(
@@ -2550,12 +2567,20 @@ class FuturesAnalyzerApp(App):
                         last_status_update = now
                         stream_status = builder.status()
                         status_text = (
-                            "جریان معاملات فعال است. کندل بسته معتبر: {}/20 | "
+                            "جریان معاملات فعال است. کندل بسته معتبر: {}/23 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
-                            "پس از تکمیل داده کافی، تحلیل شروع می‌شود."
+                            "از ۵ کندل پایش اولیه فعال می‌شود؛ تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
                                  stream_status["gaps"])
+                        preliminary = builder.preliminary_trend()
+                        if preliminary is not None:
+                            trend_names = {"UP": "صعودی", "DOWN": "نزولی", "FLAT": "خنثی"}
+                            status_text += (
+                                " روند مقدماتی ۵ کندل: {} ({:+.3f}٪). "
+                                "این فقط پایش است و سیگنال یا اجازه معامله نیست."
+                            ).format(trend_names[preliminary["trend"]],
+                                     preliminary["change_pct"])
                         Clock.schedule_once(
                             lambda dt, value=status_text: self.update_auto_status(value), 0
                         )
@@ -2564,9 +2589,10 @@ class FuturesAnalyzerApp(App):
                             closed_count == 0 or closed_count % 5 == 0):
                         last_progress_count = closed_count
                         progress = (
-                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۲۰ | "
-                            "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
-                        ).format(symbol, min(closed_count, 20))
+                            "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۲۳ | "
+                            "{} | تحلیل و ورود آزمایشی فقط پس از ۲۳ کندل معتبر فعال می‌شود."
+                        ).format(symbol, min(closed_count, 23),
+                                 "پایش اولیه فعال است" if builder.monitor_ready else "در انتظار ۵ کندل اولیه")
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
@@ -2578,7 +2604,7 @@ class FuturesAnalyzerApp(App):
                     status = builder.status()
                     gap_message = (
                         "شکاف زمانی در داده بازار شناسایی شد؛ آماده‌سازی از ابتدا انجام می‌شود. "
-                        "کندل معتبر: {}/۲۰ | تعداد شکاف‌ها: {} | داده ردشده: {}"
+                        "کندل معتبر: {}/۲۳ | تعداد شکاف‌ها: {} | داده ردشده: {}"
                     ).format(status["closed_candles"], status["gaps"], status["rejected_trades"])
                     Clock.schedule_once(
                         lambda dt, value=gap_message: self.update_auto_status(value), 0

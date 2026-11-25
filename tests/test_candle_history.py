@@ -20,10 +20,14 @@ class CandleHistoryTests(unittest.TestCase):
         self.assertEqual(len(valid), 25)
         self.assertLess(valid[-1][0], 30*60000)
 
-    def test_rejects_gap_and_bad_ohlc(self):
+    def test_keeps_latest_contiguous_suffix_after_gap_and_rejects_bad_ohlc(self):
         now = 40*60000
-        with self.assertRaisesRegex(ValueError, "gap"):
-            validate_closed_candles(self.rows(1, 10) + self.rows(12, 10), now)
+        valid = validate_closed_candles(
+            self.rows(1, 10) + self.rows(12, 10), now
+        )
+        self.assertEqual(len(valid), 10)
+        self.assertEqual(valid[0][0], 12*60000)
+        self.assertEqual(valid[-1][0], 21*60000)
         bad = self.rows(1, 2)
         bad[0] = [60000, 100, 90, 95, 101, 1]
         with self.assertRaisesRegex(ValueError, "OHLC"):
