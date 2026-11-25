@@ -192,6 +192,29 @@ class AIDiagnosticContextTests(unittest.TestCase):
                 self.assertEqual(health["worker_phase"], expected_phase)
                 self.assertEqual(health["health_state"], expected_health)
 
+    def test_warmup_report_explains_remaining_candles_and_deferred_scan(self):
+        import time
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "worker_phase": "collecting_selected_symbol_candles",
+                "websocket_connected": True,
+                "last_selected_symbol_trade_at": time.monotonic(),
+                "candle_count": 1,
+                "analysis_required_candles": 23,
+                "candle_interval_seconds": 60,
+                "builder_ready": False,
+                "last_scan_at": None,
+            },
+        )
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn("کندل‌های باقی‌مانده تا تحلیل: 22", rendered)
+        self.assertIn("بازه هر کندل (ثانیه): 60", rendered)
+        self.assertIn("هنوز اجرا نشده؛ در انتظار تکمیل کندل‌های معتبر", rendered)
+
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
         worker.is_alive.return_value = False
