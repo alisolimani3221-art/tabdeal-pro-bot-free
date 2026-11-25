@@ -2595,6 +2595,10 @@ class FuturesAnalyzerApp(App):
                 stream_watchdog.connected()
                 if connected_once:
                     total_reconnects += 1
+                    # Any socket interruption invalidates the open position's
+                    # price continuity. Its own first fresh tick must flatten it.
+                    if isinstance(engine.position, dict):
+                        recovered_open_symbol = engine.position.get("symbol")
                     coordinator.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
@@ -3141,11 +3145,32 @@ class FuturesAnalyzerApp(App):
 
             def monitor_stream_silence():
                 # A connected socket can remain open while no valid trades arrive.
-                # Close it after 45 seconds so the outer worker reconnects and
-                # revalidates candle continuity instead of waiting forever.
+                # Also monitor the open position's own market: activity in the
+                # other subscribed symbol must not hide a silent position market.
+                nonlocal recovered_open_symbol
                 while not watchdog_stop.wait(5.0):
                     if self.auto_stop_event.is_set():
                         return
+                    position = engine.position
+                    if isinstance(position, dict):
+                        position_symbol = position.get("symbol")
+                        position_market = coordinator.status().get(position_symbol, {})
+                        position_age = position_market.get("last_trade_age_seconds")
+                        if (not isinstance(position_age, (int, float))
+                                or position_age > 30.0):
+                            recovered_open_symbol = position_symbol
+                            Clock.schedule_once(
+                                lambda dt, market=position_symbol, age=position_age: self.update_auto_status(
+                                    "داده نماد دارای موقعیت باز ({}) بیش از ۳۰ ثانیه تازه نیست؛ "
+                                    "برای حفاظت، اتصال بازنشانی می‌شود و موقعیت در اولین قیمت تازه همان نماد بسته خواهد شد. "
+                                    "سن آخرین داده: {}.".format(market, "ناموجود" if age is None else int(age))
+                                ), 0
+                            )
+                            try:
+                                app.close()
+                            except Exception:
+                                pass
+                            return
                     if stream_watchdog.is_stale():
                         silent_for = stream_watchdog.seconds_since_valid_trade()
                         Clock.schedule_once(
