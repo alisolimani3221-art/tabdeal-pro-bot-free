@@ -1,5 +1,5 @@
 name: Tabdeal Futures CI and signed APK build (v1.55)
-# v1.55: validate candle continuity and reconnect diagnostics; build the paper-only APK after CI. Live order placement remains disabled.
+# v1.55: enforce app/diagnostics/APK/workflow version parity; validate candle continuity and reconnect diagnostics. Paper-only; live orders disabled.
 
 on:
   workflow_dispatch:
