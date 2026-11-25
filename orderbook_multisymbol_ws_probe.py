@@ -13,6 +13,14 @@ STREAM_URL = "wss://api1.tabdeal.org/special_margin/stream/"
 DEFAULT_SYMBOLS = ("BTC_USDT", "ETH_USDT")
 
 
+def _normalize_ws_symbol(value):
+    """Normalize explicit WS ids (e.g. btcusdt) to REST form (BTC_USDT)."""
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"([A-Z0-9]+)_?USDT", value.strip().upper())
+    return match.group(1) + "_USDT" if match else None
+
+
 def _find_symbol(payload):
     """Find only explicit exchange symbol/stream identifiers; never infer from prices."""
     if isinstance(payload, str):
@@ -23,15 +31,17 @@ def _find_symbol(payload):
     if not isinstance(payload, dict):
         return None
     for key in ("symbol", "s"):
-        value = payload.get(key)
-        if isinstance(value, str) and re.fullmatch(r"[A-Z0-9]+_USDT", value.upper()):
-            return value.upper()
+        symbol = _normalize_ws_symbol(payload.get(key))
+        if symbol:
+            return symbol
     for key in ("stream", "topic", "channel"):
         value = payload.get(key)
         if isinstance(value, str):
-            match = re.match(r"^([A-Z0-9]+_USDT)@", value.upper())
+            match = re.match(r"^([A-Z0-9]+_?USDT)@", value.upper())
             if match:
-                return match.group(1)
+                symbol = _normalize_ws_symbol(match.group(1))
+                if symbol:
+                    return symbol
     for key in ("data", "result", "payload", "orderBook", "orderbook", "depth"):
         nested = payload.get(key)
         found = _find_symbol(nested)
@@ -49,10 +59,12 @@ def build_multi_depth_subscription(symbols=DEFAULT_SYMBOLS, request_id=1):
     if isinstance(request_id, bool) or not isinstance(request_id, int) or request_id < 1:
         raise ValueError("request_id must be a positive integer")
     # Exact method/params shape used by the official tabdeal-python SDK.
+    # The official SDK's own websocket example passes compact lowercase ids
+    # (e.g. "btcusdt"), even though REST exchangeInfo uses "BTC_USDT".
     return {
         "method": "SUBSCRIBE",
         "id": request_id,
-        "params": [symbol + "@depth@2000ms" for symbol in symbols],
+        "params": [symbol.replace("_", "").lower() + "@depth@2000ms" for symbol in symbols],
     }
 
 
