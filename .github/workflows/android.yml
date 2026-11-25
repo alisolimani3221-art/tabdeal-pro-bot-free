@@ -55,6 +55,7 @@ on:
       - 'trade_broadcast_multisymbol_probe.py'
       - 'orderbook_multisymbol_ws_probe.py'
       - 'market_candles.py'
+      - 'multi_symbol_paper_coordinator.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
       - 'orderbook.py'
