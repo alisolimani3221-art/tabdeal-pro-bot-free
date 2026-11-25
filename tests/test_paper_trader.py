@@ -44,13 +44,14 @@ class PaperTradeSummaryTests(unittest.TestCase):
     def test_summary_skips_invalid_pnl_without_crashing(self):
         result = summarize_closed_trades([
             {"net_pnl": 1.0, "side": "BULLISH"},
+            {"net_pnl": 0.5, "side": ["malformed"]},
             {"net_pnl": float("nan"), "side": "BEARISH"},
             {"net_pnl": "bad", "side": "BEARISH"},
             None,
         ])
         self.assertEqual(result["requested"], 4)
-        self.assertEqual(result["valid"], 1)
-        self.assertEqual(result["wins"], 1)
+        self.assertEqual(result["valid"], 2)
+        self.assertEqual(result["wins"], 2)
         self.assertEqual(result["win_rate_percent"], 100.0)
 
     def test_summary_validates_history_and_limit(self):
