@@ -301,8 +301,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Read-only multi-market order-book WebSocket probe
-        timeout-minutes: 3
+      - name: Read-only single- and multi-market order-book WebSocket probe
+        timeout-minutes: 4
         run: |
           python - <<'PY'
           import json
@@ -311,7 +311,7 @@ jobs:
 
           report = probe_multi_market_order_book(
               symbols=("BTC_USDT", "ETH_USDT"),
-              timeout_seconds=90,
+              timeout_seconds=120,
           )
           Path("orderbook-multisymbol-ws-report.json").write_text(
               json.dumps(report, sort_keys=True, indent=2),
@@ -320,6 +320,8 @@ jobs:
           print(json.dumps(report, sort_keys=True))
           if not report["connected"]:
               raise SystemExit("Public Futures stream WebSocket connection failed")
+          print("ORDERBOOK_SINGLE_BASELINE: " + report.get("single_symbol_baseline", {}).get("status", "missing"))
+          print("ORDERBOOK_MULTI_RESULT: " + report["status"])
           if report["status"] == "both_symbol_books_observed":
               print("MULTI_SYMBOL_ORDERBOOK: verified for this observation window")
           else:
