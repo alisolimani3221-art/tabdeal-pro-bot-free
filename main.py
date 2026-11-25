@@ -54,7 +54,7 @@ from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
-from multi_market_scan import scan_market_universe
+from multi_market_scan import scan_market_universe, load_active_market_symbols
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -1773,19 +1773,27 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("نماد انتخاب‌شده معتبر نیست؛ شروع انجام نشد.")
             return
         try:
-            previous_builder = getattr(self, "auto_candle_builder", None)
-            if previous_builder is not None and previous_builder.symbol == symbol:
-                # Reuse in-memory candles only if the next trade confirms the same minute.
-                builder = previous_builder
-                builder.reset_after_reconnect()
-            else:
-                builder = TradeCandleBuilder(symbol)
+            # Fetch the authoritative active USDT-perpetual universe once. The
+            # public trade socket is then subscribed to every returned symbol.
+            symbols = load_active_market_symbols()
+            previous_builders = getattr(self, "auto_candle_builders", {})
+            builders = {}
+            for market_symbol in symbols:
+                previous = previous_builders.get(market_symbol)
+                if previous is not None:
+                    previous.reset_after_reconnect()
+                    builders[market_symbol] = previous
+                else:
+                    builders[market_symbol] = TradeCandleBuilder(market_symbol)
+            if symbol not in builders:
+                raise RuntimeError("نماد انتخاب‌شده دیگر در فهرست قراردادهای فعال تبدیل نیست.")
+            builder = builders[symbol]
             state_path = os.path.join(self.user_data_dir, "paper-engine-state.json")
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
                     engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if engine.position is not None and engine.position["symbol"] != symbol:
-                    raise RuntimeError("یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(engine.position["symbol"]))
+                if engine.position is not None and engine.position["symbol"] not in builders:
+                    raise RuntimeError("نماد موقعیت آزمایشی بازیابی‌شده دیگر فعال نیست؛ ورود جدید مسدود شد.")
                 if engine.halted:
                     raise RuntimeError(
                         "موتور قبلاً متوقف شده است؛ راه‌اندازی خودکار پس از توقف اضطراری "
@@ -1796,27 +1804,26 @@ class FuturesAnalyzerApp(App):
                                             max_leverage=3, max_loss_percent=3.0)
             self._persist_paper_engine_state(engine)
         except Exception as exc:
-            self.update_auto_status("راه‌اندازی موتور مسدود شد؛ وضعیت ذخیره‌شده معتبر یا قابل‌بازیابی نیست: "
+            self.update_auto_status("راه‌اندازی موتور چندنمادی مسدود شد؛ فهرست بازار یا وضعیت ذخیره‌شده معتبر نیست: "
                                     + type(exc).__name__ + ": " + str(exc)[:160])
             return
         self.auto_stop_event.clear()
         self.auto_engine = engine
         self.auto_candle_builder = builder
+        self.auto_candle_builders = builders
         self.auto_trader_thread = threading.Thread(
             target=self._paper_stream_worker,
-            args=(symbol, builder, engine),
+            args=(symbols, builders, engine),
             daemon=True,
         )
         self.auto_trader_thread.start()
         retained_count = min(builder.status()["closed_candles"], 20)
-        if retained_count >= 20:
-            warmup_text = "تاریخچه معتبر: ۲۰ از ۲۰؛ در انتظار بسته‌شدن یک کندل کامل پس از اتصال."
-        else:
-            warmup_text = (
-                "آماده‌سازی: {} از ۲۰ کندل بسته‌شده؛ پیشرفت روی همین صفحه نمایش داده می‌شود."
-            ).format(retained_count)
+        warmup_text = (
+            "نمادهای تحت پایش: {} | آماده‌سازی نماد انتخابی: {}/۲۰ کندل بسته‌شده. "
+            "هر نماد تاریخچه مستقل دارد."
+        ).format(len(symbols), retained_count)
         status_text = (
-            "در حال اتصال به جریان معاملات " + symbol + ".\n"
+            "در حال اتصال به جریان همه نمادهای فعال USDT؛ نماد نمایشی: " + symbol + ".\n"
             "حالت: فقط آزمایشی؛ سرمایه مجازی: {:.2f} USDT؛ ریسک هر معامله: حداکثر ۰٫۵٪.\n"
             + warmup_text + " هیچ سفارش واقعی ارسال نمی‌شود."
         ).format(self.capital_usdt)
@@ -1897,7 +1904,7 @@ class FuturesAnalyzerApp(App):
             message += " خروج رشته پس‌زمینه هنوز کامل نشده؛ موتور قفل و متوقف باقی می‌ماند."
         self.update_auto_status(message)
 
-    def _paper_stream_worker(self, symbol, builder, engine):
+    def _paper_stream_worker(self, symbols, builders, engine):
         """Reconnect public trade stream and simulate only after gap-free warm-up."""
         try:
             import websocket
@@ -1910,7 +1917,7 @@ class FuturesAnalyzerApp(App):
 
         last_processed_bucket = None
         scan_state_lock = threading.Lock()
-        scan_state = {"technical": None, "received_at": 0.0}
+        scan_state = {"technical": {}, "received_at": {}}
         last_progress_count = -1
         last_status_update = 0.0
         received_messages = 0
@@ -1934,17 +1941,21 @@ class FuturesAnalyzerApp(App):
                 nonlocal connected_once, last_processed_bucket
                 stream_watchdog.connected()
                 if connected_once:
-                    builder.reset_after_reconnect()
+                    for market_builder in builders.values():
+                        market_builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
-                # Match the previously observed working public-feed protocol:
-                # send the market symbol as plain text after the socket opens.
-                # This is a read-only market subscription, never an order action.
-                ws.send(symbol)
+                # The read-only compatibility probe confirmed that one socket
+                # can retain subscriptions to multiple symbols. Subscribe to
+                # every active USDT contract in exchangeInfo.
+                for market_symbol in symbols:
+                    if self.auto_stop_event.is_set():
+                        return
+                    ws.send(market_symbol)
                 Clock.schedule_once(
-                    lambda dt: self.update_auto_status(
-                        "اتصال برقرار شد: " + symbol + ". در حال بررسی پیوستگی داده‌ها؛ " 
-                        "در صورت نبود شکاف، کندل‌های معتبر قبلی حفظ می‌شوند."
+                    lambda dt, count=len(symbols): self.update_auto_status(
+                        "اتصال برقرار شد؛ اشتراک زنده برای {} نماد فعال USDT ارسال شد. "
+                        "کندل‌سازی و تحلیل مستقل هر نماد آغاز می‌شود.".format(count)
                     ), 0
                 )
 
@@ -1992,17 +2003,9 @@ class FuturesAnalyzerApp(App):
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
-                if parsed.get("symbol") != symbol:
-                    now = time.monotonic()
-                    if now - last_status_update >= 10:
-                        last_status_update = now
-                        status = (
-                            "جریان عمومی بازار زنده است؛ پیام معتبر از نمادهای دیگر دریافت می‌شود. "
-                            "هنوز معامله تازه‌ای برای {} نرسیده؛ کندل‌سازی و ورود با قیمت کهنه انجام نمی‌شود."
-                        ).format(symbol)
-                        Clock.schedule_once(
-                            lambda dt, value=status: self.update_auto_status(value), 0
-                        )
+                market_symbol = parsed.get("symbol")
+                builder = builders.get(market_symbol)
+                if builder is None:
                     return
                 update = builder.add_trade(parsed)
                 if not update.get("accepted"):
@@ -2061,7 +2064,7 @@ class FuturesAnalyzerApp(App):
                     return
                 # Reconcile restored paper positions only against continuous validated ticks.
                 try:
-                    tick_event = engine.process_tick(symbol, parsed["price"])
+                    tick_event = engine.process_tick(market_symbol, parsed["price"])
                     if tick_event:
                         self._persist_paper_engine_state(engine)
                         last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
@@ -2094,15 +2097,16 @@ class FuturesAnalyzerApp(App):
                 if builder.is_ready and current_bucket is not None and builder.closed:
                     try:
                         technical = analyze_klines(builder.candles_for_analysis())
-                        technical["symbol"] = symbol
+                        technical["symbol"] = market_symbol
                         technical = prepare_live_market_snapshot(technical, parsed["price"])
                         technical["candle_open_time"] = int(builder.closed[-1][0])
                         with scan_state_lock:
-                            scan_state["technical"] = dict(technical)
-                            scan_state["received_at"] = time.monotonic()
-                        Clock.schedule_once(
-                            lambda dt, value=dict(technical): self.update_technical_labels(value), 0
-                        )
+                            scan_state["technical"][market_symbol] = dict(technical)
+                            scan_state["received_at"][market_symbol] = time.monotonic()
+                        if market_symbol == str(getattr(self, "current_symbol", "")).upper():
+                            Clock.schedule_once(
+                                lambda dt, value=dict(technical): self.update_technical_labels(value), 0
+                            )
                     except Exception as snapshot_exc:
                         Clock.schedule_once(
                             lambda dt, value=type(snapshot_exc).__name__: self.update_auto_status(
@@ -2148,32 +2152,46 @@ class FuturesAnalyzerApp(App):
                             return
                     now = time.monotonic()
                     with scan_state_lock:
-                        technical = dict(scan_state["technical"]) if scan_state["technical"] else None
-                        received_at = float(scan_state["received_at"])
-                    if technical is None:
-                        if scan_stop.wait(0.25):
-                            return
-                        continue
-                    age = now - received_at
-                    # Never open or manage a new position from an old market snapshot.
-                    if age > 30.0:
+                        technical_by_symbol = {
+                            market_symbol: dict(value)
+                            for market_symbol, value in scan_state["technical"].items()
+                        }
+                        received_by_symbol = dict(scan_state["received_at"])
+                    fresh_candidates = []
+                    fresh_ages = []
+                    for market_symbol, value in technical_by_symbol.items():
+                        received_at = received_by_symbol.get(market_symbol, 0.0)
+                        age = now - received_at
+                        if age <= 30.0:
+                            fresh_candidates.append(value)
+                            fresh_ages.append(age)
+                    if not fresh_candidates:
                         if now - last_stale_notice >= 15.0:
                             last_stale_notice = now
                             Clock.schedule_once(
-                                lambda dt, seconds=age: self.update_auto_status(
-                                    "بررسی سیگنال به‌دلیل کهنگی داده متوقف شد؛ آخرین قیمت {} ثانیه قبل دریافت شده است. "
-                                    "تا داده تازه برسد معامله‌ای باز نمی‌شود.".format(int(seconds))
+                                lambda dt: self.update_auto_status(
+                                    "هنوز هیچ نمادی تصویر تحلیلی تازه ندارد؛ ورود تا دریافت داده معتبر مسدود است."
                                 ), 0
                             )
                         if scan_stop.wait(0.25):
                             return
                         continue
+                    age = max(fresh_ages)
                     try:
                         if self.auto_stop_event.is_set():
                             return
-                        result = engine.process_scan([technical])
+                        result = engine.process_scan(fresh_candidates)
                         self._persist_paper_engine_state(engine)
                         last_scan = time.monotonic()
+                        # Prefer the currently open position's market for the
+                        # status panel; otherwise show the highest-ranked fresh
+                        # candidate, while the engine ranks the complete set.
+                        position_symbol = (engine.position or {}).get("symbol")
+                        technical = next(
+                            (item for item in fresh_candidates if item.get("symbol") == position_symbol),
+                            fresh_candidates[0],
+                        )
+                        candidate_count = len(result.get("candidates", []))
                         events = result.get("events", [])
                         event_text = ""
                         if events:
@@ -2197,11 +2215,13 @@ class FuturesAnalyzerApp(App):
                             except Exception:
                                 pass
                         message_text = (
-                            "شبیه‌ساز فعال | {}\\nسیگنال آخر: {} | قیمت: {:.8g}\\n"
-                            "آخرین داده: {:.0f} ثانیه قبل | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\\n"
+                            "شبیه‌ساز چندنمادی فعال | نماد نمایشی: {} | نمادهای تازه: {}\\n"
+                            "سیگنال: {} | قیمت: {:.8g} | آخرین داده: {:.0f} ثانیه قبل\\n"
+                            "فرصت‌های واجد شرایط: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\\n"
                             "وضعیت ورود: {}\\nحداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\\n{}"
-                        ).format(symbol, technical["signal"], technical["price"], age,
-                                 result["equity"], result["closed_trades"],
+                        ).format((engine.position or {}).get("symbol", technical["symbol"]),
+                                 len(fresh_candidates), technical["signal"], technical["price"], age,
+                                 candidate_count, result["equity"], result["closed_trades"],
                                  diagnose_signal(technical), event_text)
                         Clock.schedule_once(
                             lambda dt, value=message_text: self.update_auto_status(value), 0
