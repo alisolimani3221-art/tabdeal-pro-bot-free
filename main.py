@@ -32,6 +32,8 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
+from kivy.graphics import Color, Line
 from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
@@ -249,6 +251,55 @@ def rtl_runtime_status():
             type(exc).__name__, str(exc)[:120]
         )
 
+
+class LivePriceChart(Widget):
+    """Lightweight rolling live-price line chart; no candle wait or extra deps."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.prices = []
+        self.bind(pos=self._redraw, size=self._redraw)
+
+    def add_price(self, price):
+        try:
+            value = float(price)
+            if not (value > 0 and value < float("inf")):
+                return
+        except (TypeError, ValueError, OverflowError):
+            return
+        self.prices.append(value)
+        del self.prices[:-120]
+        self._redraw()
+
+    def _redraw(self, *_args):
+        self.canvas.clear()
+        x, y = self.pos
+        width, height = self.size
+        if width <= 2 or height <= 2:
+            return
+        with self.canvas:
+            Color(0.055, 0.075, 0.105, 1)
+            from kivy.graphics import Rectangle
+            Rectangle(pos=self.pos, size=self.size)
+            Color(0.20, 0.28, 0.36, 0.8)
+            for fraction in (0.25, 0.5, 0.75):
+                gy = y + height * fraction
+                Line(points=[x + dp(5), gy, x + width - dp(5), gy], width=0.7)
+            if len(self.prices) < 2:
+                return
+            low, high = min(self.prices), max(self.prices)
+            span = high - low
+            if span <= max(abs(high), 1.0) * 1e-9:
+                span = max(abs(high) * 0.0002, 1e-8)
+                low -= span
+            points = []
+            left, right = x + dp(7), x + width - dp(7)
+            bottom, top = y + dp(8), y + height - dp(8)
+            for index, value in enumerate(self.prices):
+                px = left + (right - left) * index / max(1, len(self.prices) - 1)
+                py = bottom + (top - bottom) * (value - low) / span
+                points.extend([px, py])
+            Color(0.20, 0.85, 0.66, 1)
+            Line(points=points, width=1.7)
 
 class FuturesAnalyzerApp(App):
     def build(self):
@@ -1917,11 +1968,9 @@ class FuturesAnalyzerApp(App):
         symbol = self.current_symbol
         initial_status = (
             "شبیه‌ساز فقط برای نماد انتخاب‌شده کار می‌کند: " + symbol + "\n"
-            "داده از جریان عمومی معاملات واقعی دریافت می‌شود؛ دفتر سفارش به‌عنوان کندل استفاده نمی‌شود.\n"
-            "برای تحلیل معتبر، حداقل ۲۰ کندل یک‌دقیقه‌ای بسته‌شده لازم است؛ آماده‌سازی اولیه حدود ۲۰ تا ۲۱ دقیقه طول می‌کشد.\n"
-            "بعد از آماده‌سازی هم فقط با سیگنال معتبر معامله مجازی باز می‌شود؛ سیگنال یا سود تضمین‌شده نیست.\n"
-            "پس از قطع اتصال یا جاافتادن داده، دوره آماده‌سازی از نو شروع می‌شود.\n"
-            "هیچ سفارش واقعی ارسال نمی‌شود."
+            "نمودار خطی با هر معامله معتبر به‌صورت زنده به‌روزرسانی می‌شود؛ برای دیدن نمودار نیازی به بسته‌شدن کندل نیست.\n"
+            "تحلیل اندیکاتوری و ورود آزمایشی همچنان به ۲۳ کندل بسته و پیوسته نیاز دارد؛ تاریخچه معتبر در صورت دسترسی بازیابی می‌شود.\n"
+            "نمودار زنده به‌تنهایی سیگنال یا مجوز معامله نیست. هیچ سفارش واقعی ارسال نمی‌شود."
         )
         # Shape Persian text once; keep Kivy's bidi direction LTR to avoid
         # a second RTL reorder in this popup on Android.
@@ -1942,9 +1991,18 @@ class FuturesAnalyzerApp(App):
         self.auto_status_label.bind(
             texture_size=lambda widget, size: setattr(widget, "height", max(dp(160), size[1] + dp(20)))
         )
-        status_scroll = ScrollView(do_scroll_x=False, bar_width=dp(4))
+        status_scroll = ScrollView(do_scroll_x=False, bar_width=dp(4),
+                                   size_hint_y=None, height=dp(142))
         status_scroll.add_widget(self.auto_status_label)
         body.add_widget(status_scroll)
+        body.add_widget(self.make_label("نمودار زنده قیمت (آخرین ۱۲۰ معامله)",
+                                         size=13, height=dp(28),
+                                         color=(0.35, 0.82, 1, 1)))
+        self.live_price_label = self.make_label(
+            "قیمت زنده: در انتظار اولین معامله معتبر", size=13, height=dp(28))
+        self.live_price_chart = LivePriceChart(size_hint_y=None, height=dp(150))
+        body.add_widget(self.live_price_label)
+        body.add_widget(self.live_price_chart)
         rearm_button = Button(
             markup=True, text=fa("بازآماده‌سازی قفل آزمایش"),
             font_name=FONT_NAME, size_hint_y=None, height=dp(42),
@@ -2553,6 +2611,11 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
+                # Render each accepted fresh trade independently of candle readiness.
+                live_price = float(parsed["price"])
+                Clock.schedule_once(
+                    lambda _dt, value=live_price: self.update_live_price_chart(value), 0
+                )
                 selected_trade_count = int(
                     getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
                 ) + 1
@@ -2913,6 +2976,18 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(
             lambda dt, value=final_status: self.update_auto_status(value), 0
         )
+
+    def update_live_price_chart(self, price):
+        """Update the rolling chart on Kivy's UI thread from validated live trades."""
+        chart = getattr(self, "live_price_chart", None)
+        if chart is not None:
+            chart.add_price(price)
+        label = getattr(self, "live_price_label", None)
+        if label is not None:
+            try:
+                label.text = "قیمت زنده: {:.8g} USDT".format(float(price))
+            except (TypeError, ValueError, OverflowError):
+                pass
 
     def update_technical_labels(self, technical):
         """Publish verified closed-candle indicators to the main analysis panel."""
