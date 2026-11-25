@@ -11,7 +11,7 @@ import time
 from market_candles import TradeCandleBuilder
 
 
-_SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT\\Z")
+_SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT\Z")
 
 
 class MultiSymbolPaperCoordinator:
