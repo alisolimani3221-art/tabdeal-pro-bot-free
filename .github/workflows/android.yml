@@ -1,5 +1,5 @@
-name: Tabdeal Futures CI and signed APK build (v1.54)
-# v1.54: validate the live-price-chart branch and build the paper-only APK after CI; live order placement remains disabled.
+name: Tabdeal Futures CI and signed APK build (v1.55)
+# v1.55: integration base for candle continuity and WebSocket diagnostics; app version remains 1.55 and live order placement remains disabled.
 
 on:
   workflow_dispatch:
