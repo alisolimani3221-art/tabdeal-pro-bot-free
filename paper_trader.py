@@ -104,7 +104,8 @@ def summarize_closed_trades(trades, limit=10):
             sides[side]["wins"] += int(pnl > 0)
             sides[side]["net_pnl"] += pnl
     return {
-        "requested": min(limit, len(trades)), "valid": len(values),
+        "requested": sum(1 for trade in selected if isinstance(trade, dict)),
+        "valid": len(values),
         "wins": len(wins), "losses": len(losses), "breakeven": len(flats),
         "win_rate_percent": 100.0 * len(wins) / len(values) if values else 0.0,
         "net_pnl": total_net,
