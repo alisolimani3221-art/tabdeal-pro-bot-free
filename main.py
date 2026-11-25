@@ -2247,13 +2247,19 @@ class FuturesAnalyzerApp(App):
         self.auto_health_lock = threading.RLock()
         self.auto_health = {
             "worker_phase": "starting", "websocket_connected": False,
-            "connected_at": None, "retry_attempt": 0,
+            "connected_at": None, "retry_attempt": 0, "reconnect_count": 0,
             "received_messages": 0, "valid_market_trades": 0,
             "control_messages": 0,
             "selected_symbol_trade_count": 0,
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
             "candle_count": 0, "builder_ready": False,
+            "reconnect_partial_buckets_discarded": 0,
+            "reconnect_history_clear_count": 0,
+            "reconnect_last_reset_reason": "startup",
+            "duplicate_sequence_rejections": 0,
+            "older_sequence_rejections": 0,
+            "out_of_order_rejections": 0,
             "analysis_required_candles": 23, "candle_interval_seconds": 60,
             "last_scan_at": None, "last_stream_error": "",
         }
@@ -2488,6 +2494,7 @@ class FuturesAnalyzerApp(App):
         control_messages = 0
         connected_once = False
         retry_attempt = 0
+        total_reconnects = 0
         while not self.auto_stop_event.is_set():
             retry_attempt += 1
             self._update_engine_health(worker_phase="connecting",
@@ -2508,18 +2515,20 @@ class FuturesAnalyzerApp(App):
             socket_diagnostics = {"opened": False, "error": None}
 
             def on_open(ws):
-                nonlocal connected_once, last_processed_bucket
+                nonlocal connected_once, last_processed_bucket, total_reconnects
                 socket_diagnostics["opened"] = True
                 stream_watchdog.connected()
+                if connected_once:
+                    total_reconnects += 1
+                    builder.reset_after_reconnect()
+                    last_processed_bucket = None
+                connected_once = True
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
                     websocket_connected=True, connected_at=time.monotonic(),
                     last_stream_error="",
+                    reconnect_count=total_reconnects,
                 )
-                if connected_once:
-                    builder.reset_after_reconnect()
-                    last_processed_bucket = None
-                connected_once = True
                 # Match the previously observed working public-feed protocol:
                 # send the market symbol as plain text after the socket opens.
                 # This is a read-only market subscription, never an order action.
@@ -2627,6 +2636,16 @@ class FuturesAnalyzerApp(App):
                     last_selected_symbol_trade_at=time.monotonic(),
                 )
                 update = builder.add_trade(parsed)
+                candle_health = builder.status()
+                rejection_counts = candle_health.get("rejection_reasons", {})
+                self._update_engine_health(
+                    reconnect_partial_buckets_discarded=int(candle_health.get("partial_buckets_discarded", 0)),
+                    reconnect_history_clear_count=int(candle_health.get("history_clear_count", 0)),
+                    reconnect_last_reset_reason=str(candle_health.get("last_reset_reason", ""))[:80],
+                    duplicate_sequence_rejections=int(rejection_counts.get("duplicate_sequence", 0)),
+                    older_sequence_rejections=int(rejection_counts.get("older_sequence", 0)),
+                    out_of_order_rejections=int(rejection_counts.get("out_of_order", 0)),
+                )
                 # A restored cache is usable only if the first fresh live trade
                 # proves there was no missing one-minute bucket. On a gap the
                 # builder clears the cache before any technical signal is made.
@@ -2701,14 +2720,18 @@ class FuturesAnalyzerApp(App):
                         status_text = (
                             "جریان معاملات فعال است. کندل بسته معتبر: {}/23 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {} | "
-                            "علت ردها: {}. از ۵ کندل پایش اولیه فعال می‌شود؛ "
-                            "تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
+                            "علت ردها: {} | اتصال‌مجدد: {} | حذف کندل ناقص: {} | "
+                            "پاک‌سازی تاریخچه: {} | آخرین علت بازنشانی: {}. "
+                            "از ۵ کندل پایش اولیه فعال می‌شود؛ تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
                                  stream_status["gaps"],
                                  ",".join("{}={}".format(k, v) for k, v in
                                           sorted(stream_status["rejection_reasons"].items()))
-                                 or "ندارد")
+                                 or "ندارد", stream_status["reconnect_count"],
+                                 stream_status["partial_buckets_discarded"],
+                                 stream_status["history_clear_count"],
+                                 stream_status["last_reset_reason"])
                         preliminary = builder.preliminary_trend()
                         if preliminary is not None:
                             trend_names = {"UP": "صعودی", "DOWN": "نزولی", "FLAT": "خنثی"}

@@ -146,6 +146,13 @@ class AIDiagnosticContextTests(unittest.TestCase):
                 "worker_phase": "connected_waiting_for_trade",
                 "websocket_connected": True,
                 "retry_attempt": 2,
+                "reconnect_count": 3,
+                "reconnect_partial_buckets_discarded": 2,
+                "reconnect_history_clear_count": 1,
+                "reconnect_last_reset_reason": "history_cleared_after_partial_bucket",
+                "duplicate_sequence_rejections": 4,
+                "older_sequence_rejections": 5,
+                "out_of_order_rejections": 6,
                 "received_messages": 12,
                 "valid_market_trades": 9,
                 "selected_symbol_trade_count": 0,
@@ -157,7 +164,14 @@ class AIDiagnosticContextTests(unittest.TestCase):
         rendered = "\\n".join(lines)
         self.assertIn("سلامت جریان معاملات: WAITING_FOR_SELECTED_SYMBOL_TRADE", rendered)
         self.assertIn("اتصال WebSocket: True", rendered)
-        self.assertIn("تلاش اتصال مجدد: 2", rendered)
+        self.assertIn("تلاش اتصال مجدد متوالی: 2", rendered)
+        self.assertIn("اتصال‌های مجدد در این اجرا: 3", rendered)
+        self.assertIn("حذف کندل ناقص پس از اتصال مجدد: 2", rendered)
+        self.assertIn("پاک‌سازی تاریخچه کندل: 1", rendered)
+        self.assertIn("آخرین علت بازنشانی کندل: history_cleared_after_partial_bucket", rendered)
+        self.assertIn("رد به‌علت sequence تکراری: 4", rendered)
+        self.assertIn("رد به‌علت sequence قدیمی: 5", rendered)
+        self.assertIn("رد به‌علت ترتیب زمانی: 6", rendered)
         self.assertIn("پیام‌های دریافتی: 12", rendered)
         self.assertIn("معاملات معتبر همه نمادها: 9", rendered)
         self.assertIn("معاملات معتبر نماد انتخابی: 0", rendered)
