@@ -126,6 +126,15 @@ class TradeCandleBuilder:
                 self._reconnect_warmup_pending = False
             else:
                 self.discard_next_close = False
+                # The first post-startup/reconnect bucket is intentionally
+                # discarded because it was only partially observed. Retained
+                # cached/pre-reconnect candles end before that missing bucket,
+                # so keeping them would create a silent one-minute hole in the
+                # next analysis window. Restart warm-up from fully observed live
+                # candles instead of passing a discontinuous series to indicators.
+                if self.closed:
+                    self.closed.clear()
+                    self._reconnect_warmup_pending = False
             if bucket != previous_bucket + self.interval_ms:
                 self.gaps += 1
                 gap_detected = True
