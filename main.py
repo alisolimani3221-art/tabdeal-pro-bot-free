@@ -2254,6 +2254,12 @@ class FuturesAnalyzerApp(App):
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
             "candle_count": 0, "builder_ready": False,
+            "reconnect_partial_buckets_discarded": 0,
+            "reconnect_history_clear_count": 0,
+            "reconnect_last_reset_reason": "startup",
+            "duplicate_sequence_rejections": 0,
+            "older_sequence_rejections": 0,
+            "out_of_order_rejections": 0,
             "analysis_required_candles": 23, "candle_interval_seconds": 60,
             "last_scan_at": None, "last_stream_error": "",
         }
@@ -2630,6 +2636,16 @@ class FuturesAnalyzerApp(App):
                     last_selected_symbol_trade_at=time.monotonic(),
                 )
                 update = builder.add_trade(parsed)
+                candle_health = builder.status()
+                rejection_counts = candle_health.get("rejection_reasons", {})
+                self._update_engine_health(
+                    reconnect_partial_buckets_discarded=int(candle_health.get("partial_buckets_discarded", 0)),
+                    reconnect_history_clear_count=int(candle_health.get("history_clear_count", 0)),
+                    reconnect_last_reset_reason=str(candle_health.get("last_reset_reason", ""))[:80],
+                    duplicate_sequence_rejections=int(rejection_counts.get("duplicate_sequence", 0)),
+                    older_sequence_rejections=int(rejection_counts.get("older_sequence", 0)),
+                    out_of_order_rejections=int(rejection_counts.get("out_of_order", 0)),
+                )
                 # A restored cache is usable only if the first fresh live trade
                 # proves there was no missing one-minute bucket. On a gap the
                 # builder clears the cache before any technical signal is made.
