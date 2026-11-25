@@ -86,6 +86,17 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         self.assertEqual(coordinator.states["BTC_USDT"]["latest_technical"]["price"], 10)
         self.assertEqual(coordinator.states["ETH_USDT"]["latest_technical"]["price"], 20)
 
+    def test_invalid_price_does_not_mutate_candle_builder(self):
+        coordinator = self.make_coordinator()
+        result = coordinator.on_trade(
+            self.trade("BTC_USDT", float("nan")), received_at=10
+        )
+        state = coordinator.states["BTC_USDT"]
+        self.assertEqual(result["reason"], "invalid_price")
+        self.assertEqual(state["builder"].received, [])
+        self.assertEqual(state["accepted_trades"], 0)
+        self.assertEqual(state["rejected_trades"], 1)
+
     def test_unsubscribed_symbol_is_rejected(self):
         result = self.make_coordinator().on_trade(self.trade("SOL_USDT"), received_at=10)
         self.assertEqual(result["reason"], "symbol_not_subscribed")
