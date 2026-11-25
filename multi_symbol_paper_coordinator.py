@@ -73,11 +73,9 @@ class MultiSymbolPaperCoordinator:
 
         with self.lock:
             state = self.states[symbol]
-            update = state["builder"].add_trade(trade)
-            if not update.get("accepted"):
-                state["rejected_trades"] += 1
-                return {"accepted": False, "symbol": symbol,
-                        "reason": update.get("reason", "builder_rejected")}
+            # Validate the mark before mutating the candle builder. Otherwise a
+            # malformed price could be rejected here after it had already altered
+            # the candle stream, contaminating later technical snapshots.
             try:
                 price = float(trade["price"])
             except (KeyError, TypeError, ValueError, OverflowError):
@@ -86,6 +84,11 @@ class MultiSymbolPaperCoordinator:
             if not math.isfinite(price) or price <= 0:
                 state["rejected_trades"] += 1
                 return {"accepted": False, "symbol": symbol, "reason": "invalid_price"}
+            update = state["builder"].add_trade(trade)
+            if not update.get("accepted"):
+                state["rejected_trades"] += 1
+                return {"accepted": False, "symbol": symbol,
+                        "reason": update.get("reason", "builder_rejected")}
 
             state["accepted_trades"] += 1
             state["last_trade_monotonic"] = now
