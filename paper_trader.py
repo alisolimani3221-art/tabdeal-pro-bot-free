@@ -99,7 +99,7 @@ def summarize_closed_trades(trades, limit=10):
         reason = str(trade.get("reason", "UNKNOWN"))[:40]
         reasons[reason] = reasons.get(reason, 0) + 1
         side = trade.get("side")
-        if side in sides:
+        if isinstance(side, str) and side in sides:
             sides[side]["count"] += 1
             sides[side]["wins"] += int(pnl > 0)
             sides[side]["net_pnl"] += pnl
