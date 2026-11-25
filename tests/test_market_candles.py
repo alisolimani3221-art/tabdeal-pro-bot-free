@@ -111,6 +111,27 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(len(builder.closed), 1)
         self.assertFalse(builder.is_ready)
 
+    def test_reconnect_with_no_closed_history_does_not_stick_warmup_gate(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))
+        self.assertEqual(len(builder.closed), 0)
+
+        builder.reset_after_reconnect()
+        self.assertTrue(builder.status()["reconnect_warmup_pending"])
+
+        # Resume in the same minute, then let the incomplete bucket close.
+        builder.add_trade(self.trade(100, second=20))
+        builder.add_trade(self.trade(101))
+        status = builder.status()
+        self.assertFalse(status["reconnect_warmup_pending"])
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(status["partial_buckets_discarded"], 1)
+
+        # A complete subsequent candle can now be accumulated normally.
+        builder.add_trade(self.trade(102))
+        self.assertEqual(len(builder.closed), 1)
+        self.assertFalse(builder.status()["reconnect_warmup_pending"])
+
     def test_reconnect_reset_counters_explain_warmup_restarts(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100))
