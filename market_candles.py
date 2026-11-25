@@ -144,7 +144,9 @@ class TradeCandleBuilder:
                     self.closed.clear()
                     self.history_clear_count += 1
                     self.last_reset_reason = "history_cleared_after_partial_bucket"
-                    self._reconnect_warmup_pending = False
+                # The reconnect warm-up gate ends when the first partial bucket
+                # has been discarded, even when there was no closed history to clear.
+                self._reconnect_warmup_pending = False
             if bucket != previous_bucket + self.interval_ms:
                 self.gaps += 1
                 gap_detected = True
