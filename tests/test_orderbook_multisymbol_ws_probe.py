@@ -13,7 +13,7 @@ class MultiMarketOrderBookWebSocketProbeTests(unittest.TestCase):
     def test_builds_exact_official_sdk_subscription_payload(self):
         self.assertEqual(build_multi_depth_subscription(("BTC_USDT", "ETH_USDT")), {
             "method": "SUBSCRIBE", "id": 1,
-            "params": ["BTC_USDT@depth@2000ms", "ETH_USDT@depth@2000ms"],
+            "params": ["btcusdt@depth@2000ms", "ethusdt@depth@2000ms"],
         })
 
     def test_rejects_invalid_or_duplicate_symbols_and_request_ids(self):
@@ -26,8 +26,9 @@ class MultiMarketOrderBookWebSocketProbeTests(unittest.TestCase):
                 build_multi_depth_subscription(("BTC_USDT",), request_id)
 
     def test_symbol_extraction_requires_explicit_identifier(self):
-        self.assertEqual(_find_symbol({"stream": "ETH_USDT@depth@2000ms"}), "ETH_USDT")
-        self.assertEqual(_find_symbol({"data": {"s": "BTC_USDT"}}), "BTC_USDT")
+        self.assertEqual(_find_symbol({"stream": "ethusdt@depth@2000ms"}), "ETH_USDT")
+        self.assertEqual(_find_symbol({"data": {"s": "btcusdt"}}), "BTC_USDT")
+        self.assertEqual(_find_symbol({"symbol": "ETH_USDT"}), "ETH_USDT")
         self.assertIsNone(_find_symbol({"bids": [["1", "2"]], "asks": [["2", "3"]]}))
 
     def test_same_connection_receives_two_symbol_books(self):
@@ -45,7 +46,8 @@ class MultiMarketOrderBookWebSocketProbeTests(unittest.TestCase):
                 for symbol, bid, ask in (("BTC_USDT", "90000", "90001"),
                                           ("ETH_USDT", "3000", "3001")):
                     frame = {"stream": symbol + "@depth@2000ms",
-                             "data": {"bids": [[bid, "1"]], "asks": [[ask, "2"]]}}
+                             "data": {"s": symbol.replace("_", "").lower(),
+                                      "bids": [[bid, "1"]], "asks": [[ask, "2"]]}}
                     self.callbacks["on_message"](self, json.dumps(frame))
         module = types.SimpleNamespace(
             WebSocketApp=FakeWebSocketApp,
@@ -56,7 +58,7 @@ class MultiMarketOrderBookWebSocketProbeTests(unittest.TestCase):
             result = probe_multi_market_order_book(timeout_seconds=1)
         self.assertEqual(len(state["sent"]), 1)
         self.assertEqual(state["sent"][0]["params"],
-                         ["BTC_USDT@depth@2000ms", "ETH_USDT@depth@2000ms"])
+                         ["btcusdt@depth@2000ms", "ethusdt@depth@2000ms"])
         self.assertTrue(state["closed"])
         self.assertEqual(result["status"], "both_symbol_books_observed")
         self.assertEqual(result["valid_books_by_symbol"], {"BTC_USDT": 1, "ETH_USDT": 1})
