@@ -146,7 +146,9 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
     def test_normal_tick_for_other_market_does_not_mark_open_position(self):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
-        coordinator.reconcile_tick(engine, self.trade("ETH_USDT"), gap_detected=False)
+        event = self.trade("ETH_USDT")
+        coordinator.on_trade(event, received_at=10)
+        coordinator.reconcile_tick(engine, event, gap_detected=False)
         self.assertEqual(engine.ticks, [])
         self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
 
@@ -154,14 +156,18 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
         engine.position = {"symbol": "ETH_USDT"}
-        coordinator.reconcile_tick(engine, self.trade("ETH_USDT", 20), gap_detected=False)
+        event = self.trade("ETH_USDT", 20)
+        coordinator.on_trade(event, received_at=10)
+        coordinator.reconcile_tick(engine, event, gap_detected=False)
         self.assertEqual(engine.ticks, [("ETH_USDT", 20)])
         self.assertEqual(engine.position, {"symbol": "ETH_USDT"})
 
     def test_lowercase_tick_symbol_is_normalized(self):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
-        coordinator.reconcile_tick(engine, self.trade("btc_usdt"), gap_detected=False)
+        event = self.trade("btc_usdt")
+        coordinator.on_trade(event, received_at=10)
+        coordinator.reconcile_tick(engine, event, gap_detected=False)
         self.assertEqual(engine.ticks, [("BTC_USDT", 10)])
 
     def test_status_does_not_mark_future_timestamp_as_fresh(self):
@@ -194,9 +200,11 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
     def test_reconcile_tick_rejects_non_boolean_gap_flag(self):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
+        event = self.trade("BTC_USDT")
+        coordinator.on_trade(event, received_at=10)
         self.assertIsNone(
             coordinator.reconcile_tick(
-                engine, self.trade("BTC_USDT"), gap_detected="yes"
+                engine, event, gap_detected="yes"
             )
         )
         self.assertEqual(engine.ticks, [])
@@ -206,15 +214,19 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
     def test_gap_for_other_market_does_not_halt_open_position(self):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
-        coordinator.reconcile_tick(engine, self.trade("ETH_USDT"), gap_detected=True)
+        event = self.trade("ETH_USDT")
+        coordinator.on_trade(event, received_at=10)
+        coordinator.reconcile_tick(engine, event, gap_detected=True)
         self.assertEqual(engine.gaps, [])
         self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
 
     def test_gap_for_position_market_flattens_and_halts(self):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
+        event = self.trade("BTC_USDT")
+        coordinator.on_trade(event, received_at=10)
         result = coordinator.reconcile_tick(
-            engine, self.trade("BTC_USDT"), gap_detected=True
+            engine, event, gap_detected=True
         )
         self.assertTrue(result["halted"])
         self.assertEqual(engine.gaps, [("BTC_USDT", 10)])
@@ -238,6 +250,30 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
                         ("BTC/USDT", "ETH_USDT")):
             with self.subTest(symbols=symbols), self.assertRaises(ValueError):
                 MultiSymbolPaperCoordinator(symbols, analyze, prepare, builder_factory=FakeBuilder)
+
+    def test_tick_requires_matching_accepted_event_and_is_single_use(self):
+        coordinator = self.make_coordinator()
+        engine = FakeEngine()
+        event = self.trade("BTC_USDT", 12)
+        self.assertIsNone(coordinator.reconcile_tick(engine, event))
+        self.assertEqual(engine.ticks, [])
+        coordinator.on_trade(event, received_at=10)
+        altered = dict(event, price=13)
+        self.assertIsNone(coordinator.reconcile_tick(engine, altered))
+        self.assertEqual(engine.ticks, [])
+        self.assertIsNone(coordinator.reconcile_tick(engine, event))
+        self.assertEqual(engine.ticks, [("BTC_USDT", 12)])
+        self.assertIsNone(coordinator.reconcile_tick(engine, event))
+        self.assertEqual(engine.ticks, [("BTC_USDT", 12)])
+
+    def test_reconnect_clears_pending_tick(self):
+        coordinator = self.make_coordinator()
+        engine = FakeEngine()
+        event = self.trade("BTC_USDT", 12)
+        coordinator.on_trade(event, received_at=10)
+        coordinator.reset_after_reconnect()
+        self.assertIsNone(coordinator.reconcile_tick(engine, event))
+        self.assertEqual(engine.ticks, [])
 
 
 if __name__ == "__main__":
