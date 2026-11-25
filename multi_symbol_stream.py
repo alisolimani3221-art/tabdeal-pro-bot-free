@@ -30,3 +30,24 @@ def select_broadcast_symbols(selected_symbol, verified_symbols,
     verified.discard(selected)
     secondary = sorted(verified)[:max_symbols - 1]
     return tuple([selected] + secondary)
+
+
+def subscribe_broadcast_symbols(websocket, symbols):
+    """Send each validated market as its own plain-text subscription frame."""
+    if not callable(getattr(websocket, "send", None)):
+        raise ValueError("websocket must provide send()")
+    if not isinstance(symbols, (list, tuple)) or not symbols:
+        raise ValueError("at least one subscription symbol is required")
+    if len(symbols) > MAX_VERIFIED_BROADCAST_SYMBOLS:
+        raise ValueError("subscription count exceeds the verified broadcast limit")
+    normalized = []
+    for value in symbols:
+        if not isinstance(value, str):
+            raise ValueError("subscription symbol must be a string")
+        candidate = value.strip().upper()
+        if not _SYMBOL.fullmatch(candidate) or candidate in normalized:
+            raise ValueError("subscription symbol is invalid or duplicated")
+        normalized.append(candidate)
+    for candidate in normalized:
+        websocket.send(candidate)
+    return tuple(normalized)
