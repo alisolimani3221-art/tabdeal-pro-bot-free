@@ -33,6 +33,7 @@ on:
       - fix/v1.53-cache-gap-and-diagnostics-20261124
       - fix/v1.53-stream-phase-diagnostics-20261124
       - feature/v1.54-live-price-chart-20261125
+      - fix/shared-candle-cache-warmup-20261125
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
