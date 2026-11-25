@@ -20,6 +20,7 @@ on:
       - audit/pr12-decimal-safety
       - audit/v1.28-readonly-account-hardening
       - fix/v1.45-ai-integrated
+      - work/v1.53-integrated
   push:
     branches:
       - release/v1.49
