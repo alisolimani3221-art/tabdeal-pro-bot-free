@@ -35,7 +35,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.add_trade(self.trade(100, 10, sequence=10))["reason"],
                          "out_of_order")
         self.assertEqual(builder.add_trade(self.trade(100, 30, sequence=9))["reason"],
-                         "duplicate_or_old_sequence")
+                         "duplicate_sequence")
 
     def test_gap_clears_warmup_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -110,6 +110,44 @@ class TradeCandleBuilderTests(unittest.TestCase):
         builder.add_trade(self.trade(forming_minute + 2))
         self.assertEqual(len(builder.closed), 1)
         self.assertFalse(builder.is_ready)
+
+    def test_reconnect_with_no_closed_history_does_not_stick_warmup_gate(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))
+        self.assertEqual(len(builder.closed), 0)
+
+        builder.reset_after_reconnect()
+        self.assertTrue(builder.status()["reconnect_warmup_pending"])
+
+        # Resume in the same minute, then let the incomplete bucket close.
+        builder.add_trade(self.trade(100, second=20))
+        builder.add_trade(self.trade(101))
+        status = builder.status()
+        self.assertFalse(status["reconnect_warmup_pending"])
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(status["partial_buckets_discarded"], 1)
+
+        # A complete subsequent candle can now be accumulated normally.
+        builder.add_trade(self.trade(102))
+        self.assertEqual(len(builder.closed), 1)
+        self.assertFalse(builder.status()["reconnect_warmup_pending"])
+
+    def test_reconnect_reset_counters_explain_warmup_restarts(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))
+        builder.add_trade(self.trade(101))
+        self.assertEqual(builder.status()["partial_buckets_discarded"], 1)
+
+        builder.add_trade(self.trade(102))
+        builder.reset_after_reconnect()
+        self.assertEqual(builder.status()["reconnect_count"], 1)
+
+        builder.add_trade(self.trade(102, second=20))
+        builder.add_trade(self.trade(103))
+        status = builder.status()
+        self.assertEqual(status["partial_buckets_discarded"], 2)
+        self.assertEqual(status["history_clear_count"], 1)
+        self.assertEqual(status["last_reset_reason"], "history_cleared_after_partial_bucket")
 
     def test_reconnect_rejects_replayed_older_tick_before_resuming_same_minute(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -267,6 +305,17 @@ class TradeCandleBuilderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TradeCandleBuilder("BTC_USDT", max_candles=10)
 
+    def test_older_sequence_is_distinguished_from_exact_duplicate(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        self.assertTrue(builder.add_trade(self.trade(100, second=10, sequence=12))["accepted"])
+        duplicate = builder.add_trade(self.trade(100, second=20, sequence=12))
+        older = builder.add_trade(self.trade(100, second=30, sequence=11))
+        self.assertEqual(duplicate["reason"], "duplicate_sequence")
+        self.assertEqual(older["reason"], "older_sequence")
+        self.assertEqual(builder.status()["rejection_reasons"], {
+            "duplicate_sequence": 1, "older_sequence": 1
+        })
+
     def test_rejection_reasons_are_counted_without_losing_total(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100, second=20, sequence=9))
@@ -275,7 +324,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         status = builder.status()
         self.assertEqual(status["rejected_trades"], 2)
         self.assertEqual(status["rejection_reasons"], {
-            "out_of_order": 1, "duplicate_or_old_sequence": 1
+            "out_of_order": 1, "duplicate_sequence": 1
         })
 
 

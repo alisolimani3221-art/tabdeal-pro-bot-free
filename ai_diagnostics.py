@@ -22,10 +22,13 @@ TECHNICAL_KEYS = (
     "trend", "support", "resistance", "data_kind", "candle_count",
 )
 HEALTH_KEYS = (
-    "worker_phase", "websocket_connected", "retry_attempt",
+    "worker_phase", "websocket_connected", "retry_attempt", "reconnect_count",
     "received_messages", "valid_market_trades", "control_messages", "selected_symbol_trade_count",
     "candle_count", "builder_ready", "analysis_required_candles",
-    "candle_interval_seconds", "last_stream_error",
+    "candle_interval_seconds", "reconnect_partial_buckets_discarded",
+    "reconnect_history_clear_count", "reconnect_last_reset_reason",
+    "duplicate_sequence_rejections", "older_sequence_rejections",
+    "out_of_order_rejections", "last_stream_error",
 )
 NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
@@ -230,13 +233,20 @@ def build_engine_health_report_lines(app):
         "مرحله کاری موتور: " + value("worker_phase"),
         "اتصال WebSocket: " + value("websocket_connected", "false"),
         "رشته معامله‌گر زنده: " + value("thread_alive", "false"),
-        "تلاش اتصال مجدد: " + value("retry_attempt", "0"),
+        "تلاش اتصال مجدد متوالی: " + value("retry_attempt", "0"),
+        "اتصال‌های مجدد در این اجرا: " + value("reconnect_count", "0"),
         "پیام‌های دریافتی: " + value("received_messages", "0"),
         "پیام‌های کنترلی/غیرمعاملاتی: " + value("control_messages", "0"),
         "معاملات معتبر همه نمادها: " + value("valid_market_trades", "0"),
         "معاملات معتبر نماد انتخابی: " + value("selected_symbol_trade_count", "0"),
         "عمر آخرین معامله نماد انتخابی (ثانیه): " + age("selected_symbol_trade_age_seconds"),
         "کندل‌های بسته: " + value("candle_count", "0"),
+        "حذف کندل ناقص پس از اتصال مجدد: " + value("reconnect_partial_buckets_discarded", "0"),
+        "پاک‌سازی تاریخچه کندل: " + value("reconnect_history_clear_count", "0"),
+        "آخرین علت بازنشانی کندل: " + value("reconnect_last_reset_reason"),
+        "رد به‌علت sequence تکراری: " + value("duplicate_sequence_rejections", "0"),
+        "رد به‌علت sequence قدیمی: " + value("older_sequence_rejections", "0"),
+        "رد به‌علت ترتیب زمانی: " + value("out_of_order_rejections", "0"),
         "کندل‌های باقی‌مانده تا تحلیل: " + str(max(
             0, int(health.get("analysis_required_candles", 23) or 23)
             - int(health.get("candle_count", 0) or 0)
