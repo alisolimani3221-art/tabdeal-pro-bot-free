@@ -3059,6 +3059,13 @@ class FuturesAnalyzerApp(App):
                                 or position_age < 0 or position_age > 30.0
                             )
                         if position_stale:
+                            current_position = engine.position
+                            if (not isinstance(current_position, dict)
+                                    or current_position.get("symbol") != position_symbol):
+                                # A fresh tick may have closed the position while
+                                # this scan thread was checking its market age.
+                                position_stale = False
+                        if position_stale:
                             try:
                                 current_position = engine.position
                                 stale_result = None
