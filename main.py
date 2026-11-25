@@ -2263,7 +2263,7 @@ class FuturesAnalyzerApp(App):
             "out_of_order_rejections": 0,
             "analysis_required_candles": 23, "candle_interval_seconds": 60,
             "last_scan_at": None, "last_stream_error": "",
-            "subscribed_symbols": [symbol], "secondary_symbol_trade_counts": {},
+            "subscribed_symbols": [], "secondary_symbol_trade_counts": {},
         }
         guard = getattr(self, "runtime_guard", None)
         coordinator_session = getattr(self, "coordinator_session", None)
