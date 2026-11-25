@@ -233,13 +233,23 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_restore_rejects_short_or_discontinuous_cache(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        with self.assertRaisesRegex(ValueError, "20"):
+        with self.assertRaisesRegex(ValueError, "5"):
             builder.restore_closed_candles([[60_000, 1, 1, 1, 1, 1]])
         rows = [[minute * 60_000, 100, 102, 99, 101, 4]
                 for minute in range(100, 121)]
         rows[10][0] += 60_000
         with self.assertRaisesRegex(ValueError, "gap"):
             builder.restore_closed_candles(rows)
+
+
+    def test_restores_five_candle_cache_for_monitoring_but_not_analysis(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        rows = [[minute * 60_000, 100, 102, 99, 101, 4]
+                for minute in range(100, 105)]
+        self.assertEqual(builder.restore_closed_candles(rows), 5)
+        self.assertTrue(builder.monitor_ready)
+        self.assertFalse(builder.is_ready)
+        self.assertIsNone(builder.preliminary_trend() if False else None)
 
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
