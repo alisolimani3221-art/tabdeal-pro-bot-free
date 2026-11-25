@@ -1110,6 +1110,9 @@ class FuturesAnalyzerApp(App):
         font_status = "OK: " + str(FONT_PATH) if FONT_PATH else "MISSING: Persian font"
         latin_status = "OK: " + str(LATIN_FONT_PATH) if LATIN_FONT_PATH else "MISSING: Latin font"
         depth_status = "OK" if results.get("bids") and results.get("asks") else "NOT VERIFIED"
+        builder = getattr(self, "auto_candle_builder", None)
+        candle_status = builder.status() if builder is not None else None
+        stream_counts = dict(getattr(self, "auto_stream_counters", {}) or {})
         lines = [
             "مرکز عیب‌یابی برنامه",
             "نسخه برنامه: " + APP_VERSION,
@@ -1125,6 +1128,24 @@ class FuturesAnalyzerApp(App):
             "معامله‌گر آزمایشی: " + ("RUNNING" if auto_running else "STOPPED"),
             "آخرین بررسی: " + str(getattr(self, "last_diagnostic_time", "نامشخص")),
         ]
+        if stream_counts:
+            lines.extend([
+                "پیام‌های دریافتی جریان: " + str(stream_counts.get("messages", 0)),
+                "پیام‌های معتبر از نظر قالب: " + str(stream_counts.get("parsed_valid", 0)),
+                "معاملات پذیرفته‌شده توسط سازنده کندل: " + str(stream_counts.get("builder_accepted", 0)),
+                "معاملات ردشده توسط سازنده کندل: " + str(stream_counts.get("builder_rejected", 0)),
+            ])
+        if candle_status:
+            lines.extend([
+                "کندل‌های بسته معتبر: {}/{}".format(
+                    candle_status["closed_candles"], candle_status["required_closed_candles"]
+                ),
+                "کندل در حال تشکیل: " + str(candle_status["has_forming_candle"]),
+                "شکاف‌های داده: " + str(candle_status["gaps"]),
+                "علت‌های رد معامله: " + json.dumps(
+                    candle_status["rejection_reasons"], ensure_ascii=False, sort_keys=True
+                ),
+            ])
         for key in ("website", "market_ping", "ping_error", "market_info", "depth_status",
                     "depth_http", "depth_content_type", "market_symbol",
                     "depth_diagnostic", "market_error", "analysis_error", "summary_error"):
@@ -1383,6 +1404,10 @@ class FuturesAnalyzerApp(App):
         self.auto_stop_event.clear()
         self.auto_engine = engine
         self.auto_candle_builder = builder
+        self.auto_stream_counters = {
+            "messages": 0, "parsed_valid": 0,
+            "builder_accepted": 0, "builder_rejected": 0,
+        }
         self.auto_trader_thread = threading.Thread(
             target=self._paper_stream_worker,
             args=(symbol, builder, engine),
@@ -1578,13 +1603,21 @@ class FuturesAnalyzerApp(App):
                 )
 
             def on_message(ws, message):
+                with data_lock:
+                    self.auto_stream_counters["messages"] += 1
                 parsed = parse_trade_message(message, expected_symbol=symbol)
-                if self.auto_stop_event.is_set() or not parsed.get("ok"):
+                if self.auto_stop_event.is_set():
+                    return
+                if not parsed.get("ok"):
                     return
                 with data_lock:
+                    self.auto_stream_counters["parsed_valid"] += 1
                     update = builder.add_trade(parsed)
                     if update.get("accepted"):
+                        self.auto_stream_counters["builder_accepted"] += 1
                         last_trade_at[0] = time.monotonic()
+                    else:
+                        self.auto_stream_counters["builder_rejected"] += 1
                 if not update.get("accepted"):
                     return
                 if update.get("gap_detected"):

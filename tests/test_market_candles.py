@@ -21,6 +21,20 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(rows[0], [6_000_000, 100.0, 105.0, 100.0, 105.0, 5.0])
         self.assertEqual(rows[1], [6_060_000, 102.0, 102.0, 102.0, 102.0, 4.0])
 
+    def test_status_reports_accepted_and_rejected_trade_counts(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        self.assertTrue(builder.add_trade(self.trade(100))["accepted"])
+        self.assertEqual(
+            builder.add_trade(self.trade(100) | {"symbol": "ETH_USDT"})["reason"],
+            "symbol_mismatch",
+        )
+        status = builder.status()
+        self.assertEqual(status["accepted_trades"], 1)
+        self.assertEqual(status["rejected_trades"], 1)
+        self.assertEqual(status["rejection_reasons"]["symbol_mismatch"], 1)
+        self.assertEqual(status["required_closed_candles"], 51)
+        self.assertIsNotNone(status["forming_bucket_open_time_ms"])
+
     def test_rejects_wrong_symbol_and_invalid_fields(self):
         builder = TradeCandleBuilder("BTC_USDT")
         self.assertEqual(builder.add_trade(self.trade(100) | {"symbol": "ETH_USDT"})["reason"],
