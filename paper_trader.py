@@ -509,6 +509,45 @@ class PaperTradingEngine:
             return {"halted": False, "rearmed": True,
                     "live_order_submitted": False}
 
+    def daily_reset_available(self, now=None):
+        """Return whether a daily-loss halt may be re-armed on a later UTC day."""
+        with self._lock:
+            return bool(
+                self.halted
+                and self.halt_reason == "DAILY_MAX_LOSS"
+                and self.position is None
+                and _utc_date_key(now) > self.daily_loss_date
+            )
+
+    def rearm_after_daily_reset(self, now=None):
+        """Re-arm a daily-loss halt only after UTC midnight and cumulative-risk checks."""
+        with self._lock:
+            if not self.halted:
+                raise RuntimeError("paper engine is not halted")
+            if self.halt_reason != "DAILY_MAX_LOSS":
+                raise RuntimeError("only a daily-loss halt can use the UTC daily reset")
+            if self.position is not None:
+                raise RuntimeError("open paper position must be closed before re-arming")
+            current_date = _utc_date_key(now)
+            if current_date <= self.daily_loss_date:
+                raise RuntimeError("UTC daily paper loss limit remains active until the next UTC day")
+            self._refresh_daily_period(now)
+            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+            if self.cash <= loss_floor:
+                self.halt_reason = "MAX_LOSS"
+                self.halt_detail = "cumulative paper loss limit remains active"
+                raise RuntimeError("maximum cumulative paper loss limit remains active")
+            self.halted = False
+            self.halt_reason = None
+            self.halt_detail = None
+            return {
+                "halted": False,
+                "rearmed": True,
+                "daily_period_reset": True,
+                "daily_loss_date": self.daily_loss_date,
+                "live_order_submitted": False,
+            }
+
     def emergency_close(self, detail=None):
         """Close any simulated position and persist a short, non-secret stop diagnostic."""
         with self._lock:
