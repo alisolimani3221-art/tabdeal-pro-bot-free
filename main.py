@@ -2513,6 +2513,15 @@ class FuturesAnalyzerApp(App):
                     )
                 )
         subscription_symbols = select_broadcast_symbols(symbol, verified_symbols)
+        # Keep a restored position market subscribed alongside the UI-selected
+        # market; otherwise its protective stop/target could be left unmanaged.
+        if recovered_open_symbol and recovered_open_symbol != symbol:
+            active_verified = {
+                value.strip().upper() for value in verified_symbols
+                if isinstance(value, str)
+            }
+            if recovered_open_symbol in active_verified:
+                subscription_symbols = (symbol, recovered_open_symbol)
         if recovered_open_symbol is not None and recovered_open_symbol not in subscription_symbols:
             self.auto_stop_event.set()
             self._update_engine_health(
