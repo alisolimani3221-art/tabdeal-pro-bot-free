@@ -1,9 +1,30 @@
 import unittest
 
-from multi_market_scan import extract_active_symbols, scan_market_universe
+from multi_market_scan import (extract_active_symbols, load_active_market_symbols,
+                               scan_market_universe)
 
 
 class MultiMarketScanTests(unittest.TestCase):
+    def test_loads_complete_active_symbol_universe_from_exchange_info(self):
+        calls = []
+        def fake_fetch(path, params):
+            calls.append((path, params))
+            return {"symbols": [
+                {"symbol": "BTC_USDT", "quoteAsset": "USDT", "status": "TRADING",
+                 "contractType": "PERPETUAL"},
+                {"symbol": "ETH_USDT", "quoteAsset": "USDT", "status": "TRADING",
+                 "contractType": "PERPETUAL"},
+                {"symbol": "OLD_USDT", "quoteAsset": "USDT", "status": "BREAK"},
+                {"symbol": "BTC_BTC", "quoteAsset": "BTC", "status": "TRADING"},
+            ]}
+        self.assertEqual(load_active_market_symbols(fake_fetch),
+                         ["BTC_USDT", "ETH_USDT"])
+        self.assertEqual(calls, [("/exchangeInfo", None)])
+
+    def test_symbol_universe_fails_closed_when_exchange_returns_no_active_symbols(self):
+        with self.assertRaises(RuntimeError):
+            load_active_market_symbols(lambda *_: {"symbols": []})
+
     def test_extracts_exchange_symbols_from_supported_envelopes(self):
         payload = {"data": {"symbols": [
             {"symbol": "BTC_USDT", "quoteAsset": "USDT", "status": "TRADING",
