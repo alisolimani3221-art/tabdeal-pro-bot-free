@@ -53,6 +53,7 @@ on:
       - 'market_format.py'
       - 'trade_stream_probe.py'
       - 'trade_broadcast_multisymbol_probe.py'
+      - 'orderbook_multisymbol_ws_probe.py'
       - 'market_candles.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
@@ -297,6 +298,39 @@ jobs:
         with:
           name: live-market-scan-report
           path: live-market-scan-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Read-only multi-market order-book WebSocket probe
+        timeout-minutes: 3
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from orderbook_multisymbol_ws_probe import probe_multi_market_order_book
+
+          report = probe_multi_market_order_book(
+              symbols=("BTC_USDT", "ETH_USDT"),
+              timeout_seconds=90,
+          )
+          Path("orderbook-multisymbol-ws-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          if not report["connected"]:
+              raise SystemExit("Public Futures stream WebSocket connection failed")
+          if report["status"] == "both_symbol_books_observed":
+              print("MULTI_SYMBOL_ORDERBOOK: verified for this observation window")
+          else:
+              print("::warning::Multi-symbol order-book stream result: " + report["status"])
+
+      - name: Upload multi-market order-book WebSocket report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orderbook-multisymbol-ws-report
+          path: orderbook-multisymbol-ws-report.json
           if-no-files-found: warn
           retention-days: 7
 
