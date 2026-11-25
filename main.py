@@ -2247,7 +2247,7 @@ class FuturesAnalyzerApp(App):
         self.auto_health_lock = threading.RLock()
         self.auto_health = {
             "worker_phase": "starting", "websocket_connected": False,
-            "connected_at": None, "retry_attempt": 0,
+            "connected_at": None, "retry_attempt": 0, "reconnect_count": 0,
             "received_messages": 0, "valid_market_trades": 0,
             "control_messages": 0,
             "selected_symbol_trade_count": 0,
@@ -2488,6 +2488,7 @@ class FuturesAnalyzerApp(App):
         control_messages = 0
         connected_once = False
         retry_attempt = 0
+        total_reconnects = 0
         while not self.auto_stop_event.is_set():
             retry_attempt += 1
             self._update_engine_health(worker_phase="connecting",
@@ -2508,15 +2509,17 @@ class FuturesAnalyzerApp(App):
             socket_diagnostics = {"opened": False, "error": None}
 
             def on_open(ws):
-                nonlocal connected_once, last_processed_bucket
+                nonlocal connected_once, last_processed_bucket, total_reconnects
                 socket_diagnostics["opened"] = True
                 stream_watchdog.connected()
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
                     websocket_connected=True, connected_at=time.monotonic(),
                     last_stream_error="",
+                    reconnect_count=total_reconnects,
                 )
                 if connected_once:
+                    total_reconnects += 1
                     builder.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
@@ -2701,14 +2704,18 @@ class FuturesAnalyzerApp(App):
                         status_text = (
                             "جریان معاملات فعال است. کندل بسته معتبر: {}/23 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {} | "
-                            "علت ردها: {}. از ۵ کندل پایش اولیه فعال می‌شود؛ "
-                            "تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
+                            "علت ردها: {} | اتصال‌مجدد: {} | حذف کندل ناقص: {} | "
+                            "پاک‌سازی تاریخچه: {} | آخرین علت بازنشانی: {}. "
+                            "از ۵ کندل پایش اولیه فعال می‌شود؛ تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
                                  stream_status["gaps"],
                                  ",".join("{}={}".format(k, v) for k, v in
                                           sorted(stream_status["rejection_reasons"].items()))
-                                 or "ندارد")
+                                 or "ندارد", stream_status["reconnect_count"],
+                                 stream_status["partial_buckets_discarded"],
+                                 stream_status["history_clear_count"],
+                                 stream_status["last_reset_reason"])
                         preliminary = builder.preliminary_trend()
                         if preliminary is not None:
                             trend_names = {"UP": "صعودی", "DOWN": "نزولی", "FLAT": "خنثی"}
