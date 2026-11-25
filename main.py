@@ -2808,7 +2808,7 @@ class FuturesAnalyzerApp(App):
                         # candle/indicator invariant instead of only "ValueError".
                         # Never include the raw market payload or credentials.
                         error_type = type(snapshot_exc).__name__
-                        error_detail = str(snapshot_exc).replace("\\n", " ").replace("\\r", " ").strip()[:160]
+                        error_detail = str(snapshot_exc).replace("\n", " ").replace("\\r", " ").strip()[:160]
                         diagnostic = error_type
                         if error_detail:
                             diagnostic += ": " + error_detail
@@ -3130,10 +3130,10 @@ class FuturesAnalyzerApp(App):
             factor = ("بدون زیان" if summary["profit_factor"] is None
                       else number(summary["profit_factor"]))
             add_row(
-                "خلاصه ۱۰ معامله آخر (رکوردهای معتبر)\\n"
-                "برد: {} | باخت: {} | سربه‌سر: {} | نرخ برد: {}٪\\n"
-                "خالص: {} USDT | میانگین معامله: {} USDT\\n"
-                "میانگین برد: {} | میانگین باخت: {} | ضریب سود: {}\\n"
+                "خلاصه ۱۰ معامله آخر (رکوردهای معتبر)\n"
+                "برد: {} | باخت: {} | سربه‌سر: {} | نرخ برد: {}٪\n"
+                "خالص: {} USDT | میانگین معامله: {} USDT\n"
+                "میانگین برد: {} | میانگین باخت: {} | ضریب سود: {}\n"
                 "کارمزد ورود و خروج: {} USDT".format(
                     summary["wins"], summary["losses"], summary["breakeven"],
                     number(summary["win_rate_percent"]), number(summary["net_pnl"]),
@@ -3148,6 +3148,16 @@ class FuturesAnalyzerApp(App):
             ) or "ثبت نشده"
             add_row("علت خروج در ۱۰ معامله آخر: " + reason_text, dp(58),
                     (0.72, 0.80, 0.90, 1))
+            side_stats = summary["sides"]
+            add_row(
+                "خرید: {} معامله | برد: {} | خالص: {} USDT\n"
+                "فروش: {} معامله | برد: {} | خالص: {} USDT".format(
+                    side_stats["BULLISH"]["count"], side_stats["BULLISH"]["wins"],
+                    number(side_stats["BULLISH"]["net_pnl"]),
+                    side_stats["BEARISH"]["count"], side_stats["BEARISH"]["wins"],
+                    number(side_stats["BEARISH"]["net_pnl"])
+                ), dp(78), (0.72, 0.80, 0.90, 1)
+            )
             if not trades:
                 add_row("هنوز معامله بسته‌شده‌ای ثبت نشده است.", dp(60))
             for index, trade in enumerate(reversed(trades[-100:]), 1):
@@ -3179,7 +3189,7 @@ class FuturesAnalyzerApp(App):
                     number(trade.get("gross_pnl")), number(trade.get("fees_entry")),
                     number(trade.get("fees_exit")), pnl, trade.get("reason", "—")
                 )
-                add_row(details, dp(112), pnl_color)
+                add_row(details, dp(136), pnl_color)
             position = state.get("position")
             if isinstance(position, dict):
                 side = "خرید" if position.get("side") == "BULLISH" else "فروش"
