@@ -1952,6 +1952,7 @@ class FuturesAnalyzerApp(App):
                     if self.auto_stop_event.is_set():
                         return
                     ws.send(market_symbol)
+                    time.sleep(0.01)
                 Clock.schedule_once(
                     lambda dt, count=len(symbols): self.update_auto_status(
                         "اتصال برقرار شد؛ اشتراک زنده برای {} نماد فعال USDT ارسال شد. "
@@ -2045,7 +2046,7 @@ class FuturesAnalyzerApp(App):
                         progress = (
                             "در حال آماده‌سازی موتور | {} | کندل بسته معتبر: {}/۲۰ | "
                             "معامله آزمایشی پس از تکمیل داده کافی فعال می‌شود."
-                        ).format(symbol, min(closed_count, 20))
+                        ).format(market_symbol, min(closed_count, 20))
                         Clock.schedule_once(
                             lambda dt, value=progress: self.update_auto_status(value), 0
                         )
