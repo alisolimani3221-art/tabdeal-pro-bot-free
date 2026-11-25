@@ -2288,35 +2288,22 @@ class FuturesAnalyzerApp(App):
                 candle_count=int(builder.status().get("closed_candles", 0)),
                 builder_ready=bool(builder.is_ready),
             )
-            # If the local cache is absent or short, warm from the public,
-            # read-only Tabdeal kline endpoint before starting the trade stream.
-            # Failure is non-fatal: the engine remains locked until 23 verified
-            # closed candles are available from cache/history/live collection.
-            if len(builder.closed) < 23:
-                history_session = requests.Session()
-                try:
-                    mount_tabdeal_tls_compat(history_session, certifi.where())
-                    history_session.headers.update({
-                        "User-Agent": "FuturesAnalyzer/1.54 (read-only market history)",
-                        "Accept": "application/json",
-                        "Connection": "close",
-                    })
-                    history_rows = fetch_tabdeal_closed_candles(
-                        history_session, FUTURES_API, symbol,
-                        int(time.time() * 1000), certifi.where(),
-                        interval_ms=builder.interval_ms, limit=100,
-                    )
-                    restored_candle_count = builder.restore_closed_candles(history_rows)
-                    save_candle_cache(candle_cache_path, symbol, history_rows)
-                    candle_cache_note = (
-                        "تاریخچه معتبر از API عمومی تبدیل دریافت و ذخیره شد: {} کندل."
-                    ).format(restored_candle_count)
-                except Exception as history_exc:
-                    candle_cache_note = (
-                        "دریافت تاریخچه عمومی موفق نشد؛ ورود تا تکمیل ۲۳ کندل معتبر قفل می‌ماند: {}."
-                    ).format(type(history_exc).__name__)
-                finally:
-                    history_session.close()
+            # Tabdeal's currently documented public Futures REST API does not
+            # expose a historical kline endpoint. Do not probe Binance-compatible
+            # paths or treat an undocumented endpoint as supported. Warm-up must
+            # use a verified local cache (after live continuity validation) or
+            # genuinely observed live trades; paper entries remain gated.
+            history_provider_status = "NOT_DOCUMENTED_DISABLED"
+            history_provider_error = (
+                "Tabdeal public Futures REST documentation does not list historical klines"
+            )
+            self._update_engine_health(
+                candle_history_provider_status=history_provider_status,
+                candle_history_provider_error=history_provider_error,
+                candle_cache_status=candle_cache_note,
+                candle_cache_file_exists=os.path.isfile(candle_cache_path),
+                candle_cache_restored_count=int(restored_candle_count),
+            )
             self.auto_candle_cache_path = candle_cache_path
             self.auto_candle_cache_last_open_time = (
                 builder.closed[-1][0] if restored_candle_count else None
