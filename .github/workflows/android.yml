@@ -31,6 +31,7 @@ on:
       - work/v1.53-integrated
       - fix/v1.53-five-candle-warmup-orderbook-refresh
       - fix/v1.53-cache-gap-and-diagnostics-20261124
+      - fix/shared-candle-cache-warmup-v153-cache-gap
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
