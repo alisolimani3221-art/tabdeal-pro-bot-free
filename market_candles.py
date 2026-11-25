@@ -28,6 +28,7 @@ class TradeCandleBuilder:
         self.last_timestamp_ms = None
         self.last_sequence = None
         self.rejected = 0
+        self.rejection_reasons = {}
         self.gaps = 0
         # The first bucket after subscription/reconnect may be only partially observed.
         self.discard_next_close = True
@@ -48,14 +49,17 @@ class TradeCandleBuilder:
             raise ValueError("{} must be positive and finite".format(name))
         return number
 
+    def _reject(self, reason):
+        self.rejected += 1
+        self.rejection_reasons[reason] = self.rejection_reasons.get(reason, 0) + 1
+        return {"accepted": False, "reason": reason}
+
     def add_trade(self, trade):
         """Add one normalized trade; return a compact acceptance diagnostic."""
         if not isinstance(trade, dict) or trade.get("ok") is False:
-            self.rejected += 1
-            return {"accepted": False, "reason": "invalid_trade"}
+            return self._reject("invalid_trade")
         if str(trade.get("symbol", "")).upper() != self.symbol:
-            self.rejected += 1
-            return {"accepted": False, "reason": "symbol_mismatch"}
+            return self._reject("symbol_mismatch")
         try:
             price = self._positive(trade.get("price"), "price")
             quantity = self._positive(trade.get("quantity"), "quantity")
@@ -69,16 +73,13 @@ class TradeCandleBuilder:
                     not isinstance(sequence, int) or sequence < 0):
                 raise ValueError("sequence must be a nonnegative integer")
         except (ValueError, TypeError, OverflowError):
-            self.rejected += 1
-            return {"accepted": False, "reason": "invalid_fields"}
+            return self._reject("invalid_fields")
 
         if self.last_timestamp_ms is not None and timestamp < self.last_timestamp_ms:
-            self.rejected += 1
-            return {"accepted": False, "reason": "out_of_order"}
+            return self._reject("out_of_order")
         if (sequence is not None and self.last_sequence is not None
                 and sequence <= self.last_sequence):
-            self.rejected += 1
-            return {"accepted": False, "reason": "duplicate_or_old_sequence"}
+            return self._reject("duplicate_or_old_sequence")
 
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
@@ -91,8 +92,7 @@ class TradeCandleBuilder:
                 # Without a sequence ID, an equal-timestamp replay cannot be
                 # distinguished from a new trade in the same millisecond.
                 # Reject it conservatively so reconnect replay cannot double-count.
-                self.rejected += 1
-                return {"accepted": False, "reason": "out_of_order"}
+                return self._reject("out_of_order")
             # A reconnect that resumes in the same minute or the immediately
             # following minute is not a missing-candle gap. The interrupted
             # forming candle is discarded, but older fully closed candles remain
@@ -112,12 +112,10 @@ class TradeCandleBuilder:
         if self.current is None:
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
-            self.rejected += 1
-            return {"accepted": False, "reason": "out_of_order"}
+            return self._reject("out_of_order")
         elif bucket == self.current["open_time"]:
             if timestamp < self.current["last_timestamp"]:
-                self.rejected += 1
-                return {"accepted": False, "reason": "out_of_order"}
+                return self._reject("out_of_order")
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
@@ -258,4 +256,5 @@ class TradeCandleBuilder:
                 "ready": self.is_ready, "gaps": self.gaps,
                 "reconnect_check_pending": self._resume_bucket is not None,
                 "reconnect_warmup_pending": self._reconnect_warmup_pending,
-                "rejected_trades": self.rejected}
+                "rejected_trades": self.rejected,
+                "rejection_reasons": dict(self.rejection_reasons)}
