@@ -2,7 +2,7 @@
 
 import time
 
-APP_VERSION = "1.54"
+APP_VERSION = "1.55"
 
 APP_DIAGNOSTIC_KEYS = (
     "website", "market_ping", "market_info", "depth_status", "depth_http",
