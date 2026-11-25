@@ -122,6 +122,19 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         self.assertEqual(result["candidate_count"], 0)
         self.assertEqual(engine.scans, [[]])
 
+    def test_process_scan_receives_all_fresh_symbol_candidates(self):
+        coordinator = self.make_coordinator()
+        for symbol in coordinator.symbols:
+            coordinator.states[symbol]["builder"].is_ready = True
+            coordinator.on_trade(self.trade(symbol), received_at=10)
+        engine = FakeEngine()
+        result = coordinator.process_scan(engine, now=20)
+        self.assertEqual(result["candidate_count"], 2)
+        self.assertEqual(
+            {item["symbol"] for item in engine.scans[-1]},
+            {"BTC_USDT", "ETH_USDT"},
+        )
+
     def test_fresh_snapshots_keep_symbol_identity(self):
         coordinator = self.make_coordinator()
         for symbol in coordinator.symbols:
@@ -136,6 +149,14 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         coordinator.reconcile_tick(engine, self.trade("ETH_USDT"), gap_detected=False)
         self.assertEqual(engine.ticks, [])
         self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
+
+    def test_tick_for_secondary_position_is_reconciled_by_shared_engine(self):
+        coordinator = self.make_coordinator()
+        engine = FakeEngine()
+        engine.position = {"symbol": "ETH_USDT"}
+        coordinator.reconcile_tick(engine, self.trade("ETH_USDT", 20), gap_detected=False)
+        self.assertEqual(engine.ticks, [("ETH_USDT", 20)])
+        self.assertEqual(engine.position, {"symbol": "ETH_USDT"})
 
     def test_lowercase_tick_symbol_is_normalized(self):
         coordinator = self.make_coordinator()
