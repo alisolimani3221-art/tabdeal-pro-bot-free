@@ -79,13 +79,24 @@ class MultiSymbolPaperCoordinator:
             # the candle stream, contaminating later technical snapshots.
             try:
                 price = float(trade["price"])
+                quantity = float(trade["quantity"])
+                timestamp = trade["timestamp_ms"]
+                sequence = trade.get("sequence")
             except (KeyError, TypeError, ValueError, OverflowError):
                 state["rejected_trades"] += 1
-                return {"accepted": False, "symbol": symbol, "reason": "invalid_price"}
-            if not math.isfinite(price) or price <= 0:
+                return {"accepted": False, "symbol": symbol, "reason": "invalid_trade_fields"}
+            if (not math.isfinite(price) or price <= 0
+                    or not math.isfinite(quantity) or quantity <= 0
+                    or isinstance(timestamp, bool) or not isinstance(timestamp, int)
+                    or timestamp <= 0 or timestamp > 10_000_000_000_000
+                    or (sequence is not None and (
+                        isinstance(sequence, bool) or not isinstance(sequence, int)
+                        or sequence < 0))):
                 state["rejected_trades"] += 1
-                return {"accepted": False, "symbol": symbol, "reason": "invalid_price"}
-            update = state["builder"].add_trade(trade)
+                return {"accepted": False, "symbol": symbol, "reason": "invalid_trade_fields"}
+            normalized_trade = dict(trade)
+            normalized_trade["symbol"] = symbol
+            update = state["builder"].add_trade(normalized_trade)
             if not update.get("accepted"):
                 state["rejected_trades"] += 1
                 return {"accepted": False, "symbol": symbol,
@@ -100,8 +111,8 @@ class MultiSymbolPaperCoordinator:
             state["pending_tick"] = {
                 "symbol": symbol,
                 "price": price,
-                "quantity": float(trade["quantity"]),
-                "timestamp_ms": int(trade["timestamp_ms"]),
+                "quantity": quantity,
+                "timestamp_ms": timestamp,
                 "sequence": trade.get("sequence"),
             }
             if update.get("gap_detected"):
