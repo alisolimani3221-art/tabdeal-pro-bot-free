@@ -111,6 +111,23 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(len(builder.closed), 1)
         self.assertFalse(builder.is_ready)
 
+    def test_reconnect_reset_counters_explain_warmup_restarts(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))
+        builder.add_trade(self.trade(101))
+        self.assertEqual(builder.status()["partial_buckets_discarded"], 1)
+
+        builder.add_trade(self.trade(102))
+        builder.reset_after_reconnect()
+        self.assertEqual(builder.status()["reconnect_count"], 1)
+
+        builder.add_trade(self.trade(102, second=20))
+        builder.add_trade(self.trade(103))
+        status = builder.status()
+        self.assertEqual(status["partial_buckets_discarded"], 2)
+        self.assertEqual(status["history_clear_count"], 1)
+        self.assertEqual(status["last_reset_reason"], "history_cleared_after_partial_bucket")
+
     def test_reconnect_rejects_replayed_older_tick_before_resuming_same_minute(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 125):
