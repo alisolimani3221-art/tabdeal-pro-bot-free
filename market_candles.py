@@ -140,8 +140,8 @@ class TradeCandleBuilder:
 
     def restore_closed_candles(self, rows):
         """Seed indicators from a verified contiguous cache, pending live continuity."""
-        if not isinstance(rows, (list, tuple)) or len(rows) < 20:
-            raise ValueError("at least 20 closed candles are required")
+        if not isinstance(rows, (list, tuple)) or len(rows) < 5:
+            raise ValueError("at least 5 closed candles are required")
         previous = None
         normalized = []
         for row in rows:
