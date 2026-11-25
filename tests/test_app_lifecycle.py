@@ -346,6 +346,16 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         self.assertIn("recovered_gap = recovered_open_symbol == event_symbol", source)
         self.assertIn("coordinator.reconcile_tick(", source)
         self.assertIn("recovered_open_symbol = None", source)
+    def test_open_position_market_silence_is_checked_independently_of_socket_liveness(self):
+        source = MAIN_SOURCE.read_text(encoding="utf-8")
+        self.assertIn('market_connection_state = {"opened_at": None}', source)
+        self.assertIn('position_market = market_status.get(position_symbol, {})', source)
+        self.assertIn("position_age > 30.0", source)
+        self.assertIn("engine.halt_for_data_gap(", source)
+        self.assertIn('current_position.get("stop")', source)
+        self.assertIn("position market stale; protective gap close failed", source)
+        self.assertIn("شبیه‌ساز متوقف شد", source)
+
 
     def test_websocket_close_callback_records_close_reason_for_diagnostics(self):
         source = MAIN_SOURCE.read_text(encoding="utf-8")
