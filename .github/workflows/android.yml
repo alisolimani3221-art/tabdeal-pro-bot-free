@@ -22,6 +22,7 @@ on:
       - audit/v1.28-readonly-account-hardening
       - fix/v1.45-ai-integrated
       - feature/v1.54-live-price-chart-20261125
+      - fix/v1.56-websocket-control-message-classification
   push:
     branches:
       - release/v1.49
