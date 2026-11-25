@@ -2082,13 +2082,23 @@ class FuturesAnalyzerApp(App):
             if os.path.isfile(paper_state_path):
                 with open(paper_state_path, "r", encoding="utf-8") as state_file:
                     paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if paper_engine.position is not None or (
-                    paper_engine.halted and paper_engine.halt_reason != "EMERGENCY_STOP"
-                ):
+                if paper_engine.position is not None:
                     self.update_auto_status(
-                        "بازآماده‌سازی رد شد؛ موقعیت باز یا توقف سقف زیان/ایمنی غیرقابل‌بازیابی وجود دارد."
+                        "بازآماده‌سازی رد شد؛ ابتدا باید موقعیت آزمایشی باز بسته شود."
                     )
                     return
+                if paper_engine.halted:
+                    if paper_engine.halt_reason == "DAILY_MAX_LOSS":
+                        if not paper_engine.daily_reset_available():
+                            self.update_auto_status(
+                                "قفل زیان روزانه هنوز فعال است؛ بازآماده‌سازی فقط پس از شروع روز UTC بعدی ممکن است."
+                            )
+                            return
+                    elif paper_engine.halt_reason != "EMERGENCY_STOP":
+                        self.update_auto_status(
+                            "بازآماده‌سازی رد شد؛ توقف سقف زیان تجمعی یا قفل ایمنی قابل‌بازیابی نیست."
+                        )
+                        return
             paper_halted = paper_engine is not None and paper_engine.halted
             if not coordinator_halted and not paper_halted:
                 self.update_auto_status("هیچ توقف قابل‌بازیابی فعالی وجود ندارد.")
@@ -2104,12 +2114,20 @@ class FuturesAnalyzerApp(App):
             return
 
         body = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
-        explanation = (
-            "این کار فقط توقف قابل‌بازیابیِ موتور آزمایشی را پس از بررسی دوباره وضعیت ایمنی بازآماده می‌کند.\n"
-            "توقف سقف زیان، موقعیت باز، درخواست معلق یا توقف مبهم قابل بازنشانی نیست.\n"
-            "سرمایه مجازی و تاریخچه حفظ می‌شوند؛ هیچ سفارش واقعی ارسال یا فعال نمی‌شود.\n"
-            "پس از تأیید، شبیه‌ساز آزمایشی به‌صورت خودکار راه‌اندازی می‌شود."
-        )
+        if paper_engine is not None and paper_engine.halt_reason == "DAILY_MAX_LOSS":
+            explanation = (
+                "روز UTC جدید شروع شده و قفل زیان روزانه اکنون قابل بازبینی است.\n"
+                "بازآماده‌سازی فقط پس از کنترل دوباره سقف زیان تجمعی و نبود موقعیت باز انجام می‌شود.\n"
+                "اگر سقف زیان تجمعی هم فعال باشد، قفل حفظ خواهد شد.\n"
+                "سرمایه مجازی و تاریخچه حفظ می‌شوند؛ هیچ سفارش واقعی ارسال نمی‌شود."
+            )
+        else:
+            explanation = (
+                "این کار فقط توقف اضطراریِ قابل‌بازیابی موتور آزمایشی را پس از بررسی دوباره ایمنی بازآماده می‌کند.\n"
+                "توقف سقف زیان تجمعی، موقعیت باز، درخواست معلق یا توقف مبهم قابل بازنشانی نیست.\n"
+                "سرمایه مجازی و تاریخچه حفظ می‌شوند؛ هیچ سفارش واقعی ارسال یا فعال نمی‌شود.\n"
+                "پس از تأیید، شبیه‌ساز آزمایشی به‌صورت خودکار راه‌اندازی می‌شود."
+            )
         label = Label(
             text=assistant_rtl_text(explanation), font_name=FONT_NAME,
             base_direction="ltr", text_language="ar", halign="center",
@@ -2161,11 +2179,14 @@ class FuturesAnalyzerApp(App):
                     with open(paper_state_path, "r", encoding="utf-8") as state_file:
                         paper_engine = PaperTradingEngine.restore_state(json.load(state_file))
                 if paper_engine is not None and paper_engine.halted:
-                    if paper_engine.halt_reason != "EMERGENCY_STOP":
-                        raise RuntimeError("paper engine halt is not operator-rearmable")
                     if paper_engine.position is not None:
                         raise RuntimeError("open paper position must be closed before re-arming")
-                    paper_engine.rearm_after_operator_stop()
+                    if paper_engine.halt_reason == "EMERGENCY_STOP":
+                        paper_engine.rearm_after_operator_stop()
+                    elif paper_engine.halt_reason == "DAILY_MAX_LOSS":
+                        paper_engine.rearm_after_daily_reset()
+                    else:
+                        raise RuntimeError("paper engine halt is not operator-rearmable")
                     self._persist_paper_engine_state(paper_engine)
                     self.auto_engine = paper_engine
                     paper_rearmed = True
