@@ -35,7 +35,8 @@ class FakeEngine:
         self.scans = []
 
     def process_tick(self, symbol, price):
-        self.ticks.append((symbol, price))
+        if self.position is not None and self.position["symbol"] == symbol:
+            self.ticks.append((symbol, price))
         return None
 
     def halt_for_data_gap(self, symbol, price):
@@ -110,6 +111,25 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
             coordinator.on_trade(self.trade(symbol), received_at=10)
         candidates = coordinator.candidate_snapshots(now=20)
         self.assertEqual({x["symbol"] for x in candidates}, {"BTC_USDT", "ETH_USDT"})
+
+    def test_normal_tick_for_other_market_does_not_mark_open_position(self):
+        coordinator = self.make_coordinator()
+        engine = FakeEngine()
+        coordinator.reconcile_tick(engine, self.trade("ETH_USDT"), gap_detected=False)
+        self.assertEqual(engine.ticks, [])
+        self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
+
+    def test_lowercase_tick_symbol_is_normalized(self):
+        coordinator = self.make_coordinator()
+        engine = FakeEngine()
+        coordinator.reconcile_tick(engine, self.trade("btc_usdt"), gap_detected=False)
+        self.assertEqual(engine.ticks, [("BTC_USDT", 10)])
+
+    def test_status_does_not_mark_future_timestamp_as_fresh(self):
+        coordinator = self.make_coordinator()
+        coordinator.states["BTC_USDT"]["builder"].is_ready = True
+        coordinator.on_trade(self.trade("BTC_USDT"), received_at=20)
+        self.assertFalse(coordinator.status(now=10)["BTC_USDT"]["snapshot_fresh"])
 
     def test_gap_for_other_market_does_not_halt_open_position(self):
         coordinator = self.make_coordinator()
