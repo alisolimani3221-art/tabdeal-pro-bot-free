@@ -225,5 +225,29 @@ class AIDiagnosticContextTests(unittest.TestCase):
             "WORKER_STOPPED",
         )
 
+    def test_ready_builder_report_explains_waiting_for_first_scan(self):
+        import time
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "worker_phase": "analysis_ready_waiting_for_scan",
+                "websocket_connected": True,
+                "last_selected_symbol_trade_at": time.monotonic(),
+                "candle_count": 23,
+                "analysis_required_candles": 23,
+                "candle_interval_seconds": 60,
+                "builder_ready": True,
+                "last_scan_at": None,
+            },
+        )
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn(
+            "کندل‌ساز آماده است؛ در انتظار نخستین تصویر تحلیلی و اسکن",
+            rendered,
+        )
+
 if __name__ == "__main__":
     unittest.main()
