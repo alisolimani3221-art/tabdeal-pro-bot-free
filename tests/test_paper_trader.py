@@ -441,7 +441,7 @@ class PaperTraderTests(unittest.TestCase):
 
     def test_daily_loss_cap_is_one_percent_and_closes_open_position_on_tick(self):
         engine = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
-        engine.process_scan([setup()])
+        engine.process_scan([setup()], now="2026-11-24")
         self.assertIsNotNone(engine.position)
         # A profitable prior-day close can make today's starting equity exceed
         # current equity; a modest live drawdown must then trip today's 1% cap.
@@ -459,7 +459,7 @@ class PaperTraderTests(unittest.TestCase):
 
     def test_daily_loss_cap_is_checked_during_scan_marking(self):
         engine = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
-        engine.process_scan([setup()])
+        engine.process_scan([setup()], now="2026-11-24")
         engine.daily_start_equity = 20.0
         result = engine.process_scan(
             [dict(setup(price=99.5), signal="NEUTRAL")],
