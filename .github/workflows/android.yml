@@ -183,7 +183,7 @@ jobs:
           app_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', app, re.M)
           diagnostics_version = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', diagnostics, re.M)
           package_version = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
-          workflow_version = re.search(r'^name:.*\(v([^\)]+)\)\s*
+          workflow_version = re.search(r'^name:.*\(v([^)]+)\)\s*$', workflow, re.M)
           if not app_version or not package_version or app_version.group(1) != package_version.group(1):
               raise SystemExit("APP_VERSION in main.py must match version in buildozer.spec")
           if not diagnostics_version or diagnostics_version.group(1) != app_version.group(1):
