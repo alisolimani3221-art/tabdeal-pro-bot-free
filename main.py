@@ -2223,6 +2223,7 @@ class FuturesAnalyzerApp(App):
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
             "candle_count": 0, "builder_ready": False,
+            "analysis_required_candles": 23, "candle_interval_seconds": 60,
             "last_scan_at": None, "last_stream_error": "",
         }
         guard = getattr(self, "runtime_guard", None)
@@ -2280,6 +2281,12 @@ class FuturesAnalyzerApp(App):
                     candle_cache_note = (
                         "کش کندل استفاده نشد و برای بررسی حفظ شد: {}."
                     ).format(type(cache_exc).__name__)
+            self._update_engine_health(
+                analysis_required_candles=int(builder.status().get("analysis_required_candles", 23)),
+                candle_interval_seconds=max(1, int(builder.interval_ms // 1000)),
+                candle_count=int(builder.status().get("closed_candles", 0)),
+                builder_ready=bool(builder.is_ready),
+            )
             self.auto_candle_cache_path = candle_cache_path
             self.auto_candle_cache_last_open_time = (
                 builder.closed[-1][0] if restored_candle_count else None
@@ -2566,7 +2573,7 @@ class FuturesAnalyzerApp(App):
                     lambda _dt, value=live_price: self.update_live_price_chart(value), 0
                 )
                 update = builder.add_trade(parsed)
-                //                # A restored cache is usable only if the first fresh live trade
+                # A restored cache is usable only if the first fresh live trade
                 # proves there was no missing one-minute bucket. On a gap the
                 # builder clears the cache before any technical signal is made.
                 if update.get("gap_detected"):
