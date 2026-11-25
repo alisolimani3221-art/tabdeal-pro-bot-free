@@ -79,14 +79,20 @@ class MultiSymbolPaperCoordinator:
             # the candle stream, contaminating later technical snapshots.
             try:
                 price = float(trade["price"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                state["rejected_trades"] += 1
+                return {"accepted": False, "symbol": symbol, "reason": "invalid_price"}
+            if not math.isfinite(price) or price <= 0:
+                state["rejected_trades"] += 1
+                return {"accepted": False, "symbol": symbol, "reason": "invalid_price"}
+            try:
                 quantity = float(trade["quantity"])
                 timestamp = trade["timestamp_ms"]
                 sequence = trade.get("sequence")
             except (KeyError, TypeError, ValueError, OverflowError):
                 state["rejected_trades"] += 1
                 return {"accepted": False, "symbol": symbol, "reason": "invalid_trade_fields"}
-            if (not math.isfinite(price) or price <= 0
-                    or not math.isfinite(quantity) or quantity <= 0
+            if (not math.isfinite(quantity) or quantity <= 0
                     or isinstance(timestamp, bool) or not isinstance(timestamp, int)
                     or timestamp <= 0 or timestamp > 10_000_000_000_000
                     or (sequence is not None and (
