@@ -54,6 +54,69 @@ def _positive(value, name):
     return number
 
 
+
+def summarize_closed_trades(trades, limit=10):
+    """Return read-only performance statistics for the most recent valid trades."""
+    if not isinstance(trades, (list, tuple)):
+        raise ValueError("trade history must be a list")
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError("trade summary limit must be between 1 and 100")
+    selected = list(trades[-limit:])
+    values = []
+    for trade in selected:
+        if not isinstance(trade, dict):
+            continue
+        pnl = trade.get("net_pnl")
+        if isinstance(pnl, bool):
+            continue
+        try:
+            pnl = float(pnl)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(pnl):
+            values.append((trade, pnl))
+    wins = [pnl for _, pnl in values if pnl > 0]
+    losses = [pnl for _, pnl in values if pnl < 0]
+    flats = [pnl for _, pnl in values if pnl == 0]
+    gross_profit = sum(wins)
+    gross_loss = abs(sum(losses))
+    total_net = sum(pnl for _, pnl in values)
+    fees = 0.0
+    reasons = {}
+    sides = {"BULLISH": {"count": 0, "wins": 0, "net_pnl": 0.0},
+             "BEARISH": {"count": 0, "wins": 0, "net_pnl": 0.0}}
+    for trade, pnl in values:
+        for key in ("fees_entry", "fees_exit"):
+            value = trade.get(key, 0.0)
+            if isinstance(value, bool):
+                continue
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isfinite(parsed) and parsed >= 0:
+                fees += parsed
+        reason = str(trade.get("reason", "UNKNOWN"))[:40]
+        reasons[reason] = reasons.get(reason, 0) + 1
+        side = trade.get("side")
+        if side in sides:
+            sides[side]["count"] += 1
+            sides[side]["wins"] += int(pnl > 0)
+            sides[side]["net_pnl"] += pnl
+    return {
+        "requested": min(limit, len(trades)), "valid": len(values),
+        "wins": len(wins), "losses": len(losses), "breakeven": len(flats),
+        "win_rate_percent": 100.0 * len(wins) / len(values) if values else 0.0,
+        "net_pnl": total_net,
+        "average_net_pnl": total_net / len(values) if values else 0.0,
+        "average_win": sum(wins) / len(wins) if wins else 0.0,
+        "average_loss": sum(losses) / len(losses) if losses else 0.0,
+        "gross_profit": gross_profit, "gross_loss": gross_loss,
+        "profit_factor": gross_profit / gross_loss if gross_loss else None,
+        "fees_total": fees, "reasons": reasons, "sides": sides,
+    }
+
+
 def prepare_live_market_snapshot(technical, live_price):
     """Use the latest validated trade as the live mark/entry, not a stale close.
 
