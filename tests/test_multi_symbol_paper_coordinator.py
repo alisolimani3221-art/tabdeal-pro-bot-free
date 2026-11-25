@@ -118,6 +118,16 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         self.assertEqual(engine.gaps, [])
         self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
 
+    def test_gap_for_position_market_flattens_and_halts(self):
+        coordinator = self.make_coordinator()
+        engine = FakeEngine()
+        result = coordinator.reconcile_tick(
+            engine, self.trade("BTC_USDT"), gap_detected=True
+        )
+        self.assertTrue(result["halted"])
+        self.assertEqual(engine.gaps, [("BTC_USDT", 10)])
+        self.assertIsNone(engine.position)
+
     def test_reconnect_invalidates_every_symbol_snapshot(self):
         coordinator = self.make_coordinator()
         for symbol in coordinator.symbols:
