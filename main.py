@@ -64,6 +64,7 @@ from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
 from multi_symbol_stream import (select_broadcast_symbols, subscribe_broadcast_symbols)
+from multi_symbol_paper_coordinator import MultiSymbolPaperCoordinator
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -2264,6 +2265,7 @@ class FuturesAnalyzerApp(App):
             "analysis_required_candles": 23, "candle_interval_seconds": 60,
             "last_scan_at": None, "last_stream_error": "",
             "subscribed_symbols": [], "secondary_symbol_trade_counts": {},
+            "candidate_count": 0, "candidate_symbols": [], "per_symbol_health": {},
         }
         guard = getattr(self, "runtime_guard", None)
         coordinator_session = getattr(self, "coordinator_session", None)
@@ -2334,8 +2336,6 @@ class FuturesAnalyzerApp(App):
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
                     engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if engine.position is not None and engine.position["symbol"] != symbol:
-                    raise RuntimeError("یک موقعیت آزمایشی بازیابی‌شده برای {} باز است؛ ابتدا همان نماد را انتخاب کنید.".format(engine.position["symbol"]))
                 if engine.halted:
                     raise RuntimeError(
                         "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
@@ -2481,11 +2481,10 @@ class FuturesAnalyzerApp(App):
             )
             return
 
-        # A persisted open paper position may have crossed protective levels
-        # while this process was stopped. The first fresh selected-symbol tick
-        # after restart must therefore be reconciled as a data gap and flatten
-        # the simulated position conservatively.
-        recovered_open_position = engine.position is not None
+        # A persisted position may have crossed protective levels while the
+        # process was stopped. Only its own market can reconcile that gap.
+        recovered_open_symbol = (engine.position.get("symbol")
+                                 if isinstance(engine.position, dict) else None)
         # The exchange broadcast accepts one plain-text subscription per
         # symbol on the same socket. Resolve active contracts first; cap this
         # rollout at two because that is the largest verified simultaneous set.
@@ -2514,7 +2513,43 @@ class FuturesAnalyzerApp(App):
                     )
                 )
         subscription_symbols = select_broadcast_symbols(symbol, verified_symbols)
-        self._update_engine_health(subscribed_symbols=list(subscription_symbols))
+        if recovered_open_symbol is not None and recovered_open_symbol not in subscription_symbols:
+            self.auto_stop_event.set()
+            self._update_engine_health(
+                worker_phase="blocked_unsubscribed_open_position",
+                subscribed_symbols=list(subscription_symbols),
+                last_stream_error="recovered_position_symbol_not_subscribed:" + recovered_open_symbol,
+            )
+            Clock.schedule_once(
+                lambda dt, value=recovered_open_symbol: self.update_auto_status(
+                    "موقعیت آزمایشی بازیابی‌شده برای نماد {} باز است، اما این نماد در دو اشتراک فعال نیست؛ "
+                    "برای جلوگیری از رهاشدن موقعیت، شبیه‌ساز شروع نشد.".format(value)
+                ), 0
+            )
+            return
+        try:
+            coordinator = MultiSymbolPaperCoordinator(
+                subscription_symbols, analyze_klines, prepare_live_market_snapshot,
+                builder_factory=lambda market: builder if market == symbol else TradeCandleBuilder(market),
+                max_snapshot_age=30.0,
+            )
+        except Exception as coordinator_exc:
+            self.auto_stop_event.set()
+            self._update_engine_health(
+                worker_phase="blocked_multi_symbol_setup",
+                last_stream_error="{}: {}".format(type(coordinator_exc).__name__, str(coordinator_exc)[:140]),
+            )
+            Clock.schedule_once(
+                lambda dt, value=type(coordinator_exc).__name__: self.update_auto_status(
+                    "راه‌اندازی هماهنگ‌کنندهٔ نمادها ناموفق بود؛ موتور برای ایمنی شروع نشد: " + value
+                ), 0
+            )
+            return
+        self.auto_multi_symbol_coordinator = coordinator
+        self._update_engine_health(
+            subscribed_symbols=list(subscription_symbols),
+            per_symbol_health=coordinator.status(),
+        )
         last_processed_bucket = None
         scan_state_lock = threading.Lock()
         scan_state = {"technical": None, "received_at": 0.0}
@@ -2551,7 +2586,7 @@ class FuturesAnalyzerApp(App):
                 stream_watchdog.connected()
                 if connected_once:
                     total_reconnects += 1
-                    builder.reset_after_reconnect()
+                    coordinator.reset_after_reconnect()
                     last_processed_bucket = None
                 connected_once = True
                 self._update_engine_health(
@@ -2585,7 +2620,7 @@ class FuturesAnalyzerApp(App):
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, control_messages, retry_attempt
-                nonlocal recovered_open_position
+                nonlocal recovered_open_symbol
                 received_messages += 1
                 self._update_engine_health(received_messages=received_messages)
                 # This socket is a market-wide broadcast. Parse each event's
@@ -2647,23 +2682,79 @@ class FuturesAnalyzerApp(App):
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
-                # Broadcast subscriptions are market-specific. If an unexpected
-                # symbol arrives, ignore it rather than treating this socket as
-                # a market-wide feed or caching candles for unrelated markets.
+                # Accept only the exact symbols subscribed on this socket.
+                # Each market has its own candle builder and technical snapshot.
                 event_symbol = parsed.get("symbol")
+                if event_symbol not in subscription_symbols:
+                    return
                 if event_symbol != symbol:
-                    # Secondary feed events are counted but never enter the
-                    # selected-symbol candle or position engine.
-                    if event_symbol in subscription_symbols:
-                        counts = dict(
-                            getattr(self, "auto_health", {}).get(
-                                "secondary_symbol_trade_counts", {}
+                    counts = dict(
+                        getattr(self, "auto_health", {}).get(
+                            "secondary_symbol_trade_counts", {}
+                        )
+                    )
+                    counts[event_symbol] = int(counts.get(event_symbol, 0)) + 1
+                    self._update_engine_health(secondary_symbol_trade_counts=counts)
+                    secondary_update = coordinator.on_trade(
+                        parsed, received_at=time.monotonic()
+                    )
+                    if not secondary_update.get("accepted"):
+                        return
+                    recovered_gap = recovered_open_symbol == event_symbol
+                    if recovered_gap:
+                        recovered_open_symbol = None
+                    try:
+                        tick_event = coordinator.reconcile_tick(
+                            engine, parsed,
+                            gap_detected=(bool(secondary_update.get("gap_detected"))
+                                          or recovered_gap),
+                        )
+                        if tick_event:
+                            self._persist_paper_engine_state(engine)
+                            trade = tick_event.get("trade")
+                            if trade:
+                                message_text = (
+                                    "خروج حفاظتی موقعیت آزمایشی {}: علت={}؛ سود/زیان خالص={:.4f} USDT."
+                                ).format(event_symbol, trade.get("reason", "UNKNOWN"),
+                                         trade.get("net_pnl", 0.0))
+                            else:
+                                message_text = "موتور آزمایشی به دلیل رویداد حفاظتی متوقف شد."
+                            if tick_event.get("halted"):
+                                message_text += " موتور متوقف است: {}.".format(
+                                    tick_event.get("halt_reason", "SAFETY")
+                                )
+                                self.auto_stop_event.set()
+                            Clock.schedule_once(
+                                lambda dt, value=message_text: self.update_auto_status(value), 0
                             )
+                            if self.auto_stop_event.is_set():
+                                ws.close()
+                                return
+                    except Exception as secondary_exc:
+                        try:
+                            engine.emergency_close(
+                                "secondary tick reconciliation failure: {}".format(type(secondary_exc).__name__)
+                            )
+                            self._persist_paper_engine_state(engine)
+                        except Exception:
+                            pass
+                        self.auto_stop_event.set()
+                        try:
+                            ws.close()
+                        except Exception:
+                            pass
+                        Clock.schedule_once(
+                            lambda dt, value=type(secondary_exc).__name__: self.update_auto_status(
+                                "خطای مدیریت ریسک نماد دوم؛ موتور برای ایمنی متوقف شد: " + value
+                            ), 0
                         )
-                        counts[event_symbol] = int(counts.get(event_symbol, 0)) + 1
-                        self._update_engine_health(
-                            secondary_symbol_trade_counts=counts
-                        )
+                        return
+                    self._update_engine_health(
+                        per_symbol_health=coordinator.status(),
+                        candidate_symbols=[
+                            item["symbol"] for item in coordinator.candidate_snapshots()
+                        ],
+                    )
                     return
                 # Render every fresh selected-symbol trade independently of
                 # candle-builder acceptance/readiness. Duplicate sequence or
@@ -2679,7 +2770,7 @@ class FuturesAnalyzerApp(App):
                     selected_symbol_trade_count=selected_trade_count,
                     last_selected_symbol_trade_at=time.monotonic(),
                 )
-                update = builder.add_trade(parsed)
+                update = coordinator.on_trade(parsed, received_at=time.monotonic())
                 candle_health = builder.status()
                 rejection_counts = candle_health.get("rejection_reasons", {})
                 self._update_engine_health(
@@ -2815,15 +2906,15 @@ class FuturesAnalyzerApp(App):
                 # Every accepted, fresh trade may manage an open paper position,
                 # including the first tick that reveals a candle-history gap.
                 try:
-                    tick_event = reconcile_paper_market_tick(
-                        engine, symbol, parsed["price"],
-                        gap_detected=(bool(update.get("gap_detected"))
-                                      or recovered_open_position),
+                    recovered_gap = recovered_open_symbol == symbol
+                    tick_event = coordinator.reconcile_tick(
+                        engine, parsed,
+                        gap_detected=(bool(update.get("gap_detected")) or recovered_gap),
                     )
-                    if recovered_open_position:
-                        # The first fresh tick has now reconciled the persisted
-                        # position against the unknown offline interval.
-                        recovered_open_position = False
+                    if recovered_gap:
+                        # Only this position's first accepted fresh tick can
+                        # reconcile its unknown offline interval.
+                        recovered_open_symbol = None
                     if tick_event:
                         self._persist_paper_engine_state(engine)
                         last_processed_bucket = parsed["timestamp_ms"] - parsed["timestamp_ms"] % 60_000
@@ -2854,36 +2945,27 @@ class FuturesAnalyzerApp(App):
                 # stop here so no new entry can use discontinuous candle history.
                 if update.get("gap_detected"):
                     return
-                # Build a fresh immutable scan snapshot on the websocket thread.
-                # The independent scheduler below consumes fresh snapshots every 5 seconds.
-                current_bucket = (builder.current or {}).get("open_time")
-                if builder.is_ready and current_bucket is not None and builder.closed:
-                    try:
-                        technical = analyze_klines(builder.candles_for_analysis())
-                        technical["symbol"] = symbol
-                        technical = prepare_live_market_snapshot(technical, parsed["price"])
-                        technical["candle_open_time"] = int(builder.closed[-1][0])
-                        with scan_state_lock:
-                            scan_state["technical"] = dict(technical)
-                            scan_state["received_at"] = time.monotonic()
-                        Clock.schedule_once(
-                            lambda dt, value=dict(technical): self.update_technical_labels(value), 0
-                        )
-                    except Exception as snapshot_exc:
-                        # Surface a bounded, non-secret validation detail so
-                        # field diagnostics can identify the exact failing
-                        # candle/indicator invariant instead of only "ValueError".
-                        # Never include the raw market payload or credentials.
-                        error_type = type(snapshot_exc).__name__
-                        error_detail = str(snapshot_exc).replace("\n", " ").replace("\\r", " ").strip()[:160]
-                        diagnostic = error_type
-                        if error_detail:
-                            diagnostic += ": " + error_detail
-                        Clock.schedule_once(
-                            lambda dt, value=diagnostic: self.update_auto_status(
-                                "ساخت تصویر تحلیلی ناموفق بود؛ ورود تا داده معتبر بعدی مسدود است: " + value
-                            ), 0
-                        )
+                # The coordinator owns one independent builder and snapshot per
+                # subscribed symbol. The UI's selected-symbol indicators remain
+                # tied to the selected market only.
+                technical = coordinator.states[symbol].get("latest_technical")
+                if technical:
+                    Clock.schedule_once(
+                        lambda dt, value=dict(technical): self.update_technical_labels(value), 0
+                    )
+                elif coordinator.states[symbol].get("last_analysis_error"):
+                    diagnostic = str(coordinator.states[symbol]["last_analysis_error"])[:180]
+                    Clock.schedule_once(
+                        lambda dt, value=diagnostic: self.update_auto_status(
+                            "تحلیل نماد انتخاب‌شده ناموفق بود؛ ورود آن نماد مسدود است: " + value
+                        ), 0
+                    )
+                self._update_engine_health(
+                    per_symbol_health=coordinator.status(),
+                    candidate_symbols=[
+                        item["symbol"] for item in coordinator.candidate_snapshots()
+                    ],
+                )
 
             def on_error(ws, error):
                 detail = "{}: {}".format(type(error).__name__, str(error)[:180])
@@ -2941,14 +3023,21 @@ class FuturesAnalyzerApp(App):
                         if remaining > 0.0 and scan_stop.wait(remaining):
                             return
                     now = time.monotonic()
-                    with scan_state_lock:
-                        technical = dict(scan_state["technical"]) if scan_state["technical"] else None
-                        received_at = float(scan_state["received_at"])
-                    if technical is None:
+                    candidates = coordinator.candidate_snapshots(now=now)
+                    if not candidates:
                         if scan_stop.wait(0.25):
                             return
                         continue
-                    age = now - received_at
+                    market_status = coordinator.status(now=now)
+                    preferred_symbol = (
+                        engine.position.get("symbol") if isinstance(engine.position, dict) else symbol
+                    )
+                    technical = next(
+                        (item for item in candidates if item.get("symbol") == preferred_symbol),
+                        next((item for item in candidates if item.get("symbol") == symbol), candidates[0]),
+                    )
+                    age_value = market_status.get(technical["symbol"], {}).get("last_trade_age_seconds")
+                    age = float(age_value) if isinstance(age_value, (int, float)) else 0.0
                     # Never open or manage a new position from an old market snapshot.
                     if age > 30.0:
                         if now - last_stale_notice >= 15.0:
@@ -2965,13 +3054,16 @@ class FuturesAnalyzerApp(App):
                     try:
                         if self.auto_stop_event.is_set():
                             return
-                        result = engine.process_scan([technical])
+                        result = engine.process_scan(candidates)
                         self._persist_paper_engine_state(engine)
                         last_scan = time.monotonic()
                         self._update_engine_health(
                             worker_phase="scanning", last_scan_at=last_scan,
                             candle_count=int(builder.status().get("closed_candles", 0)),
                             builder_ready=bool(builder.is_ready),
+                            candidate_count=len(candidates),
+                            candidate_symbols=[item["symbol"] for item in candidates],
+                            per_symbol_health=market_status,
                         )
                         events = result.get("events", [])
                         event_text = ""
@@ -2999,7 +3091,7 @@ class FuturesAnalyzerApp(App):
                             "شبیه‌ساز فعال | {}\nسیگنال آخر: {} | قیمت: {:.8g}\n"
                             "آخرین داده: {:.0f} ثانیه قبل | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
                             "وضعیت ورود: {}\nحداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
-                        ).format(symbol, technical["signal"], technical["price"], age,
+                        ).format(technical["symbol"], technical["signal"], technical["price"], age,
                                  result["equity"], result["closed_trades"],
                                  diagnose_signal(technical), event_text)
                         Clock.schedule_once(
