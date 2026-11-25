@@ -263,6 +263,17 @@ class TradeCandleBuilderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TradeCandleBuilder("BTC_USDT", max_candles=10)
 
+    def test_rejection_reasons_are_counted_without_losing_total(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, second=20, sequence=9))
+        builder.add_trade(self.trade(100, second=10, sequence=10))
+        builder.add_trade(self.trade(100, second=30, sequence=9))
+        status = builder.status()
+        self.assertEqual(status["rejected_trades"], 2)
+        self.assertEqual(status["rejection_reasons"], {
+            "out_of_order": 1, "duplicate_or_old_sequence": 1
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
