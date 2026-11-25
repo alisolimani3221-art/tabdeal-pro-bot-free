@@ -3149,3 +3149,4 @@ class FuturesAnalyzerApp(App):
 
 if __name__ == "__main__":
     FuturesAnalyzerApp().run()
+# CI trigger: rerun checks after enabling this PR target branch in workflow filters.
