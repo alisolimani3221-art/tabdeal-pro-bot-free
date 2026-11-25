@@ -142,6 +142,39 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         coordinator.on_trade(self.trade("BTC_USDT"), received_at=20)
         self.assertFalse(coordinator.status(now=10)["BTC_USDT"]["snapshot_fresh"])
 
+    def test_reconcile_tick_rejects_malformed_events_before_engine_mutation(self):
+        coordinator = self.make_coordinator()
+        invalid_events = (
+            self.trade("BTC_USDT", float("nan")),
+            self.trade("BTC_USDT", float("inf")),
+            self.trade("BTC_USDT", True),
+            self.trade("BTC_USDT", 10, quantity=0),
+            self.trade("BTC_USDT", 10, timestamp_ms=0),
+            self.trade("BTC_USDT", 10, timestamp_ms=True),
+            self.trade("BTC_USDT", 10, ok=False),
+        )
+        for event in invalid_events:
+            with self.subTest(event=event):
+                engine = FakeEngine()
+                self.assertIsNone(
+                    coordinator.reconcile_tick(engine, event, gap_detected=False)
+                )
+                self.assertEqual(engine.ticks, [])
+                self.assertEqual(engine.gaps, [])
+                self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
+
+    def test_reconcile_tick_rejects_non_boolean_gap_flag(self):
+        coordinator = self.make_coordinator()
+        engine = FakeEngine()
+        self.assertIsNone(
+            coordinator.reconcile_tick(
+                engine, self.trade("BTC_USDT"), gap_detected="yes"
+            )
+        )
+        self.assertEqual(engine.ticks, [])
+        self.assertEqual(engine.gaps, [])
+        self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
+
     def test_gap_for_other_market_does_not_halt_open_position(self):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
