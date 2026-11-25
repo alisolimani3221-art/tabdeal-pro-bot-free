@@ -2570,6 +2570,7 @@ class FuturesAnalyzerApp(App):
         connected_once = False
         retry_attempt = 0
         total_reconnects = 0
+        market_connection_state = {"opened_at": None}
         while not self.auto_stop_event.is_set():
             retry_attempt += 1
             self._update_engine_health(worker_phase="connecting",
@@ -2593,6 +2594,7 @@ class FuturesAnalyzerApp(App):
                 nonlocal connected_once, last_processed_bucket, total_reconnects
                 nonlocal recovered_open_symbol
                 socket_diagnostics["opened"] = True
+                market_connection_state["opened_at"] = time.monotonic()
                 stream_watchdog.connected()
                 if connected_once:
                     total_reconnects += 1
@@ -3037,12 +3039,73 @@ class FuturesAnalyzerApp(App):
                         if remaining > 0.0 and scan_stop.wait(remaining):
                             return
                     now = time.monotonic()
+                    market_status = coordinator.status(now=now)
+                    # The socket watchdog observes the whole broadcast, so a
+                    # busy secondary market must not hide silence on the market
+                    # backing the one open paper position.
+                    position = engine.position
+                    if isinstance(position, dict):
+                        position_symbol = position.get("symbol")
+                        position_market = market_status.get(position_symbol, {})
+                        position_age = position_market.get("last_trade_age_seconds")
+                        if position_age is None:
+                            opened_at = market_connection_state.get("opened_at")
+                            position_stale = (
+                                opened_at is not None and now - opened_at > 30.0
+                            )
+                        else:
+                            position_stale = (
+                                not isinstance(position_age, (int, float))
+                                or position_age < 0 or position_age > 30.0
+                            )
+                        if position_stale:
+                            try:
+                                current_position = engine.position
+                                stale_result = None
+                                if (isinstance(current_position, dict)
+                                        and current_position.get("symbol") == position_symbol
+                                        and not engine.halted):
+                                    # During an unobserved interval assume the
+                                    # protective stop was hit; do not award a
+                                    # hypothetical target or keep an unmanaged
+                                    # paper position open.
+                                    stale_result = engine.halt_for_data_gap(
+                                        position_symbol, current_position.get("stop")
+                                    )
+                                    if stale_result is None and not engine.halted:
+                                        engine.emergency_close(
+                                            "position market stale; protective gap close failed"
+                                        )
+                                self._persist_paper_engine_state(engine)
+                            except Exception as stale_exc:
+                                try:
+                                    engine.emergency_close(
+                                        "position market stale: {}".format(
+                                            type(stale_exc).__name__
+                                        )
+                                    )
+                                    self._persist_paper_engine_state(engine)
+                                except Exception:
+                                    pass
+                            self.auto_stop_event.set()
+                            Clock.schedule_once(
+                                lambda dt, market=position_symbol: self.update_auto_status(
+                                    "دادهٔ نماد دارای موقعیت باز {} بیش از ۳۰ ثانیه تازه نشد؛ "
+                                    "برای ایمنی، نتیجه با فرض برخورد به حد ضرر محافظه‌کارانه ثبت شد "
+                                    "و شبیه‌ساز متوقف شد.".format(market)
+                                ), 0
+                            )
+                            try:
+                                app.close()
+                            except Exception:
+                                pass
+                            return
+
                     candidates = coordinator.candidate_snapshots(now=now)
                     if not candidates:
                         if scan_stop.wait(0.25):
                             return
                         continue
-                    market_status = coordinator.status(now=now)
                     preferred_symbol = (
                         engine.position.get("symbol") if isinstance(engine.position, dict) else symbol
                     )
