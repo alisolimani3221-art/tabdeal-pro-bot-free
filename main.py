@@ -2674,11 +2674,15 @@ class FuturesAnalyzerApp(App):
                         stream_status = builder.status()
                         status_text = (
                             "جریان معاملات فعال است. کندل بسته معتبر: {}/23 | "
-                            "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {}. "
-                            "از ۵ کندل پایش اولیه فعال می‌شود؛ تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
+                            "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {} | "
+                            "علت ردها: {}. از ۵ کندل پایش اولیه فعال می‌شود؛ "
+                            "تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
                         ).format(stream_status["closed_candles"], received_messages,
                                  valid_messages, stream_status["rejected_trades"],
-                                 stream_status["gaps"])
+                                 stream_status["gaps"],
+                                 ",".join("{}={}".format(k, v) for k, v in
+                                          sorted(stream_status["rejection_reasons"].items()))
+                                 or "ندارد")
                         preliminary = builder.preliminary_trend()
                         if preliminary is not None:
                             trend_names = {"UP": "صعودی", "DOWN": "نزولی", "FLAT": "خنثی"}
