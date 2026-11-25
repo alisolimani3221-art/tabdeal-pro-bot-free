@@ -43,6 +43,7 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
+from tabdeal_history_provider import fetch_tabdeal_closed_candles
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS)
@@ -2201,6 +2202,36 @@ class FuturesAnalyzerApp(App):
                         os.remove(candle_cache_path)
                     except OSError:
                         pass
+            candle_cache_note = "تاریخچه محلی موجود نیست؛ دریافت از API بررسی می‌شود."
+            # If the local cache is absent or short, warm from the public,
+            # read-only Tabdeal kline endpoint before starting the trade stream.
+            # Failure is non-fatal: the engine remains locked until 23 verified
+            # closed candles are available from cache/history/live collection.
+            if len(builder.closed) < 23:
+                history_session = requests.Session()
+                try:
+                    mount_tabdeal_tls_compat(history_session, certifi.where())
+                    history_session.headers.update({
+                        "User-Agent": "FuturesAnalyzer/1.54 (read-only market history)",
+                        "Accept": "application/json",
+                        "Connection": "close",
+                    })
+                    history_rows = fetch_tabdeal_closed_candles(
+                        history_session, FUTURES_API, symbol,
+                        int(time.time() * 1000), certifi.where(),
+                        interval_ms=builder.interval_ms, limit=100,
+                    )
+                    restored_candle_count = builder.restore_closed_candles(history_rows)
+                    save_candle_cache(candle_cache_path, symbol, history_rows)
+                    candle_cache_note = (
+                        "تاریخچه معتبر از API عمومی تبدیل دریافت و ذخیره شد: {} کندل."
+                    ).format(restored_candle_count)
+                except Exception as history_exc:
+                    candle_cache_note = (
+                        "دریافت تاریخچه عمومی موفق نشد؛ ورود تا تکمیل ۲۳ کندل معتبر قفل می‌ماند: {}."
+                    ).format(type(history_exc).__name__)
+                finally:
+                    history_session.close()
             self.auto_candle_cache_path = candle_cache_path
             self.auto_candle_cache_last_open_time = (
                 builder.closed[-1][0] if restored_candle_count else None
