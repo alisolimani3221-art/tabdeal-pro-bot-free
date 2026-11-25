@@ -2785,8 +2785,17 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=dict(technical): self.update_technical_labels(value), 0
                         )
                     except Exception as snapshot_exc:
+                        # Surface a bounded, non-secret validation detail so
+                        # field diagnostics can identify the exact failing
+                        # candle/indicator invariant instead of only "ValueError".
+                        # Never include the raw market payload or credentials.
+                        error_type = type(snapshot_exc).__name__
+                        error_detail = str(snapshot_exc).replace("\\n", " ").replace("\\r", " ").strip()[:160]
+                        diagnostic = error_type
+                        if error_detail:
+                            diagnostic += ": " + error_detail
                         Clock.schedule_once(
-                            lambda dt, value=type(snapshot_exc).__name__: self.update_auto_status(
+                            lambda dt, value=diagnostic: self.update_auto_status(
                                 "ساخت تصویر تحلیلی ناموفق بود؛ ورود تا داده معتبر بعدی مسدود است: " + value
                             ), 0
                         )
