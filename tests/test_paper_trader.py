@@ -481,6 +481,67 @@ class PaperTraderTests(unittest.TestCase):
         self.assertAlmostEqual(engine.daily_start_equity, engine.equity)
         self.assertFalse(engine.halted)
 
+    def test_daily_loss_halt_cannot_rearm_before_next_utc_day(self):
+        engine = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
+        engine.halted = True
+        engine.halt_reason = "DAILY_MAX_LOSS"
+        engine.halt_detail = "UTC daily paper loss limit reached"
+        engine.daily_loss_date = "2026-11-24"
+        engine.daily_start_equity = 8.0
+        engine.cash = 7.9
+
+        self.assertFalse(engine.daily_reset_available(now="2026-11-24"))
+        with self.assertRaisesRegex(RuntimeError, "next UTC day"):
+            engine.rearm_after_daily_reset(now="2026-11-24")
+        self.assertTrue(engine.halted)
+        self.assertEqual(engine.halt_reason, "DAILY_MAX_LOSS")
+
+    def test_daily_loss_halt_rearms_after_utc_day_with_new_baseline(self):
+        engine = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
+        engine.halted = True
+        engine.halt_reason = "DAILY_MAX_LOSS"
+        engine.halt_detail = "UTC daily paper loss limit reached"
+        engine.daily_loss_date = "2026-11-24"
+        engine.daily_start_equity = 8.0
+        engine.cash = 7.9
+
+        self.assertTrue(engine.daily_reset_available(now="2026-11-25"))
+        result = engine.rearm_after_daily_reset(now="2026-11-25")
+        self.assertTrue(result["rearmed"])
+        self.assertTrue(result["daily_period_reset"])
+        self.assertFalse(engine.halted)
+        self.assertIsNone(engine.halt_reason)
+        self.assertEqual(engine.daily_loss_date, "2026-11-25")
+        self.assertAlmostEqual(engine.daily_start_equity, 7.9)
+        self.assertEqual(engine.cash, 7.9)
+
+    def test_daily_reset_cannot_bypass_cumulative_loss_limit(self):
+        engine = PaperTradingEngine(capital=8, max_loss_percent=3.0)
+        engine.halted = True
+        engine.halt_reason = "DAILY_MAX_LOSS"
+        engine.halt_detail = "UTC daily paper loss limit reached"
+        engine.daily_loss_date = "2026-11-24"
+        engine.daily_start_equity = 8.0
+        engine.cash = 7.7
+
+        with self.assertRaisesRegex(RuntimeError, "cumulative paper loss"):
+            engine.rearm_after_daily_reset(now="2026-11-25")
+        self.assertTrue(engine.halted)
+        self.assertEqual(engine.halt_reason, "MAX_LOSS")
+        self.assertIn("cumulative", engine.halt_detail)
+
+    def test_daily_reset_rearm_rejects_open_position_and_wrong_halt_reason(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.halted = True
+        engine.halt_reason = "DAILY_MAX_LOSS"
+        engine.position = {"symbol": "AAA_USDT"}
+        with self.assertRaisesRegex(RuntimeError, "open paper position"):
+            engine.rearm_after_daily_reset(now="2026-11-25")
+        engine.position = None
+        engine.halt_reason = "DATA_GAP"
+        with self.assertRaisesRegex(RuntimeError, "only a daily-loss halt"):
+            engine.rearm_after_daily_reset(now="2026-11-25")
+
     def test_daily_loss_limit_rejects_values_above_one_percent(self):
         for value in (True, False, 0, float("nan"), 1.01, 2):
             with self.subTest(value=value), self.assertRaises(ValueError):
