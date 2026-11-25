@@ -63,6 +63,7 @@ from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
+from multi_symbol_stream import select_broadcast_symbols
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -2262,6 +2263,7 @@ class FuturesAnalyzerApp(App):
             "out_of_order_rejections": 0,
             "analysis_required_candles": 23, "candle_interval_seconds": 60,
             "last_scan_at": None, "last_stream_error": "",
+            "subscribed_symbols": [symbol], "secondary_symbol_trade_counts": {},
         }
         guard = getattr(self, "runtime_guard", None)
         coordinator_session = getattr(self, "coordinator_session", None)
@@ -2484,6 +2486,35 @@ class FuturesAnalyzerApp(App):
         # after restart must therefore be reconciled as a data gap and flatten
         # the simulated position conservatively.
         recovered_open_position = engine.position is not None
+        # The exchange broadcast accepts one plain-text subscription per
+        # symbol on the same socket. Resolve active contracts first; cap this
+        # rollout at two because that is the largest verified simultaneous set.
+        verified_symbols = set(getattr(self, "verified_market_symbols", set()) or ())
+        if not verified_symbols:
+            try:
+                response = requests.get(
+                    FUTURES_API + "/exchangeInfo",
+                    timeout=(4, 8),
+                    headers={"Accept": "application/json"},
+                )
+                response.raise_for_status()
+                info = response.json()
+                rows = info.get("symbols") if isinstance(info, dict) else None
+                if rows is None and isinstance(info, dict):
+                    data = info.get("data")
+                    rows = data if isinstance(data, list) else None
+                    if rows is None and isinstance(data, dict):
+                        rows = data.get("symbols")
+                if isinstance(rows, list):
+                    verified_symbols = set(list_market_symbols(rows))
+            except Exception as exc:
+                self._update_engine_health(
+                    last_stream_error="subscription_symbol_discovery: {}: {}".format(
+                        type(exc).__name__, str(exc)[:120]
+                    )
+                )
+        subscription_symbols = select_broadcast_symbols(symbol, verified_symbols)
+        self._update_engine_health(subscribed_symbols=list(subscription_symbols))
         last_processed_bucket = None
         scan_state_lock = threading.Lock()
         scan_state = {"technical": None, "received_at": 0.0}
@@ -2533,7 +2564,8 @@ class FuturesAnalyzerApp(App):
                 # send the market symbol as plain text after the socket opens.
                 # This is a read-only market subscription, never an order action.
                 try:
-                    ws.send(symbol)
+                    for subscribed_symbol in subscription_symbols:
+                        ws.send(subscribed_symbol)
                 except Exception as subscribe_exc:
                     detail = "{}: {}".format(
                         type(subscribe_exc).__name__, str(subscribe_exc)[:180]
@@ -2619,7 +2651,20 @@ class FuturesAnalyzerApp(App):
                 # Broadcast subscriptions are market-specific. If an unexpected
                 # symbol arrives, ignore it rather than treating this socket as
                 # a market-wide feed or caching candles for unrelated markets.
-                if parsed.get("symbol") != symbol:
+                event_symbol = parsed.get("symbol")
+                if event_symbol != symbol:
+                    # Secondary feed events are counted but never enter the
+                    # selected-symbol candle or position engine.
+                    if event_symbol in subscription_symbols:
+                        counts = dict(
+                            getattr(self, "auto_health", {}).get(
+                                "secondary_symbol_trade_counts", {}
+                            )
+                        )
+                        counts[event_symbol] = int(counts.get(event_symbol, 0)) + 1
+                        self._update_engine_health(
+                            secondary_symbol_trade_counts=counts
+                        )
                     return
                 # Render every fresh selected-symbol trade independently of
                 # candle-builder acceptance/readiness. Duplicate sequence or
