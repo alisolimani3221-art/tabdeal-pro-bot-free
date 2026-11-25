@@ -39,7 +39,10 @@ class FakeEngine:
         return None
 
     def halt_for_data_gap(self, symbol, price):
+        if self.position is None or self.position["symbol"] != symbol:
+            return None
         self.gaps.append((symbol, price))
+        self.position = None
         return {"halted": True}
 
     def process_scan(self, candidates):
@@ -112,9 +115,8 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         coordinator = self.make_coordinator()
         engine = FakeEngine()
         coordinator.reconcile_tick(engine, self.trade("ETH_USDT"), gap_detected=True)
-        self.assertEqual(engine.gaps, [("ETH_USDT", 10)])
-        # The real PaperTradingEngine checks symbol identity under its lock;
-        # this fake records the call contract only.
+        self.assertEqual(engine.gaps, [])
+        self.assertEqual(engine.position, {"symbol": "BTC_USDT"})
 
     def test_reconnect_invalidates_every_symbol_snapshot(self):
         coordinator = self.make_coordinator()
