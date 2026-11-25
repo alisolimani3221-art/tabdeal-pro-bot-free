@@ -37,6 +37,7 @@ on:
       - feature/v1.54-live-price-chart-20261125
       - fix/v1.55-candle-warmup-copy
       - fix/v1.55-candle-reset-diagnostics-20261125
+      - probe/multisymbol-broadcast-readonly-20261125
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
@@ -51,6 +52,7 @@ on:
       - 'ai_diagnostics.py'
       - 'market_format.py'
       - 'trade_stream_probe.py'
+      - 'trade_broadcast_multisymbol_probe.py'
       - 'market_candles.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
@@ -326,6 +328,43 @@ jobs:
         with:
           name: trade-stream-probe-report
           path: trade-stream-probe-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+
+      - name: Read-only same-connection multi-symbol broadcast experiment
+        timeout-minutes: 4
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_broadcast_multisymbol_probe import probe_multiple_symbols
+
+          report = probe_multiple_symbols(
+              symbols=("BTC_USDT", "ETH_USDT"),
+              timeout_seconds=120,
+          )
+          Path("trade-broadcast-multisymbol-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          if not report["connected"]:
+              raise SystemExit("Public broadcast socket connection failed")
+          if report["status"] == "both_symbols_observed_after_second_subscription":
+              print("MULTI_SYMBOL_BROADCAST: verified for this observation window")
+          elif report["status"] == "second_symbol_only_after_second_subscription":
+              print("::warning::Second symbol replaced or suppressed first symbol on this connection")
+          else:
+              print("::warning::Multi-symbol broadcast result is inconclusive: " + report["status"])
+          PY
+
+      - name: Upload multi-symbol broadcast experiment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-broadcast-multisymbol-report
+          path: trade-broadcast-multisymbol-report.json
           if-no-files-found: warn
           retention-days: 7
 
