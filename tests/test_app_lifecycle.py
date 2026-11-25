@@ -339,13 +339,13 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
     def test_worker_treats_restored_open_position_as_a_recovery_data_gap(self):
         source = MAIN_SOURCE.read_text(encoding="utf-8")
         self.assertIn(
-            "recovered_open_position = engine.position is not None", source
+            'recovered_open_symbol = (engine.position.get("symbol")', source
         )
-        self.assertIn("nonlocal recovered_open_position", source)
-        self.assertIn("or recovered_open_position", source)
-        self.assertIn(
-            "first fresh tick has now reconciled the persisted", source
-        )
+        self.assertIn("nonlocal recovered_open_symbol", source)
+        self.assertIn("recovered_gap = recovered_open_symbol == symbol", source)
+        self.assertIn("recovered_gap = recovered_open_symbol == event_symbol", source)
+        self.assertIn("coordinator.reconcile_tick(", source)
+        self.assertIn("recovered_open_symbol = None", source)
 
     def test_websocket_close_callback_records_close_reason_for_diagnostics(self):
         source = MAIN_SOURCE.read_text(encoding="utf-8")
