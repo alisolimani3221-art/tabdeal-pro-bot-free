@@ -125,18 +125,39 @@ class MultiSymbolPaperCoordinator:
                     "gap_detected": bool(update.get("gap_detected"))}
 
     def reconcile_tick(self, engine, trade, gap_detected=False):
-        """Manage only the matching open position; unrelated-symbol gaps are isolated."""
-        if not isinstance(trade, dict):
+        """Reconcile a position only from a complete, validated market event."""
+        if not isinstance(trade, dict) or trade.get("ok") is not True:
             return None
         symbol = trade.get("symbol")
         if not isinstance(symbol, str):
             return None
         symbol = symbol.upper()
-        if symbol not in self.states:
+        if symbol not in self.states or not isinstance(gap_detected, bool):
             return None
+
+        # This method can close a position or permanently halt the paper
+        # engine. Revalidate the complete normalized event at this boundary
+        # rather than trusting that every caller passed through on_trade().
+        price = trade.get("price")
+        quantity = trade.get("quantity")
+        timestamp = trade.get("timestamp_ms")
+        if isinstance(price, bool) or isinstance(quantity, bool):
+            return None
+        try:
+            price = float(price)
+            quantity = float(quantity)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if (not math.isfinite(price) or price <= 0
+                or not math.isfinite(quantity) or quantity <= 0):
+            return None
+        if (isinstance(timestamp, bool) or not isinstance(timestamp, int)
+                or timestamp <= 0 or timestamp > 10_000_000_000_000):
+            return None
+
         if gap_detected:
-            return engine.halt_for_data_gap(symbol, trade["price"])
-        return engine.process_tick(symbol, trade["price"])
+            return engine.halt_for_data_gap(symbol, price)
+        return engine.process_tick(symbol, price)
 
     def candidate_snapshots(self, now=None):
         """Return one fresh snapshot per symbol, never cross-route or reuse stale data."""
