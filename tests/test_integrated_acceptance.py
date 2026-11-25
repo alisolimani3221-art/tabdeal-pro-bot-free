@@ -27,7 +27,7 @@ class IntegratedAcceptanceTests(unittest.TestCase):
 
         builder = TradeCandleBuilder("BTC_USDT")
         first_minute = (now_ms // 60_000) - 30
-        for offset in range(22):
+        for offset in range(25):
             stamp = (first_minute + offset) * 60_000 + 1_000
             result = builder.add_trade({
                 "symbol": "BTC_USDT", "price": 60_000 + offset,
@@ -36,7 +36,7 @@ class IntegratedAcceptanceTests(unittest.TestCase):
             self.assertTrue(result["accepted"])
         self.assertTrue(builder.is_ready)
         indicators = analyze_klines(builder.candles_for_analysis())
-        self.assertGreaterEqual(indicators["closed_candles"], 20)
+        self.assertGreaterEqual(indicators["closed_candles"], 23)
         self.assertIn(indicators["signal"], ("BULLISH", "BEARISH", "NEUTRAL"))
 
     def test_cost_aware_position_risk_respects_half_percent_and_three_x_caps(self):
@@ -55,7 +55,7 @@ class IntegratedAcceptanceTests(unittest.TestCase):
             "symbol": "BTC_USDT", "price": 60_000,
             "sma10": 59_900, "sma20": 59_800,
             "rsi14": 56, "atr14": 400, "signal": "BULLISH",
-            "closed_candles": 20, "candle_open_time": 60_000,
+            "closed_candles": 23, "candle_open_time": 60_000,
         }
         engine = PaperTradingEngine(capital=8.0, risk_percent=0.5,
                                     max_leverage=3, fee_rate=0.0005,

@@ -119,5 +119,5 @@ def warm_symbols(symbols, fetch_history, now_ms, max_workers=4, interval_ms=60_0
             except Exception as exc:
                 errors[symbol] = "{}: {}".format(type(exc).__name__, str(exc)[:160])
     return {"results": results, "errors": errors, "requested": len(unique),
-            "ready_count": sum(len(rows) >= 20 for rows in results.values()),
+            "ready_count": sum(len(rows) >= 23 for rows in results.values()),
             "live_orders": False}
