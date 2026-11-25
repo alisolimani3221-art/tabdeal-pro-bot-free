@@ -81,9 +81,11 @@ class TradeCandleBuilder:
 
         if self.last_timestamp_ms is not None and timestamp < self.last_timestamp_ms:
             return self._reject("out_of_order")
-        if (sequence is not None and self.last_sequence is not None
-                and sequence <= self.last_sequence):
-            return self._reject("duplicate_or_old_sequence")
+        if sequence is not None and self.last_sequence is not None:
+            if sequence == self.last_sequence:
+                return self._reject("duplicate_sequence")
+            if sequence < self.last_sequence:
+                return self._reject("older_sequence")
 
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
