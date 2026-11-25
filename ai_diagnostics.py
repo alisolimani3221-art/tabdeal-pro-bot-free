@@ -25,7 +25,9 @@ HEALTH_KEYS = (
     "worker_phase", "websocket_connected", "retry_attempt",
     "received_messages", "valid_market_trades", "selected_symbol_trade_count",
     "candle_count", "builder_ready", "analysis_required_candles",
-    "candle_interval_seconds", "last_stream_error",
+    "candle_interval_seconds", "last_stream_error", "candle_history_provider_status",
+    "candle_history_provider_error", "candle_cache_status",
+    "candle_cache_file_exists", "candle_cache_restored_count",
 )
 NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
@@ -251,4 +253,9 @@ def build_engine_health_report_lines(app):
         ),
         "عمر اتصال WebSocket (ثانیه): " + age("connected_age_seconds"),
         "آخرین خطای جریان: " + value("last_stream_error", "ندارد")[:240],
+        "وضعیت منبع تاریخچه کندل: " + value("candle_history_provider_status", "not recorded"),
+        "علت نبود تاریخچه API: " + value("candle_history_provider_error", "not recorded")[:240],
+        "وضعیت کش کندل: " + value("candle_cache_status", "not recorded")[:240],
+        "وجود فایل کش کندل: " + value("candle_cache_file_exists", "not recorded"),
+        "تعداد کندل بازیابی‌شده از کش: " + value("candle_cache_restored_count", "0"),
     ]
