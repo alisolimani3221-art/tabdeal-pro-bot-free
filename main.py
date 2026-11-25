@@ -2558,8 +2558,15 @@ class FuturesAnalyzerApp(App):
                 # a market-wide feed or caching candles for unrelated markets.
                 if parsed.get("symbol") != symbol:
                     return
+                # Render every fresh selected-symbol trade independently of
+                # candle-builder acceptance/readiness. Duplicate sequence or
+                # candle-order filtering must not freeze the live price chart.
+                live_price = float(parsed["price"])
+                Clock.schedule_once(
+                    lambda _dt, value=live_price: self.update_live_price_chart(value), 0
+                )
                 update = builder.add_trade(parsed)
-                # A restored cache is usable only if the first fresh live trade
+                //                # A restored cache is usable only if the first fresh live trade
                 # proves there was no missing one-minute bucket. On a gap the
                 # builder clears the cache before any technical signal is made.
                 if update.get("gap_detected"):
@@ -2611,11 +2618,6 @@ class FuturesAnalyzerApp(App):
                             lambda dt, value=status: self.update_auto_status(value), 0
                         )
                     return
-                # Render each accepted fresh trade independently of candle readiness.
-                live_price = float(parsed["price"])
-                Clock.schedule_once(
-                    lambda _dt, value=live_price: self.update_live_price_chart(value), 0
-                )
                 selected_trade_count = int(
                     getattr(self, "auto_health", {}).get("selected_symbol_trade_count", 0)
                 ) + 1
