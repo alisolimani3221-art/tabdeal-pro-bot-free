@@ -2,9 +2,12 @@
 
 Android APK build and Tabdeal USDT-margined futures market analyzer.
 
-## Current development status (1.49)
-- Current release candidate branch: `release/v1.49`; app version and Buildozer package version are 1.49 (versionCode 149). This branch must pass its current CI run and device acceptance before its APK is described as released or device-verified.
-- The v1.26 development branch defines a persistent release-signing workflow. A signed APK is not considered released until the build, certificate fingerprint, packaged fonts, and uploaded artifact are all verified.
+## Current development status (1.55)
+- Active validation branch: `fix/v1.55-candle-reset-diagnostics-20261125`; app version in `main.py`, `ai_diagnostics.py`, and `buildozer.spec` is 1.55 (Android versionCode 155). The Android workflow display name is also v1.55.
+- Integration base: `fix/v1.56-websocket-control-message-classification`. The v1.56 text is the integration/fix branch label, not the app release version; its app and package version remain 1.55. Do not infer the APK version from the branch name.
+- The active v1.55 branch is a validation candidate, not a released or device-verified APK. Release requires passing CI, signature/artifact verification, and Android device acceptance.
+- Older branches and `main` may contain earlier app versions; they are not interchangeable with the active v1.55 validation branch.
+- A signed APK is not considered released until the build, certificate fingerprint, packaged fonts, and uploaded artifact are all verified.
 - The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
 - Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
 - Persian UI font bundling and RTL support are verified during the Android build.
