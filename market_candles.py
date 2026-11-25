@@ -30,6 +30,10 @@ class TradeCandleBuilder:
         self.rejected = 0
         self.rejection_reasons = {}
         self.gaps = 0
+        self.reconnect_count = 0
+        self.partial_buckets_discarded = 0
+        self.history_clear_count = 0
+        self.last_reset_reason = "startup_partial_bucket_pending"
         # The first bucket after subscription/reconnect may be only partially observed.
         self.discard_next_close = True
         # Reuse closed candles only when the stream resumes in the same minute.
@@ -100,6 +104,8 @@ class TradeCandleBuilder:
             # the retained indicator history.
             if bucket > self._resume_bucket + self.interval_ms:
                 self.closed.clear()
+                self.history_clear_count += 1
+                self.last_reset_reason = "confirmed_reconnect_gap"
                 self.gaps += 1
                 gap_detected = True
                 self._reconnect_warmup_pending = False
@@ -126,6 +132,8 @@ class TradeCandleBuilder:
                 self._reconnect_warmup_pending = False
             else:
                 self.discard_next_close = False
+                self.partial_buckets_discarded += 1
+                self.last_reset_reason = "first_partial_bucket_discarded"
                 # The first post-startup/reconnect bucket is intentionally
                 # discarded because it was only partially observed. Retained
                 # cached/pre-reconnect candles end before that missing bucket,
@@ -134,12 +142,16 @@ class TradeCandleBuilder:
                 # candles instead of passing a discontinuous series to indicators.
                 if self.closed:
                     self.closed.clear()
+                    self.history_clear_count += 1
+                    self.last_reset_reason = "history_cleared_after_partial_bucket"
                     self._reconnect_warmup_pending = False
             if bucket != previous_bucket + self.interval_ms:
                 self.gaps += 1
                 gap_detected = True
                 # Do not let indicators bridge an unknown interval.
                 self.closed.clear()
+                self.history_clear_count += 1
+                self.last_reset_reason = "timestamp_gap"
                 self.discard_next_close = True
             self.current = self._new_candle(bucket, price, quantity, timestamp)
 
@@ -182,11 +194,16 @@ class TradeCandleBuilder:
 
     def reset_after_reconnect(self):
         """Retain closed candles only when the stream resumes in the same minute."""
+        self.reconnect_count += 1
+        self.last_reset_reason = "websocket_reconnect_pending_continuity_check"
         self._resume_bucket = self.current["open_time"] if self.current is not None else None
         self._resume_last_timestamp_ms = self.last_timestamp_ms
         self._reconnect_warmup_pending = self._resume_bucket is not None
         if self._resume_bucket is None:
+            if self.closed:
+                self.history_clear_count += 1
             self.closed.clear()
+            self.last_reset_reason = "reconnect_without_forming_bucket"
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
@@ -202,6 +219,8 @@ class TradeCandleBuilder:
         self._resume_last_timestamp_ms = None
         self._reconnect_warmup_pending = False
         self.gaps += 1
+        self.history_clear_count += 1
+        self.last_reset_reason = "explicit_gap_reset"
         self.discard_next_close = True
 
     @staticmethod
@@ -266,4 +285,8 @@ class TradeCandleBuilder:
                 "reconnect_check_pending": self._resume_bucket is not None,
                 "reconnect_warmup_pending": self._reconnect_warmup_pending,
                 "rejected_trades": self.rejected,
-                "rejection_reasons": dict(self.rejection_reasons)}
+                "rejection_reasons": dict(self.rejection_reasons),
+                "reconnect_count": self.reconnect_count,
+                "partial_buckets_discarded": self.partial_buckets_discarded,
+                "history_clear_count": self.history_clear_count,
+                "last_reset_reason": self.last_reset_reason}
