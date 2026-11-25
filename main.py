@@ -48,7 +48,8 @@ from market_candles import TradeCandleBuilder
 from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
-                          reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS)
+                          reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
+                          summarize_closed_trades)
 from trade_stream_probe import (
     BROADCAST_URL, parse_trade_message, is_trade_timestamp_fresh,
 )
@@ -2248,6 +2249,7 @@ class FuturesAnalyzerApp(App):
             "worker_phase": "starting", "websocket_connected": False,
             "connected_at": None, "retry_attempt": 0,
             "received_messages": 0, "valid_market_trades": 0,
+            "control_messages": 0,
             "selected_symbol_trade_count": 0,
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
@@ -2483,6 +2485,7 @@ class FuturesAnalyzerApp(App):
         last_status_update = 0.0
         received_messages = 0
         valid_messages = 0
+        control_messages = 0
         connected_once = False
         retry_attempt = 0
         while not self.auto_stop_event.is_set():
@@ -2541,7 +2544,7 @@ class FuturesAnalyzerApp(App):
 
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
-                nonlocal last_status_update, received_messages, valid_messages, retry_attempt
+                nonlocal last_status_update, received_messages, valid_messages, control_messages, retry_attempt
                 nonlocal recovered_open_position
                 received_messages += 1
                 self._update_engine_health(received_messages=received_messages)
@@ -2550,6 +2553,21 @@ class FuturesAnalyzerApp(App):
                 # alive, even when the selected low-volume symbol has no trade.
                 parsed = parse_trade_message(message)
                 if self.auto_stop_event.is_set():
+                    return
+                if not parsed.get("ok") and parsed.get("reason") == "non_trade_event":
+                    control_messages += 1
+                    self._update_engine_health(control_messages=control_messages)
+                    now = time.monotonic()
+                    if now - last_status_update >= 10:
+                        last_status_update = now
+                        status = (
+                            "اتصال برقرار است؛ پیام‌های کنترلی/غیرمعاملاتی نادیده گرفته شدند. "
+                            "دریافتی: {} | پیام کنترلی: {} | معامله معتبر: {}. "
+                            "این پیام‌ها وارد کندل‌سازی نمی‌شوند."
+                        ).format(received_messages, control_messages, valid_messages)
+                        Clock.schedule_once(
+                            lambda dt, value=status: self.update_auto_status(value), 0
+                        )
                     return
                 if not parsed.get("ok"):
                     now = time.monotonic()
@@ -2790,7 +2808,7 @@ class FuturesAnalyzerApp(App):
                         # candle/indicator invariant instead of only "ValueError".
                         # Never include the raw market payload or credentials.
                         error_type = type(snapshot_exc).__name__
-                        error_detail = str(snapshot_exc).replace("\\n", " ").replace("\\r", " ").strip()[:160]
+                        error_detail = str(snapshot_exc).replace("\n", " ").replace("\\r", " ").strip()[:160]
                         diagnostic = error_type
                         if error_detail:
                             diagnostic += ": " + error_detail
@@ -3108,6 +3126,38 @@ class FuturesAnalyzerApp(App):
         if isinstance(state, dict) and "closed_trades" in state:
             add_row("تعداد معاملات بسته‌شده ذخیره‌شده: {}".format(len(trades)), dp(44),
                     (0.35, 0.82, 1, 1))
+            summary = summarize_closed_trades(trades, limit=10)
+            factor = ("بدون زیان" if summary["profit_factor"] is None
+                      else number(summary["profit_factor"]))
+            add_row(
+                "خلاصه ۱۰ معامله آخر (رکوردهای معتبر)\n"
+                "برد: {} | باخت: {} | سربه‌سر: {} | نرخ برد: {}٪\n"
+                "خالص: {} USDT | میانگین معامله: {} USDT\n"
+                "میانگین برد: {} | میانگین باخت: {} | ضریب سود: {}\n"
+                "کارمزد ورود و خروج: {} USDT".format(
+                    summary["wins"], summary["losses"], summary["breakeven"],
+                    number(summary["win_rate_percent"]), number(summary["net_pnl"]),
+                    number(summary["average_net_pnl"]), number(summary["average_win"]),
+                    number(summary["average_loss"]), factor,
+                    number(summary["fees_total"])
+                ), dp(132), (0.35, 0.82, 1, 1)
+            )
+            reason_text = " | ".join(
+                "{}: {}".format(reason, count)
+                for reason, count in sorted(summary["reasons"].items())
+            ) or "ثبت نشده"
+            add_row("علت خروج در ۱۰ معامله آخر: " + reason_text, dp(58),
+                    (0.72, 0.80, 0.90, 1))
+            side_stats = summary["sides"]
+            add_row(
+                "خرید: {} معامله | برد: {} | خالص: {} USDT\n"
+                "فروش: {} معامله | برد: {} | خالص: {} USDT".format(
+                    side_stats["BULLISH"]["count"], side_stats["BULLISH"]["wins"],
+                    number(side_stats["BULLISH"]["net_pnl"]),
+                    side_stats["BEARISH"]["count"], side_stats["BEARISH"]["wins"],
+                    number(side_stats["BEARISH"]["net_pnl"])
+                ), dp(78), (0.72, 0.80, 0.90, 1)
+            )
             if not trades:
                 add_row("هنوز معامله بسته‌شده‌ای ثبت نشده است.", dp(60))
             for index, trade in enumerate(reversed(trades[-100:]), 1):
@@ -3129,15 +3179,17 @@ class FuturesAnalyzerApp(App):
                     "معامله بسته‌شده {} | {} {}\n"
                     "ورود: {} | خروج: {} | مقدار: {}\n"
                     "حد ضرر: {} | حد سود: {} | اهرم: {}x\n"
+                    "ناخالص: {} | کارمزد ورود/خروج: {}/{}\n"
                     "سود/زیان خالص: {} USDT | علت خروج: {}"
                 ).format(
                     index, trade.get("symbol", "—"), side,
                     number(trade.get("entry")), number(trade.get("exit")),
                     number(trade.get("quantity")), number(trade.get("stop")),
                     number(trade.get("target")), number(trade.get("leverage")),
-                    pnl, trade.get("reason", "—")
+                    number(trade.get("gross_pnl")), number(trade.get("fees_entry")),
+                    number(trade.get("fees_exit")), pnl, trade.get("reason", "—")
                 )
-                add_row(details, dp(112), pnl_color)
+                add_row(details, dp(136), pnl_color)
             position = state.get("position")
             if isinstance(position, dict):
                 side = "خرید" if position.get("side") == "BULLISH" else "فروش"

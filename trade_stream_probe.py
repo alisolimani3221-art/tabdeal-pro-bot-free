@@ -135,6 +135,26 @@ def parse_trade_message(message, expected_symbol=None):
         return {"ok": False, "reason": "payload_not_object"}
     if "error" in payload:
         return {"ok": False, "reason": "exchange_error"}
+    # Separate recognizable subscription/ack/heartbeat frames from
+    # market payloads. An order-book object without a trade envelope remains
+    # a schema error, not a harmless control frame.
+    if "trade" not in payload:
+        event_type = payload.get("type") or payload.get("event") or payload.get("e")
+        is_ack = "id" in payload and "result" in payload
+        is_control = (
+            is_ack
+            or isinstance(event_type, str)
+            and event_type.strip().lower() in {
+                "subscribed", "subscription", "heartbeat", "ping", "pong",
+                "ack", "acknowledgement",
+            }
+        )
+        if is_control:
+            return {"ok": False, "reason": "non_trade_event",
+                    "event_type": str(event_type)[:40] if event_type is not None else None,
+                    "top_level_keys": sorted(str(k) for k in payload.keys())[:20]}
+        return {"ok": False, "reason": "missing_trade_object",
+                "top_level_keys": sorted(str(k) for k in payload.keys())[:20]}
     trade = payload.get("trade")
     if not isinstance(trade, dict):
         return {"ok": False, "reason": "missing_trade_object",
