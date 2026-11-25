@@ -3,6 +3,7 @@ import unittest
 from multi_symbol_stream import (
     MAX_VERIFIED_BROADCAST_SYMBOLS,
     select_broadcast_symbols,
+    subscribe_broadcast_symbols,
 )
 
 
@@ -41,6 +42,31 @@ class MultiSymbolBroadcastSelectionTests(unittest.TestCase):
             select_broadcast_symbols(
                 "BTC_USDT", {"ETH_USDT", "SOL_USDT"}, max_symbols=3
             )
+
+
+    def test_sends_each_symbol_as_separate_plain_text_frame(self):
+        class FakeSocket:
+            def __init__(self):
+                self.sent = []
+            def send(self, value):
+                self.sent.append(value)
+
+        socket = FakeSocket()
+        result = subscribe_broadcast_symbols(
+            socket, ("BTC_USDT", "ETH_USDT")
+        )
+        self.assertEqual(result, ("BTC_USDT", "ETH_USDT"))
+        self.assertEqual(socket.sent, ["BTC_USDT", "ETH_USDT"])
+
+    def test_rejects_unsupported_or_duplicate_subscriptions(self):
+        class FakeSocket:
+            def send(self, value):
+                raise AssertionError("must not send invalid subscription")
+
+        for values in ((), ("BTC_USDT", "BTC_USDT"),
+                       ("BTC_USDT", "ETH_USDT", "SOL_USDT")):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                subscribe_broadcast_symbols(FakeSocket(), values)
 
 
 if __name__ == "__main__":
