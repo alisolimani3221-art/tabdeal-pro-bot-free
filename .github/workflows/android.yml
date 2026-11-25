@@ -302,38 +302,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Read-only single- and multi-market order-book WebSocket probe
+      - name: Read-only Futures depth stream format matrix and multi-symbol probe
         timeout-minutes: 4
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          from orderbook_multisymbol_ws_probe import probe_multi_market_order_book
+          from orderbook_ws_format_probe import probe_futures_depth_formats
 
-          report = probe_multi_market_order_book(
+          report = probe_futures_depth_formats(
               symbols=("BTC_USDT", "ETH_USDT"),
-              timeout_seconds=120,
+              timeout_seconds=5,
           )
-          Path("orderbook-multisymbol-ws-report.json").write_text(
-              json.dumps(report, sort_keys=True, indent=2),
-              encoding="utf-8",
+          Path("orderbook-ws-format-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2), encoding="utf-8"
           )
           print(json.dumps(report, sort_keys=True))
-          if not report["connected"]:
-              raise SystemExit("Public Futures stream WebSocket connection failed")
-          print("ORDERBOOK_SINGLE_BASELINE: " + report.get("single_symbol_baseline", {}).get("status", "missing"))
-          print("ORDERBOOK_MULTI_RESULT: " + report["status"])
-          if report["status"] == "both_symbol_books_observed":
-              print("MULTI_SYMBOL_ORDERBOOK: verified for this observation window")
+          if report["status"] == "all_symbol_depths_observed":
+              print("FUTURES_MULTI_SYMBOL_DEPTH: verified")
           else:
-              print("::warning::Multi-symbol order-book stream result: " + report["status"])
+              print("::warning::Futures depth stream remains unverified: " + report["status"])
 
-      - name: Upload multi-market order-book WebSocket report
+      - name: Upload Futures depth stream format report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: orderbook-multisymbol-ws-report
-          path: orderbook-multisymbol-ws-report.json
+          name: orderbook-ws-format-report
+          path: orderbook-ws-format-report.json
           if-no-files-found: warn
           retention-days: 7
 
