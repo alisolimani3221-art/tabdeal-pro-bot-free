@@ -2262,7 +2262,7 @@ class FuturesAnalyzerApp(App):
                         candle_cache_path, symbol, int(time.time() * 1000),
                         interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
                     )
-                    if len(cached_rows) >= 20:
+                    if len(cached_rows) >= 5:
                         restored_candle_count = builder.restore_closed_candles(cached_rows)
                         candle_cache_note = "تاریخچه معتبر ذخیره‌شده بازیابی شد: {} کندل.".format(
                             restored_candle_count
@@ -2598,7 +2598,7 @@ class FuturesAnalyzerApp(App):
                                 interval_ms=builder.interval_ms,
                                 limit=builder.closed.maxlen,
                             )
-                            if len(cache_rows) >= 20:
+                            if len(cache_rows) >= 5:
                                 save_candle_cache(
                                     self.auto_candle_cache_path, symbol, cache_rows
                                 )
