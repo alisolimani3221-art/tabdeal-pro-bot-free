@@ -275,6 +275,26 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         self.assertIsNone(coordinator.reconcile_tick(engine, event))
         self.assertEqual(engine.ticks, [])
 
+    def test_invalid_quantity_timestamp_and_sequence_do_not_mutate_builder(self):
+        invalid = (
+            self.trade("BTC_USDT", 10, quantity=float("nan")),
+            self.trade("BTC_USDT", 10, quantity=0),
+            self.trade("BTC_USDT", 10, timestamp_ms=True),
+            self.trade("BTC_USDT", 10, timestamp_ms=0),
+            self.trade("BTC_USDT", 10, sequence=True),
+            self.trade("BTC_USDT", 10, sequence=-1),
+        )
+        for event in invalid:
+            with self.subTest(event=event):
+                coordinator = self.make_coordinator()
+                result = coordinator.on_trade(event, received_at=10)
+                state = coordinator.states["BTC_USDT"]
+                self.assertFalse(result["accepted"])
+                self.assertEqual(result["reason"], "invalid_trade_fields")
+                self.assertEqual(state["builder"].received, [])
+                self.assertEqual(state["accepted_trades"], 0)
+                self.assertIsNone(state["pending_tick"])
+
 
 if __name__ == "__main__":
     unittest.main()
