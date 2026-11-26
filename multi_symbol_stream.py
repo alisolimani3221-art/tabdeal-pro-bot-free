@@ -32,6 +32,37 @@ def select_broadcast_symbols(selected_symbol, verified_symbols,
     return tuple([selected] + secondary)
 
 
+
+def include_required_symbol(symbols, required_symbol,
+                           max_symbols=MAX_VERIFIED_BROADCAST_SYMBOLS):
+    """Keep the selected market first and protect a required open-position market."""
+    if not isinstance(symbols, (list, tuple)) or not symbols:
+        raise ValueError("at least one selected market is required")
+    if isinstance(max_symbols, bool) or not isinstance(max_symbols, int):
+        raise ValueError("max_symbols must be an integer")
+    if not 1 <= max_symbols <= MAX_VERIFIED_BROADCAST_SYMBOLS:
+        raise ValueError("max_symbols exceeds the verified broadcast limit")
+    normalized = []
+    for value in symbols:
+        if not isinstance(value, str):
+            raise ValueError("subscription symbol must be a string")
+        candidate = value.strip().upper()
+        if not _SYMBOL.fullmatch(candidate) or candidate in normalized:
+            raise ValueError("subscription symbol is invalid or duplicated")
+        normalized.append(candidate)
+    if not isinstance(required_symbol, str):
+        raise ValueError("required symbol must be a string")
+    required = required_symbol.strip().upper()
+    if not _SYMBOL.fullmatch(required):
+        raise ValueError("required symbol is not exchange-native")
+    if required in normalized:
+        return tuple(normalized[:max_symbols])
+    # Preserve the UI-selected first symbol, then reserve a slot for the
+    # recovered open position before filling remaining slots from discovery.
+    return tuple(([normalized[0], required] + normalized[1:max_symbols - 1])
+                 [:max_symbols])
+
+
 def subscribe_broadcast_symbols(websocket, symbols):
     """Send each validated market as its own plain-text subscription frame."""
     if not callable(getattr(websocket, "send", None)):
