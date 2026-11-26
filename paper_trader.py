@@ -431,14 +431,26 @@ class PaperTradingEngine:
                 "quantity", "notional", "leverage", "risk_budget",
                 "risk_limit", "fees_entry", "score",
             }
-            if not isinstance(position, dict) or set(position) != required:
+            trailing_fields = {"atr", "trailing_active", "best_price"}
+            if not isinstance(position, dict) or set(position) not in (
+                    required, required | trailing_fields):
                 raise ValueError("paper-engine position is malformed")
+            if set(position) == required:
+                position = dict(position)
+                position.update({
+                    "atr": abs(position["target"] - position["entry"]) / 3.0,
+                    "trailing_active": False,
+                    "best_price": position["last_price"],
+                })
+            if type(position["trailing_active"]) is not bool:
+                raise ValueError("paper-engine trailing state is invalid")
             if (not isinstance(position["symbol"], str)
                     or not re.fullmatch(r"[A-Z0-9]+_?USDT", position["symbol"])
                     or position["side"] not in ("BULLISH", "BEARISH")):
                 raise ValueError("paper-engine position identity is invalid")
             for name in ("entry", "last_price", "stop", "target", "quantity",
-                         "notional", "risk_budget", "risk_limit", "fees_entry"):
+                         "notional", "risk_budget", "risk_limit", "fees_entry",
+                         "atr", "best_price"):
                 finite(position[name], "position " + name,
                        allow_zero=(name in ("risk_budget", "risk_limit", "fees_entry")))
             finite(position["score"], "position score", allow_negative=True)
@@ -446,10 +458,23 @@ class PaperTradingEngine:
             if type(leverage) is not int or not 1 <= leverage <= engine.max_leverage:
                 raise ValueError("paper-engine position leverage is invalid")
             if position["side"] == "BULLISH":
-                if not position["stop"] < position["entry"] < position["target"]:
-                    raise ValueError("paper-engine long protection is invalid")
-            elif not position["target"] < position["entry"] < position["stop"]:
-                raise ValueError("paper-engine short protection is invalid")
+                if position["trailing_active"]:
+                    valid_protection = (
+                        position["entry"] < position["stop"] < position["best_price"]
+                        and position["target"] < position["best_price"]
+                    )
+                else:
+                    valid_protection = position["stop"] < position["entry"] < position["target"]
+            else:
+                if position["trailing_active"]:
+                    valid_protection = (
+                        position["best_price"] < position["stop"] < position["entry"]
+                        and position["best_price"] < position["target"]
+                    )
+                else:
+                    valid_protection = position["target"] < position["entry"] < position["stop"]
+            if not valid_protection:
+                raise ValueError("paper-engine position protection is invalid")
             # Cross-check persisted accounting fields instead of trusting
             # individually finite numbers that may describe an impossible position.
             expected_notional = position["entry"] * position["quantity"]
@@ -654,6 +679,30 @@ class PaperTradingEngine:
                 "equity": self.equity,
             }
 
+    def _activate_trailing(self, position, favourable_price):
+        """Convert the first target into a net-profit-protecting trailing trigger."""
+        position["trailing_active"] = True
+        position["best_price"] = favourable_price
+        self._ratchet_trailing_stop(position)
+
+    def _ratchet_trailing_stop(self, position):
+        """Move protection only in the profitable direction; never loosen it."""
+        entry = position["entry"]
+        quantity = position["quantity"]
+        atr = position["atr"]
+        if position["side"] == "BULLISH":
+            floor = (entry + position["fees_entry"] / quantity) / (
+                (1.0 - self.slippage_rate) * (1.0 - self.fee_rate)
+            )
+            position["stop"] = max(position["stop"], floor,
+                                   position["best_price"] - atr)
+        else:
+            ceiling = (entry - position["fees_entry"] / quantity) / (
+                (1.0 + self.slippage_rate) * (1.0 + self.fee_rate)
+            )
+            position["stop"] = min(position["stop"], ceiling,
+                                   position["best_price"] + atr)
+
     def process_tick(self, symbol, price, now=None):
         """Reconcile an open paper position and both loss limits on every valid tick."""
         with self._lock:
@@ -667,14 +716,22 @@ class PaperTradingEngine:
             event = None
             if p["side"] == "BULLISH":
                 if latest <= p["stop"]:
-                    event = self._close(min(p["stop"], latest), "STOP_TICK")
+                    event = self._close(min(p["stop"], latest),
+                                        "TRAILING_STOP_TICK" if p.get("trailing_active") else "STOP_TICK")
+                elif p.get("trailing_active"):
+                    p["best_price"] = max(p["best_price"], latest)
+                    self._ratchet_trailing_stop(p)
                 elif latest >= p["target"]:
-                    event = self._close(p["target"], "TARGET_TICK")
+                    self._activate_trailing(p, latest)
             else:
                 if latest >= p["stop"]:
-                    event = self._close(max(p["stop"], latest), "STOP_TICK")
+                    event = self._close(max(p["stop"], latest),
+                                        "TRAILING_STOP_TICK" if p.get("trailing_active") else "STOP_TICK")
+                elif p.get("trailing_active"):
+                    p["best_price"] = min(p["best_price"], latest)
+                    self._ratchet_trailing_stop(p)
                 elif latest <= p["target"]:
-                    event = self._close(p["target"], "TARGET_TICK")
+                    self._activate_trailing(p, latest)
 
             self._refresh_daily_period(now)
             cumulative_floor = self.initial_capital * (
@@ -748,16 +805,29 @@ class PaperTradingEngine:
                 hit_stop = bar_low <= p["stop"]
                 hit_target = bar_high >= p["target"]
                 stop_fill = min(p["stop"], bar_open)
+                favourable = bar_high
             else:
                 hit_stop = bar_high >= p["stop"]
                 hit_target = bar_low <= p["target"]
                 stop_fill = max(p["stop"], bar_open)
+                favourable = bar_low
             if hit_stop:
-                events.append(self._close(stop_fill, "STOP"))
+                events.append(self._close(
+                    stop_fill,
+                    "TRAILING_STOP" if p.get("trailing_active") else "STOP",
+                ))
                 closed_this_scan = True
-            elif hit_target:
-                events.append(self._close(p["target"], "TARGET"))
-                closed_this_scan = True
+            elif not p.get("trailing_active") and hit_target:
+                # Activate protection only; never assume an intrabar path
+                # that would allow a newly-created trailing stop to fill.
+                self._activate_trailing(p, favourable)
+            elif p.get("trailing_active"):
+                # Apply the old stop to this bar, then ratchet for the next.
+                p["best_price"] = (
+                    max(p["best_price"], favourable) if p["side"] == "BULLISH"
+                    else min(p["best_price"], favourable)
+                )
+                self._ratchet_trailing_stop(p)
 
         # Refresh the UTC day only after marking any open position at the
         # latest validated candle price, so midnight rollover starts from a
@@ -833,6 +903,8 @@ class PaperTradingEngine:
                         "risk_budget": quantity * risk_per_unit,
                         "risk_limit": risk_cash, "fees_entry": fee,
                         "score": choice["score"],
+                        "atr": choice["atr"], "trailing_active": False,
+                        "best_price": choice["price"],
                     }
                     self.last_entry_candle = {
                         "symbol": choice["symbol"],
