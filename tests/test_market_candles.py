@@ -426,5 +426,23 @@ class TradeCandleBuilderTests(unittest.TestCase):
         })
 
 
+    def test_volume_overflow_resets_all_candle_history_and_fails_closed(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, quantity=1e308))
+        self.assertIsNotNone(builder.current)
+        self.assertEqual(builder.current["volume"], 1e308)
+
+        result = builder.add_trade(self.trade(100, second=2, quantity=1e308))
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "volume_overflow")
+        self.assertIsNone(builder.current)
+        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(builder.is_ready)
+        status = builder.status()
+        self.assertEqual(status["gaps"], 1)
+        self.assertEqual(status["history_clear_count"], 1)
+        self.assertEqual(status["last_reset_reason"], "explicit_gap_reset")
+
+
 if __name__ == "__main__":
     unittest.main()
