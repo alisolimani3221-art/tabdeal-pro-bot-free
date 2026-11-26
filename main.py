@@ -2584,6 +2584,32 @@ class FuturesAnalyzerApp(App):
             subscribed_symbols=list(subscription_symbols),
             per_symbol_health=coordinator.status(),
         )
+        market_event_watermark_ms = None
+
+        def finalize_market_candles(watermark_ms):
+            """Advance closes only from the validated market-wide event-time watermark."""
+            finalized = coordinator.finalize_due(watermark_ms, grace_ms=30_000)
+            selected_result = finalized.get(symbol, {})
+            if selected_result.get("finalized") and builder.closed:
+                try:
+                    cache_rows = validate_closed_candles(
+                        list(builder.closed), int(time.time() * 1000),
+                        interval_ms=builder.interval_ms,
+                        limit=builder.closed.maxlen,
+                    )
+                    if cache_rows:
+                        save_candle_cache(
+                            self.auto_candle_cache_path, symbol, cache_rows
+                        )
+                        self.auto_candle_cache_last_open_time = cache_rows[-1][0]
+                except Exception as cache_exc:
+                    Clock.schedule_once(
+                        lambda dt, name=type(cache_exc).__name__: self.update_auto_status(
+                            "کندل بسته شد، اما ذخیره کش ناموفق بود: " + name
+                        ), 0
+                    )
+            return finalized
+
         last_processed_bucket = None
         scan_state_lock = threading.Lock()
         scan_state = {"technical": None, "received_at": 0.0}
@@ -2617,7 +2643,8 @@ class FuturesAnalyzerApp(App):
 
             def on_open(ws):
                 nonlocal connected_once, last_processed_bucket, total_reconnects
-                nonlocal recovered_open_symbol
+                nonlocal recovered_open_symbol, market_event_watermark_ms
+                market_event_watermark_ms = None
                 socket_diagnostics["opened"] = True
                 market_connection_state["opened_at"] = time.monotonic()
                 stream_watchdog.connected()
@@ -2662,7 +2689,7 @@ class FuturesAnalyzerApp(App):
             def on_message(ws, message):
                 nonlocal last_processed_bucket, last_progress_count
                 nonlocal last_status_update, received_messages, valid_messages, control_messages, retry_attempt
-                nonlocal recovered_open_symbol
+                nonlocal recovered_open_symbol, market_event_watermark_ms
                 received_messages += 1
                 self._update_engine_health(received_messages=received_messages)
                 # This socket is a market-wide broadcast. Parse each event's
@@ -2724,6 +2751,16 @@ class FuturesAnalyzerApp(App):
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
+                event_timestamp_ms = parsed.get("timestamp_ms")
+                if isinstance(event_timestamp_ms, int) and not isinstance(event_timestamp_ms, bool):
+                    market_event_watermark_ms = (
+                        event_timestamp_ms if market_event_watermark_ms is None
+                        else max(market_event_watermark_ms, event_timestamp_ms)
+                    )
+                    # A valid trade from any market advances the broadcast watermark.
+                    # The 30-second grace matches the live-event freshness gate;
+                    # partial and reconnect buckets remain ineligible for closure.
+                    finalize_market_candles(market_event_watermark_ms)
                 # Accept only the exact symbols subscribed on this socket.
                 # Each market has its own candle builder and technical snapshot.
                 event_symbol = parsed.get("symbol")
