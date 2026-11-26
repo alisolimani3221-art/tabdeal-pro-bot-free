@@ -1423,10 +1423,10 @@ class FuturesAnalyzerApp(App):
                 size=13, font=NUMERIC_FONT_NAME)
             add_line("SMA20: {}    ATR یک‌دقیقه‌ای: {}".format(
                 format_market_value(technical["sma20"]),
-                format_market_value(signal_atr)), size=13, font=NUMERIC_FONT_NAME)
+                format_market_value(signal_atr)), size=13, font=FONT_NAME)
             if risk_atr is not None:
                 add_line("ATR مبنای ریسک (۵ دقیقه‌ای): {}".format(
-                    format_market_value(risk_atr)), size=13, font=NUMERIC_FONT_NAME)
+                    format_market_value(risk_atr)), size=13, font=FONT_NAME)
             if stop is not None and target is not None and stop > 0 and target > 0:
                 add_line("حد ضرر تخمینی بر پایه ATR پنج‌دقیقه‌ای: {}".format(
                     format_market_value(stop)), font=FONT_NAME)
