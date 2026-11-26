@@ -39,6 +39,7 @@ from market_symbols import select_market_symbol, list_market_symbols
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
+from candle_archive import CandleArchive
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
 from app_runtime_guard import AppRuntimeGuard
@@ -1373,7 +1374,9 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("نماد انتخاب‌شده معتبر نیست؛ شروع انجام نشد.")
             return
         try:
-            builder = TradeCandleBuilder(symbol)
+            archive_path = os.path.join(self.user_data_dir, "market-candles.sqlite3")
+            candle_archive = CandleArchive(archive_path, max_rows=5000)
+            builder = TradeCandleBuilder(symbol, archive=candle_archive)
             engine = PaperTradingEngine(
                 capital=self.capital_usdt, risk_percent=0.5, max_leverage=3
             )
