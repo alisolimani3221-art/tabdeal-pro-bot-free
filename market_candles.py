@@ -143,14 +143,22 @@ class TradeCandleBuilder:
                 # next analysis window. Restart warm-up from fully observed live
                 # candles instead of passing a discontinuous series to indicators.
                 if self.closed:
+                    # The cached/previous closed history ends before this
+                    # partially observed bucket. Once that bucket closes, the
+                    # next live bucket would otherwise leave a one-minute hole.
+                    # Invalidate and archive the old cache rather than append
+                    # an incomplete OHLCV row or silently bridge the gap.
                     self.closed.clear()
                     self.history_clear_count += 1
+                    self.gaps += 1
+                    gap_detected = True
                     self.last_reset_reason = "history_cleared_after_partial_bucket"
                 # The reconnect warm-up gate ends when the first partial bucket
                 # has been discarded, even when there was no closed history to clear.
                 self._reconnect_warmup_pending = False
             if bucket != previous_bucket + self.interval_ms:
-                self.gaps += 1
+                if not gap_detected:
+                    self.gaps += 1
                 gap_detected = True
                 # Do not let indicators bridge an unknown interval.
                 self.closed.clear()
@@ -193,7 +201,10 @@ class TradeCandleBuilder:
         # valid alongside that history; do not discard it and erase the cache.
         # _resume_bucket enforces exact minute continuity before the cache can
         # be used. A skipped full minute still clears the active history.
-        self.discard_next_close = False
+        # The first live bucket after process startup is only partially
+        # observed. It may be used as a forming candle (analysis excludes it),
+        # but must be discarded at its close; never append it as full OHLCV.
+        self.discard_next_close = True
         self._resume_bucket = self.closed[-1][0]
         self._resume_last_timestamp_ms = self._resume_bucket + self.interval_ms - 1
         self._reconnect_warmup_pending = False
