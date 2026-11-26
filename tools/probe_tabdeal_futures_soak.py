@@ -1,25 +1,31 @@
-"""Five-minute read-only soak test for Tabdeal Futures broadcast."""
-
-import json
-import os
-import sys
-
-# When run as a script, Python adds tools/ rather than the repository root.
+"""Configurable read-only soak test for Tabdeal Futures broadcast."""
+import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from trade_stream_probe import probe_broadcast
 
+def _positive_int_env(name, default, maximum):
+    raw = os.environ.get(name, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("{} must be an integer".format(name))
+    if isinstance(value, bool) or value < 1 or value > maximum:
+        raise ValueError("{} must be between 1 and {}".format(name, maximum))
+    return value
 
 def main():
-    result = probe_broadcast(
-        symbol="BTC_USDT",
-        timeout_seconds=300,
-        max_messages=5000,
-    )
+    try:
+        timeout_seconds = _positive_int_env("SOAK_SECONDS", 300, 3600)
+        max_messages = _positive_int_env("SOAK_MAX_MESSAGES", 100000, 1000000)
+    except ValueError as exc:
+        print("CONFIGURATION_ERROR=" + str(exc))
+        return 2
+    result = probe_broadcast(symbol="BTC_USDT", timeout_seconds=timeout_seconds, max_messages=max_messages)
     valid = int(result.get("valid_trades", 0))
     with_sequence = int(result.get("sequence_present_trades", 0))
     without_sequence = int(result.get("sequence_missing_trades", 0))
     summary = {
+        "requested_seconds": timeout_seconds,
         "connected": bool(result.get("connected")),
         "elapsed_seconds": result.get("elapsed_seconds"),
         "messages": int(result.get("messages", 0)),
@@ -35,7 +41,6 @@ def main():
         return 2
     print("RESULT=FRESH_FUTURES_STREAM_OBSERVED")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
