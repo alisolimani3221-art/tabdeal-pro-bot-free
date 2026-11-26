@@ -40,6 +40,9 @@ class TradeCandleBuilder:
         self._resume_bucket = None
         self._resume_last_timestamp_ms = None
         self._reconnect_warmup_pending = False
+        # A restored cache may support analysis while the first live bucket
+        # is forming, but that bucket itself is incomplete and must be dropped.
+        self._restored_partial_bucket = False
 
     @staticmethod
     def _positive(value, name):
@@ -111,6 +114,8 @@ class TradeCandleBuilder:
                 self.gaps += 1
                 gap_detected = True
                 self._reconnect_warmup_pending = False
+                self._restored_partial_bucket = False
+                self.discard_next_close = True
             else:
                 # Continuity is confirmed, but readiness stays blocked until
                 # one complete post-reconnect candle has actually closed.
@@ -127,7 +132,21 @@ class TradeCandleBuilder:
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
-            if not self.discard_next_close:
+            if self._restored_partial_bucket:
+                # Keep validated cached closed candles usable while this first
+                # live bucket is forming, but never promote that partial bucket
+                # to a closed OHLCV row. Its omission creates a real interval
+                # break, so invalidate/archive the cache at this boundary.
+                self._restored_partial_bucket = False
+                self.partial_buckets_discarded += 1
+                if self.closed:
+                    self.closed.clear()
+                    self.history_clear_count += 1
+                    self.gaps += 1
+                    gap_detected = True
+                    self.last_reset_reason = "history_cleared_after_restored_partial_bucket"
+                self._reconnect_warmup_pending = False
+            elif not self.discard_next_close:
                 self.closed.append(self._as_row(self.current))
                 # A reconnect is not warm again until one complete post-reconnect
                 # candle has actually been closed and retained.
@@ -143,18 +162,11 @@ class TradeCandleBuilder:
                 # next analysis window. Restart warm-up from fully observed live
                 # candles instead of passing a discontinuous series to indicators.
                 if self.closed:
-                    # The cached/previous closed history ends before this
-                    # partially observed bucket. Once that bucket closes, the
-                    # next live bucket would otherwise leave a one-minute hole.
-                    # Invalidate and archive the old cache rather than append
-                    # an incomplete OHLCV row or silently bridge the gap.
                     self.closed.clear()
                     self.history_clear_count += 1
                     self.gaps += 1
                     gap_detected = True
                     self.last_reset_reason = "history_cleared_after_partial_bucket"
-                # The reconnect warm-up gate ends when the first partial bucket
-                # has been discarded, even when there was no closed history to clear.
                 self._reconnect_warmup_pending = False
             if bucket != previous_bucket + self.interval_ms:
                 if not gap_detected:
@@ -204,7 +216,8 @@ class TradeCandleBuilder:
         # The first live bucket after process startup is only partially
         # observed. It may be used as a forming candle (analysis excludes it),
         # but must be discarded at its close; never append it as full OHLCV.
-        self.discard_next_close = True
+        self.discard_next_close = False
+        self._restored_partial_bucket = True
         self._resume_bucket = self.closed[-1][0]
         self._resume_last_timestamp_ms = self._resume_bucket + self.interval_ms - 1
         self._reconnect_warmup_pending = False
@@ -226,6 +239,7 @@ class TradeCandleBuilder:
         self.last_timestamp_ms = None
         self.last_sequence = None
         self.discard_next_close = True
+        self._restored_partial_bucket = False
 
     def reset_after_gap(self):
         """Discard all history after a confirmed data gap."""
@@ -240,6 +254,7 @@ class TradeCandleBuilder:
         self.history_clear_count += 1
         self.last_reset_reason = "explicit_gap_reset"
         self.discard_next_close = True
+        self._restored_partial_bucket = False
 
     @staticmethod
     def _new_candle(bucket, price, quantity, timestamp):
