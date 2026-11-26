@@ -159,6 +159,9 @@ class TradeCandleBuilderTests(unittest.TestCase):
             def load_recent(self, symbol, interval_ms, limit):
                 return []
 
+            def count(self, symbol, interval_ms):
+                return 0
+
             def save_closed(self, symbol, interval_ms, row):
                 raise OSError("simulated disk failure")
 
