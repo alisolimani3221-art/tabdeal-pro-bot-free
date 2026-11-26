@@ -1476,6 +1476,14 @@ class FuturesAnalyzerApp(App):
 
         def publish_scan():
             with data_lock:
+                archive_error = builder.archive_error
+                if archive_error:
+                    Clock.schedule_once(
+                        lambda dt, value=archive_error: self.update_auto_status(
+                            "ذخیره دائمی کندل‌ها ناموفق است؛ تحلیل و سیگنال تا رفع خطا متوقف شد. علت: " + value
+                        ), 0
+                    )
+                    return
                 if not builder.is_ready or builder.current is None:
                     return
                 received_at = last_trade_at[0]
