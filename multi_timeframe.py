@@ -1,22 +1,17 @@
-"""Strict aggregation of fully closed 1-minute futures candles.
+"""Strict analysis of 1m, 5m and 15m closed futures candles.
 
-Input rows use Binance-compatible OHLCV format. No partial timeframe candle is
-ever emitted; missing, duplicated, out-of-order or malformed minute data fails
-closed rather than silently manufacturing a trend signal.
+Only complete, exchange-epoch-aligned 5m/15m bars are aggregated from the
+validated 1m stream. Entry requires all three timeframe signals to agree.
 """
 import math
 
 MINUTE_MS = 60_000
-TIMEFRAMES_MINUTES = (5, 15, 30, 60)
+TRADE_TIMEFRAMES_MINUTES = (1, 5, 15)
+AGGREGATED_TIMEFRAMES_MINUTES = (5, 15)
 
 
 def aggregate_closed_timeframes(candles, now_ms):
-    """Return complete, exchange-epoch-aligned 5/15/30/60m OHLCV candles.
-
-    `now_ms` is the exchange/server clock in milliseconds. A timeframe bar is
-    emitted only when its end timestamp is <= now_ms and every constituent
-    1m candle is present exactly once.
-    """
+    """Return complete epoch-aligned 5m/15m OHLCV bars from contiguous 1m rows."""
     if not isinstance(candles, (list, tuple)):
         raise ValueError("one-minute candles must be a list")
     if isinstance(now_ms, bool):
@@ -52,7 +47,7 @@ def aggregate_closed_timeframes(candles, now_ms):
         rows.append((ts, o, h, low, close, volume))
 
     result = {}
-    for minutes in TIMEFRAMES_MINUTES:
+    for minutes in AGGREGATED_TIMEFRAMES_MINUTES:
         width = minutes * MINUTE_MS
         buckets = {}
         for row in rows:
@@ -71,41 +66,41 @@ def aggregate_closed_timeframes(candles, now_ms):
                    for i in range(minutes)):
                 continue
             complete.append([
-                start,
-                members[0][1],
+                start, members[0][1],
                 max(item[2] for item in members),
                 min(item[3] for item in members),
-                members[-1][4],
-                sum(item[5] for item in members),
+                members[-1][4], sum(item[5] for item in members),
             ])
         result[minutes] = complete
     return result
 
 
-
 def analyze_multi_timeframe(candles, now_ms, analyzer):
-    """Analyze 5m/15m/30m/60m closed bars and require full directional agreement.
-
-    A synthetic next-bucket row is appended only as the analyzer's excluded
-    forming-candle sentinel; it is never included in indicator calculations.
-    Missing history or any timeframe disagreement produces NEUTRAL.
-    """
+    """Require directional agreement from the closed 1m, 5m and 15m signals."""
     if not callable(analyzer):
         raise ValueError("analyzer must be callable")
+    if not isinstance(candles, (list, tuple)):
+        raise ValueError("one-minute candles must be a list")
+
+    # The 1m analyzer excludes the final (possibly forming) candle itself.
+    one_minute = analyzer(candles)
+    if not isinstance(one_minute, dict):
+        raise ValueError("one-minute analyzer returned an invalid result")
+
     aggregated = aggregate_closed_timeframes(candles, now_ms)
-    analyses = {}
-    counts = {}
-    signals = {}
+    analyses = {"1": dict(one_minute)}
+    counts = {"1": one_minute.get("closed_candles", 0)}
+    signals = {"1": one_minute.get("signal", "NEUTRAL")}
     closes = {}
-    for minutes in TIMEFRAMES_MINUTES:
+    for minutes in AGGREGATED_TIMEFRAMES_MINUTES:
         rows = aggregated[minutes]
         counts[str(minutes)] = len(rows)
         if len(rows) < 23:
             continue
         interval_ms = minutes * MINUTE_MS
         last = rows[-1]
-        # analyze_klines intentionally excludes its final row. This sentinel
-        # makes every aggregated row above eligible as a fully closed candle.
+        # analyze_klines excludes its final row; this sentinel makes all
+        # validated, fully closed aggregate rows eligible for indicators.
         sentinel_price = last[4]
         sentinel = [
             last[0] + interval_ms,
@@ -119,13 +114,12 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         signals[str(minutes)] = technical.get("signal", "NEUTRAL")
         closes[str(minutes)] = int(last[0])
 
-    base = analyses.get("5")
-    if base is None:
-        # Retain ordinary short-timeframe diagnostics while explicitly blocking
-        # entry until every required higher timeframe has enough history.
-        base = analyzer(candles)
-    ready = len(analyses) == len(TIMEFRAMES_MINUTES)
-    directions = [signals.get(str(minutes)) for minutes in TIMEFRAMES_MINUTES]
+    base = dict(one_minute)
+    ready = (
+        type(counts.get("1")) is int and counts["1"] >= 23
+        and all(str(minutes) in analyses for minutes in AGGREGATED_TIMEFRAMES_MINUTES)
+    )
+    directions = [signals.get(str(minutes)) for minutes in TRADE_TIMEFRAMES_MINUTES]
     agreement = bool(
         ready and directions[0] in ("BULLISH", "BEARISH")
         and all(direction == directions[0] for direction in directions)
@@ -136,7 +130,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         "ready": ready,
         "agreement": agreement,
         "direction": directions[0] if agreement else None,
-        "required_minutes": list(TIMEFRAMES_MINUTES),
+        "required_minutes": list(TRADE_TIMEFRAMES_MINUTES),
         "closed_candles": counts,
         "signals": signals,
         "last_closed_open_times": closes,
