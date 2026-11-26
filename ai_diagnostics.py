@@ -280,8 +280,8 @@ def build_engine_health_report_lines(app):
         )),
         "بازه هر کندل (ثانیه): " + value("candle_interval_seconds", "60"),
         "تاریخچه سه تایم‌فریم آماده: " + value("multi_timeframe_ready", "false"),
-        "هم‌جهتی سه تایم‌فریم: " + value("multi_timeframe_agreement", "false"),
-        "پیشرفت تاریخچه ۵/۱۵/۳۰/۶۰ دقیقه: " + value("timeframe_history_progress", "در انتظار داده"),
+        "هم‌جهتی روند ۵/۱۵ دقیقه: " + value("multi_timeframe_agreement", "false"),
+        "پیشرفت تاریخچه ۱/۵/۱۵ دقیقه: " + value("timeframe_history_progress", "در انتظار داده"),
         "آماده‌بودن کندل‌ساز: " + value("builder_ready", "false"),
         "عمر آخرین اسکن موتور (ثانیه): " + (
             age("last_scan_age_seconds")
