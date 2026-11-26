@@ -1412,7 +1412,15 @@ class FuturesAnalyzerApp(App):
         worker = getattr(self, "auto_trader_thread", None)
         if worker is not None and worker.is_alive() and worker is not threading.current_thread():
             worker.join(timeout=max(0.0, float(timeout)))
-        return worker is None or not worker.is_alive()
+        stopped = worker is None or not worker.is_alive()
+        if stopped:
+            builder = getattr(self, "auto_candle_builder", None)
+            if builder is not None:
+                try:
+                    builder.finalize_due(int(time.time() * 1000))
+                except Exception:
+                    pass
+        return stopped
 
     def stop_auto_paper_trader(self):
         """Stop the paper stream before closing its simulated position."""
@@ -1545,6 +1553,8 @@ class FuturesAnalyzerApp(App):
                 if self.auto_stop_event.is_set():
                     break
                 with data_lock:
+                    # Persist elapsed buckets even if the next trade never arrives.
+                    builder.finalize_due(int(time.time() * 1000))
                     ready = builder.is_ready
                     status = builder.status()
                     received_at = last_trade_at[0]
@@ -1581,6 +1591,8 @@ class FuturesAnalyzerApp(App):
                 nonlocal connected_once
                 with data_lock:
                     if connected_once:
+                        # Preserve a candle that had already elapsed before reconnect.
+                        builder.finalize_due(int(time.time() * 1000))
                         builder.reset_after_gap()
                         last_trade_at[0] = None
                     connected_once = True
