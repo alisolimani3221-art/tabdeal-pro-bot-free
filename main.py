@@ -40,6 +40,8 @@ from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path
+# Compare market identifiers by normalized BASEUSDT pair, while retaining
+# the exact exchange-native spelling for REST requests and UI display.
 from market_symbols import (select_market_symbol, list_market_symbols,
                             normalize_market_symbol)
 from orderbook_poller import fetch_order_book_snapshot
