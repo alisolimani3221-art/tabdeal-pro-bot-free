@@ -1527,11 +1527,13 @@ class FuturesAnalyzerApp(App):
             message_text = (
                 "شبیه‌ساز فعال | بررسی هر ۱۵ ثانیه | {}\n"
                 "سیگنال آخر: {} | قیمت کندل بسته‌شده: {:.8g} | قیمت زنده: {:.8g}\n"
-                "کندل‌های معتبر: {} | سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
+                "کندل‌های پیوسته معتبر: {} | کندل‌های ذخیره‌شده در آرشیو: {}\n"
+                "سرمایه مجازی: {:.4f} USDT | معاملات بسته: {}\n"
                 "حداکثر ریسک هر معامله ۰٫۵٪؛ اهرم حداکثر ۳ برابر.\n{}"
             ).format(symbol, technical["signal"], technical["price"],
                      technical["mark_price"], status["closed_candles"],
-                     result["equity"], result["closed_trades"], event_text)
+                     status["stored_closed_candles"], result["equity"],
+                     result["closed_trades"], event_text)
             Clock.schedule_once(
                 lambda dt, value=message_text: self.update_auto_status(value), 0
             )
@@ -1548,9 +1550,10 @@ class FuturesAnalyzerApp(App):
                     received_at = last_trade_at[0]
                 if not ready:
                     Clock.schedule_once(
-                        lambda dt, count=status["closed_candles"]: self.update_auto_status(
-                            "در حال آماده‌سازی داده پیوسته: {} از ۵۱ کندل بسته‌شده معتبر. "
-                            "تا تکمیل داده کافی، معامله آزمایشی باز نمی‌شود.".format(count)
+                        lambda dt, count=status["closed_candles"], stored=status["stored_closed_candles"]: self.update_auto_status(
+                            "در حال آماده‌سازی داده پیوسته: {} از ۵۱ کندل معتبر؛ "
+                            "آرشیو دائمی: {} کندل ذخیره‌شده. "
+                            "قطع اتصال شمارندهٔ آرشیو را پاک نمی‌کند.".format(count, stored)
                         ), 0
                     )
                     continue
