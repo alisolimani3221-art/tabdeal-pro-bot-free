@@ -14,11 +14,11 @@ class MultiSymbolBroadcastSelectionTests(unittest.TestCase):
             ("ETH_USDT", "BTC_USDT"),
         )
 
-    def test_limits_to_two_verified_markets(self):
+    def test_limits_to_five_verified_markets(self):
         result = select_broadcast_symbols(
-            "BTC_USDT", {"ETH_USDT", "SOL_USDT", "XRP_USDT"}
+            "BTC_USDT", {"ETH_USDT", "SOL_USDT", "XRP_USDT", "BNB_USDT", "ADA_USDT", "DOGE_USDT"}
         )
-        self.assertEqual(result, ("BTC_USDT", "ETH_USDT"))
+        self.assertEqual(result, ("BTC_USDT", "ADA_USDT", "BNB_USDT", "ETH_USDT", "SOL_USDT"))
         self.assertEqual(len(result), MAX_VERIFIED_BROADCAST_SYMBOLS)
 
     def test_unverified_or_malformed_symbols_are_ignored(self):
@@ -40,7 +40,7 @@ class MultiSymbolBroadcastSelectionTests(unittest.TestCase):
     def test_limit_cannot_exceed_verified_probe(self):
         with self.assertRaises(ValueError):
             select_broadcast_symbols(
-                "BTC_USDT", {"ETH_USDT", "SOL_USDT"}, max_symbols=3
+                "BTC_USDT", {"ETH_USDT", "SOL_USDT"}, max_symbols=6
             )
 
 
@@ -53,10 +53,10 @@ class MultiSymbolBroadcastSelectionTests(unittest.TestCase):
 
         socket = FakeSocket()
         result = subscribe_broadcast_symbols(
-            socket, ("BTC_USDT", "ETH_USDT")
+            socket, ("BTC_USDT", "ETH_USDT", "XRP_USDT", "BNB_USDT", "SOL_USDT")
         )
-        self.assertEqual(result, ("BTC_USDT", "ETH_USDT"))
-        self.assertEqual(socket.sent, ["BTC_USDT", "ETH_USDT"])
+        self.assertEqual(result, ("BTC_USDT", "ETH_USDT", "XRP_USDT", "BNB_USDT", "SOL_USDT"))
+        self.assertEqual(socket.sent, ["BTC_USDT", "ETH_USDT", "XRP_USDT", "BNB_USDT", "SOL_USDT"])
 
     def test_rejects_unsupported_or_duplicate_subscriptions(self):
         class FakeSocket:
@@ -64,7 +64,7 @@ class MultiSymbolBroadcastSelectionTests(unittest.TestCase):
                 raise AssertionError("must not send invalid subscription")
 
         for values in ((), ("BTC_USDT", "BTC_USDT"),
-                       ("BTC_USDT", "ETH_USDT", "SOL_USDT")):
+                       ("BTC_USDT", "ETH_USDT", "SOL_USDT", "XRP_USDT", "BNB_USDT", "ADA_USDT")):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 subscribe_broadcast_symbols(FakeSocket(), values)
 
