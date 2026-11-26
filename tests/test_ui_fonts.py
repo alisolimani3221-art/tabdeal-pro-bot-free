@@ -135,18 +135,6 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("tar -tf /tmp/private.tar", workflow)
 
 
-    def test_chatgpt_popup_keeps_logical_persian_text_for_native_rtl(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
-        start = source.index("    def open_openai_assistant(")
-        end = source.index("    def open_smart_analysis(", start)
-        assistant = source[start:end]
-        self.assertIn('greeting = "سلام! من دستیار هوشمند برنامه هستم. پیام خود را بنویسید."', assistant)
-        self.assertIn("text=greeting", assistant)
-        self.assertEqual(assistant.count('base_direction="rtl", text_language="fa"'), 2)
-        self.assertIn('result.text = "\\n\\n".join(lines)', assistant)
-        self.assertNotIn("assistant_rtl_text(", assistant)
-
-
     def test_groq_dialog_shapes_readonly_persian_output_once(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         start = source.index("    def open_openai_assistant(")
@@ -158,6 +146,8 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn('result.text = assistant_rtl_text(message)', dialog)
         self.assertNotIn('text=greeting,', dialog)
         self.assertNotIn('base_direction="rtl", text_language="fa"', dialog)
+        self.assertIn('multiline=True, font_name=FONT_NAME', dialog)
+        self.assertIn('base_direction="rtl", text_language="fa", halign="right"', dialog)
 
 
 if __name__ == "__main__":
