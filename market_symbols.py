@@ -7,7 +7,7 @@ import re
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]+_?USDT$")
 
 
-def _normalized_symbol(value):
+def normalize_market_symbol(value):
     if not isinstance(value, str):
         return None
     candidate = value.strip().upper()
@@ -47,7 +47,7 @@ def list_market_symbols(symbols):
         else:
             continue
 
-        normalized = _normalized_symbol(actual)
+        normalized = normalize_market_symbol(actual)
         if normalized is None or normalized in seen:
             continue
         seen.add(normalized)
@@ -55,17 +55,17 @@ def list_market_symbols(symbols):
 
     # Keep BTC as the initial/default choice, then list the remaining
     # exchange-supported contracts alphabetically.
-    found.sort(key=lambda value: (0 if _normalized_symbol(value) == "BTCUSDT" else 1, value))
+    found.sort(key=lambda value: (0 if normalize_market_symbol(value) == "BTCUSDT" else 1, value))
     return found
 
 
 def select_market_symbol(symbols, requested="BTCUSDT"):
     """Return the exchange's exact symbol matching a valid normalized pair."""
-    wanted = _normalized_symbol(requested)
+    wanted = normalize_market_symbol(requested)
     if wanted is None:
         raise ValueError("requested symbol must be a valid USDT futures symbol")
     for actual in list_market_symbols(symbols):
-        if _normalized_symbol(actual) == wanted:
+        if normalize_market_symbol(actual) == wanted:
             return str(actual)
 
     raise ValueError("{} was not found in Futures exchangeInfo".format(requested))
