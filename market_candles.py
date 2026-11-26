@@ -140,6 +140,13 @@ class TradeCandleBuilder:
         elif bucket == self.current["open_time"]:
             if timestamp < self.current["last_timestamp"]:
                 return self._reject("out_of_order")
+            # A finite trade quantity can still overflow accumulated candle volume.
+            # Never retain or publish a non-finite OHLCV row: invalidate warm-up
+            # and force a fresh contiguous run instead of silently dropping data.
+            new_volume = self.current["volume"] + quantity
+            if not math.isfinite(new_volume):
+                self.reset_after_gap()
+                return self._reject("volume_overflow")
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
