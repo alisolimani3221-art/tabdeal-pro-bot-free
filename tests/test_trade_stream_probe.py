@@ -301,6 +301,10 @@ class TradeStreamProbeTests(unittest.TestCase):
             with self.subTest(timeout=timeout):
                 with self.assertRaises(ValueError):
                     probe_broadcast(timeout_seconds=timeout)
+        for max_messages in (True, 0, -1, 1.5, "100"):
+            with self.subTest(max_messages=max_messages):
+                with self.assertRaises(ValueError):
+                    probe_broadcast(max_messages=max_messages)
 
 
 if __name__ == "__main__":
