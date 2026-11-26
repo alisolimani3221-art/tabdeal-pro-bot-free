@@ -1487,11 +1487,20 @@ class FuturesAnalyzerApp(App):
         # A candle is clock-finalized only after a WebSocket pong received
         # after its bucket end proves the stream remained alive past the close.
         last_pong_wall_ms = [None]
+        last_pong_monotonic = [None]
         stream_connected = [False]
         connected_once = False
 
         def publish_scan():
             with data_lock:
+                # Do not publish signals or paper entries from a disconnected
+                # or heartbeat-stale stream, even during the 30-second trade
+                # freshness grace period.
+                pong_at = last_pong_monotonic[0]
+                if (not stream_connected[0] or pong_at is None
+                        or time.monotonic() - pong_at < 0
+                        or time.monotonic() - pong_at > 30):
+                    return
                 archive_error = builder.archive_error
                 if archive_error:
                     Clock.schedule_once(
@@ -1563,15 +1572,26 @@ class FuturesAnalyzerApp(App):
                 with data_lock:
                     current = builder.current
                     pong_ms = last_pong_wall_ms[0]
-                    if (stream_connected[0] and current is not None and
+                    pong_at = last_pong_monotonic[0]
+                    pong_fresh = (pong_at is not None
+                                  and 0 <= time.monotonic() - pong_at <= 30)
+                    if (stream_connected[0] and pong_fresh and current is not None and
                             pong_ms is not None and
                             pong_ms >= current["open_time"] + builder.interval_ms):
                         # A pong after bucket end is evidence the feed survived
                         # the close; without it, do not archive a possibly partial candle.
                         builder.finalize_due(pong_ms)
+                    connected = stream_connected[0] and pong_fresh
                     ready = builder.is_ready
                     status = builder.status()
                     received_at = last_trade_at[0]
+                if not connected:
+                    Clock.schedule_once(
+                        lambda dt: self.update_auto_status(
+                            "جریان بازار قطع یا heartbeat منقضی شده است؛ تحلیل و ورود تا تأیید اتصال تازه متوقف است."
+                        ), 0
+                    )
+                    continue
                 if not ready:
                     Clock.schedule_once(
                         lambda dt, count=status["closed_candles"], stored=status["stored_closed_candles"]: self.update_auto_status(
@@ -1606,6 +1626,7 @@ class FuturesAnalyzerApp(App):
                 with data_lock:
                     stream_connected[0] = True
                     last_pong_wall_ms[0] = None
+                    last_pong_monotonic[0] = None
                     if connected_once:
                         # A reconnect is a data gap: discard the unverified
                         # in-progress candle rather than guessing its final OHLCV.
@@ -1639,6 +1660,7 @@ class FuturesAnalyzerApp(App):
             def on_pong(ws, message):
                 with data_lock:
                     last_pong_wall_ms[0] = int(time.time() * 1000)
+                    last_pong_monotonic[0] = time.monotonic()
 
             def on_close(ws, close_status_code, close_msg):
                 with data_lock:
