@@ -24,7 +24,7 @@ class TradeToSignalPipelineTests(unittest.TestCase):
                     "sequence": minute + 1,
                 }
             })
-            parsed = parse_trade_message(message, expected_symbol="BTC_USDT")
+            parsed = parse_trade_message(message, expected_symbol="BTC_USDT", now_ms=(base_minute + minute) * 60_000 + 6_000)
             self.assertTrue(parsed["ok"], parsed)
             result = builder.add_trade(parsed)
             self.assertTrue(result["accepted"], result)
