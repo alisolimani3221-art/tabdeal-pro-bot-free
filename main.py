@@ -2294,7 +2294,9 @@ class FuturesAnalyzerApp(App):
             ensure_paper_runner_ready(guard, coordinator_session)
         except Exception as exc:
             # Market-price display is read-only and does not re-arm or bypass the paper-engine safety gate.
-            self._start_read_only_price_stream(str(self.current_symbol).upper())
+            read_only_starter = getattr(self, "_start_read_only_price_stream", None)
+            if callable(read_only_starter):
+                read_only_starter(str(self.current_symbol).upper())
             self._update_engine_health(
                 worker_phase="blocked_by_safety",
                 last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:120]),
@@ -2379,7 +2381,9 @@ class FuturesAnalyzerApp(App):
             self._persist_paper_engine_state(engine)
         except Exception as exc:
             # A DATA_GAP halt blocks paper execution, not a separate read-only price feed.
-            self._start_read_only_price_stream(symbol)
+            read_only_starter = getattr(self, "_start_read_only_price_stream", None)
+            if callable(read_only_starter):
+                read_only_starter(symbol)
             self._update_engine_health(
                 worker_phase="blocked_by_persisted_state",
                 last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:160]),
@@ -2387,7 +2391,9 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("راه‌اندازی موتور مسدود شد؛ وضعیت ذخیره‌شده معتبر یا قابل‌بازیابی نیست: "
                                     + type(exc).__name__ + ": " + str(exc)[:160])
             return
-        self._stop_read_only_price_stream(timeout=1.0)
+        read_only_stopper = getattr(self, "_stop_read_only_price_stream", None)
+        if callable(read_only_stopper):
+            read_only_stopper(timeout=1.0)
         self.auto_stop_event.clear()
         # Tabdeal broadcast is subscribed to exactly the selected symbol.
         # No other market is assumed to arrive on this socket.
@@ -3781,7 +3787,9 @@ class FuturesAnalyzerApp(App):
         )
 
     def on_stop(self):
-        self._stop_read_only_price_stream(timeout=1.0)
+        read_only_stopper = getattr(self, "_stop_read_only_price_stream", None)
+        if callable(read_only_stopper):
+            read_only_stopper(timeout=1.0)
         poll_stop = getattr(self, "orderbook_poll_stop", None)
         if poll_stop is not None:
             poll_stop.set()
