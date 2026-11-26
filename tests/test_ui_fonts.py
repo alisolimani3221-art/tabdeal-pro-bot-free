@@ -145,7 +145,7 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn('result.text = assistant_rtl_text("\\n\\n".join(lines))', dialog)
         self.assertIn('result.text = assistant_rtl_text(message)', dialog)
         self.assertNotIn('text=greeting,', dialog)
-        self.assertNotIn('base_direction="rtl", text_language="fa"', dialog)
+        self.assertNotIn('base_direction="rtl", text_language="fa"', dialog[:dialog.index("prompt_input =")])
         self.assertIn('multiline=True, font_name=FONT_NAME', dialog)
         self.assertIn('base_direction="rtl", text_language="fa", halign="right"', dialog)
 
