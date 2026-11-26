@@ -56,6 +56,28 @@ def _positive(value, name):
     return number
 
 
+def _utc_timestamp():
+    """Return a compact, timezone-aware UTC timestamp for paper-trade auditing."""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _parse_utc_timestamp(value, name):
+    """Validate an optional persisted UTC timestamp without accepting naive times."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or len(value) > 40:
+        raise ValueError("{} is invalid".format(name))
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError("{} is invalid".format(name))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("{} must include a timezone".format(name))
+    return parsed.astimezone(timezone.utc)
+
+
 
 def summarize_closed_trades(trades, limit=10):
     """Return read-only performance statistics for the most recent valid trades."""
@@ -511,16 +533,26 @@ class PaperTradingEngine:
                 "risk_limit", "fees_entry", "score",
             }
             trailing_fields = {"atr", "trailing_active", "best_price"}
-            if not isinstance(position, dict) or set(position) not in (
-                    required, required | trailing_fields):
+            audit_fields = {"entry_time_utc"}
+            accepted_shapes = (
+                required,
+                required | trailing_fields,
+                required | audit_fields,
+                required | trailing_fields | audit_fields,
+            )
+            if not isinstance(position, dict) or set(position) not in accepted_shapes:
                 raise ValueError("paper-engine position is malformed")
-            if set(position) == required:
-                position = dict(position)
+            position = dict(position)
+            if not trailing_fields.issubset(position):
                 position.update({
                     "atr": abs(position["target"] - position["entry"]) / 3.0,
                     "trailing_active": False,
                     "best_price": position["last_price"],
                 })
+            position.setdefault("entry_time_utc", None)
+            _parse_utc_timestamp(
+                position["entry_time_utc"], "position entry timestamp"
+            )
             if type(position["trailing_active"]) is not bool:
                 raise ValueError("paper-engine trailing state is invalid")
             if (not isinstance(position["symbol"], str)
@@ -631,18 +663,38 @@ class PaperTradingEngine:
 
     def _close(self, price, reason):
         p = self.position
-        exit_price = price * (1 - self.slippage_rate if p["side"] == "BULLISH"
-                              else 1 + self.slippage_rate)
+        exit_trigger_price = _positive(price, "exit trigger price")
+        exit_price = exit_trigger_price * (
+            1 - self.slippage_rate if p["side"] == "BULLISH"
+            else 1 + self.slippage_rate
+        )
         gross = ((exit_price - p["entry"]) * p["quantity"] *
                  (1 if p["side"] == "BULLISH" else -1))
         exit_fee = exit_price * p["quantity"] * self.fee_rate
         net = gross - exit_fee
         self.cash += net
+        closed_at = _utc_timestamp()
+        opened_at = _parse_utc_timestamp(
+            p.get("entry_time_utc"), "position entry timestamp"
+        )
+        closed_at_parsed = _parse_utc_timestamp(closed_at, "trade close timestamp")
+        duration = (
+            (closed_at_parsed - opened_at).total_seconds()
+            if opened_at is not None else None
+        )
+        if duration is not None and duration < 0:
+            duration = None
         trade = dict(p)
-        trade.update({"exit": exit_price, "gross_pnl": gross,
-                      "fees_exit": exit_fee,
-                      "net_pnl": gross - p["fees_entry"] - exit_fee,
-                      "reason": reason})
+        trade.update({
+            "exit": exit_price,
+            "exit_trigger_price": exit_trigger_price,
+            "closed_at_utc": closed_at,
+            "duration_seconds": duration,
+            "gross_pnl": gross,
+            "fees_exit": exit_fee,
+            "net_pnl": gross - p["fees_entry"] - exit_fee,
+            "reason": reason,
+        })
         self.closed_trades.append(trade)
         self.position = None
         return {"event": "CLOSED", "trade": trade}
@@ -999,6 +1051,7 @@ class PaperTradingEngine:
                         "score": choice["score"],
                         "atr": choice["atr"], "trailing_active": False,
                         "best_price": choice["price"],
+                        "entry_time_utc": _utc_timestamp(),
                     }
                     self.last_entry_candle = {
                         "symbol": choice["symbol"],
