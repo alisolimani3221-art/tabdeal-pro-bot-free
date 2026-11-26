@@ -80,3 +80,65 @@ def aggregate_closed_timeframes(candles, now_ms):
             ])
         result[minutes] = complete
     return result
+
+
+
+def analyze_multi_timeframe(candles, now_ms, analyzer):
+    """Analyze 5m/15m/30m/60m closed bars and require full directional agreement.
+
+    A synthetic next-bucket row is appended only as the analyzer's excluded
+    forming-candle sentinel; it is never included in indicator calculations.
+    Missing history or any timeframe disagreement produces NEUTRAL.
+    """
+    if not callable(analyzer):
+        raise ValueError("analyzer must be callable")
+    aggregated = aggregate_closed_timeframes(candles, now_ms)
+    analyses = {}
+    counts = {}
+    signals = {}
+    closes = {}
+    for minutes in TIMEFRAMES_MINUTES:
+        rows = aggregated[minutes]
+        counts[str(minutes)] = len(rows)
+        if len(rows) < 23:
+            continue
+        interval_ms = minutes * MINUTE_MS
+        last = rows[-1]
+        # analyze_klines intentionally excludes its final row. This sentinel
+        # makes every aggregated row above eligible as a fully closed candle.
+        sentinel_price = last[4]
+        sentinel = [
+            last[0] + interval_ms,
+            sentinel_price, sentinel_price, sentinel_price,
+            sentinel_price, 0.0,
+        ]
+        technical = analyzer(rows + [sentinel], interval_ms=interval_ms)
+        if not isinstance(technical, dict):
+            raise ValueError("timeframe analyzer returned an invalid result")
+        analyses[str(minutes)] = dict(technical)
+        signals[str(minutes)] = technical.get("signal", "NEUTRAL")
+        closes[str(minutes)] = int(last[0])
+
+    base = analyses.get("5")
+    if base is None:
+        # Retain ordinary short-timeframe diagnostics while explicitly blocking
+        # entry until every required higher timeframe has enough history.
+        base = analyzer(candles)
+    ready = len(analyses) == len(TIMEFRAMES_MINUTES)
+    directions = [signals.get(str(minutes)) for minutes in TIMEFRAMES_MINUTES]
+    agreement = bool(
+        ready and directions[0] in ("BULLISH", "BEARISH")
+        and all(direction == directions[0] for direction in directions)
+    )
+    result = dict(base)
+    result["signal"] = directions[0] if agreement else "NEUTRAL"
+    result["timeframe_analysis"] = {
+        "ready": ready,
+        "agreement": agreement,
+        "direction": directions[0] if agreement else None,
+        "required_minutes": list(TIMEFRAMES_MINUTES),
+        "closed_candles": counts,
+        "signals": signals,
+        "last_closed_open_times": closes,
+    }
+    return result
