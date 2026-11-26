@@ -46,6 +46,7 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
+from tabdeal_history_provider import fetch_tabdeal_closed_candles
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS)
@@ -2316,6 +2317,22 @@ class FuturesAnalyzerApp(App):
                 candle_count=int(builder.status().get("closed_candles", 0)),
                 builder_ready=bool(builder.is_ready),
             )
+            # Tabdeal's currently documented public Futures REST API does not
+            # expose a historical kline endpoint. Do not probe Binance-compatible
+            # paths or treat an undocumented endpoint as supported. Warm-up must
+            # use a verified local cache (after live continuity validation) or
+            # genuinely observed live trades; paper entries remain gated.
+            history_provider_status = "NOT_DOCUMENTED_DISABLED"
+            history_provider_error = (
+                "Tabdeal public Futures REST documentation does not list historical klines"
+            )
+            self._update_engine_health(
+                candle_history_provider_status=history_provider_status,
+                candle_history_provider_error=history_provider_error,
+                candle_cache_status=candle_cache_note,
+                candle_cache_file_exists=os.path.isfile(candle_cache_path),
+                candle_cache_restored_count=int(restored_candle_count),
+            )
             self.auto_candle_cache_path = candle_cache_path
             self.auto_candle_cache_last_open_time = (
                 builder.closed[-1][0] if restored_candle_count else None
@@ -3279,3 +3296,4 @@ class FuturesAnalyzerApp(App):
 
 if __name__ == "__main__":
     FuturesAnalyzerApp().run()
+# CI trigger: rerun checks after enabling this PR target branch in workflow filters.

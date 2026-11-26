@@ -215,6 +215,30 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertIn("بازه هر کندل (ثانیه): 60", rendered)
         self.assertIn("هنوز اجرا نشده؛ در انتظار تکمیل کندل‌های معتبر", rendered)
 
+    def test_history_provider_and_cache_status_are_reported_without_secrets(self):
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            auto_trader_thread=worker,
+            auto_health={
+                "websocket_connected": True,
+                "last_selected_symbol_trade_at": __import__("time").monotonic(),
+                "builder_ready": False,
+                "candle_history_provider_status": "NOT_DOCUMENTED_DISABLED",
+                "candle_history_provider_error": "historical klines are not documented",
+                "candle_cache_status": "cache missing",
+                "candle_cache_file_exists": False,
+                "candle_cache_restored_count": 0,
+            },
+        )
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn("وضعیت منبع تاریخچه کندل: NOT_DOCUMENTED_DISABLED", rendered)
+        self.assertIn("علت نبود تاریخچه API: historical klines are not documented", rendered)
+        self.assertIn("وضعیت کش کندل: cache missing", rendered)
+        self.assertIn("وجود فایل کش کندل: False", rendered)
+        self.assertIn("تعداد کندل بازیابی‌شده از کش: 0", rendered)
+
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
         worker.is_alive.return_value = False
