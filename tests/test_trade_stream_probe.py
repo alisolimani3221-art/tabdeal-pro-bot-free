@@ -307,5 +307,41 @@ class TradeStreamProbeTests(unittest.TestCase):
                     probe_broadcast(max_messages=max_messages)
 
 
+    def test_soak_result_requires_full_observation_window(self):
+        from tools.probe_tabdeal_futures_soak import soak_result_is_complete
+
+        complete = {
+            "connected": True, "elapsed_seconds": 1800.0,
+            "valid_trades": 20, "messages": 25,
+            "last_diagnostic": "ok",
+        }
+        self.assertTrue(soak_result_is_complete(complete, 1800))
+        for elapsed in (0.0, 100.0, 1781.0, True, float("nan"), float("inf")):
+            with self.subTest(elapsed=elapsed):
+                result = dict(complete, elapsed_seconds=elapsed)
+                self.assertFalse(soak_result_is_complete(result, 1800))
+
+    def test_soak_result_rejects_disconnect_error_and_invalid_counts(self):
+        from tools.probe_tabdeal_futures_soak import soak_result_is_complete
+
+        base = {
+            "connected": True, "elapsed_seconds": 1800.0,
+            "valid_trades": 20, "messages": 25,
+            "last_diagnostic": "ok",
+        }
+        invalid = (
+            dict(base, connected=False),
+            dict(base, last_diagnostic="websocket_error:ConnectionError"),
+            dict(base, valid_trades=0),
+            dict(base, valid_trades=True),
+            dict(base, messages=1),
+            dict(base, messages=True),
+        )
+        for result in invalid:
+            with self.subTest(result=result):
+                self.assertFalse(soak_result_is_complete(result, 1800))
+        self.assertFalse(soak_result_is_complete(base, True))
+
+
 if __name__ == "__main__":
     unittest.main()
