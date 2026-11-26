@@ -87,6 +87,12 @@ class CandleArchiveTests(unittest.TestCase):
         self.assertTrue(fresh["accepted"])
         self.assertEqual(builder.status()["stored_closed_candles"], 1)
 
+    def test_archive_count_reports_all_retained_rows(self):
+        for minute in range(110):
+            self.archive.save_closed("BTC_USDT", 60000, self.row(minute + 100))
+        self.assertEqual(self.archive.count("BTC_USDT", 60000), 100)
+        self.assertEqual(self.archive.count("ETH_USDT", 60000), 0)
+
     def test_builder_restores_archive_but_rebuilds_contiguous_warmup(self):
         builder = TradeCandleBuilder("BTC_USDT", archive=self.archive)
         def trade(minute):
