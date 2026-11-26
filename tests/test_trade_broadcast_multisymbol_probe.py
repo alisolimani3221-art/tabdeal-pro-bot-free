@@ -26,9 +26,14 @@ class MultiSymbolBroadcastProbeTests(unittest.TestCase):
                 second = json.dumps({"trade": {"symbol": "ETH_USDT", "price": "3000",
                     "quantity": "0.1", "timestamp": time.time()}})
                 self.callbacks["on_message"](self, first)
-                if mode == "both":
+                if mode in ("both", "sustained"):
                     self.callbacks["on_message"](self, second)
                     self.callbacks["on_message"](self, first)
+                    if mode == "sustained":
+                        self.callbacks["on_message"](self, second)
+                        self.callbacks["on_message"](self, first)
+                        self.callbacks["on_message"](self, second)
+                        self.callbacks["on_message"](self, first)
                 elif mode == "second_only":
                     self.callbacks["on_message"](self, second)
         module = types.SimpleNamespace(
@@ -43,9 +48,21 @@ class MultiSymbolBroadcastProbeTests(unittest.TestCase):
         with patch.dict(sys.modules, {"websocket": module}):
             result = probe_multiple_symbols(timeout_seconds=1)
         self.assertEqual(state["sent"], ["BTC_USDT", "ETH_USDT"])
-        self.assertEqual(result["status"], "both_symbols_observed_after_second_subscription")
+        self.assertEqual(result["status"], "both_symbols_observed_briefly_or_insufficiently")
         self.assertGreater(result["post_second_subscription_by_symbol"]["BTC_USDT"], 0)
         self.assertGreater(result["post_second_subscription_by_symbol"]["ETH_USDT"], 0)
+        self.assertFalse(state["closed"], "probe must not close immediately after one event per symbol")
+
+    def test_requires_sustained_window_and_repeated_events_for_success(self):
+        state, module = self._fake_websocket("sustained")
+        with patch.dict(sys.modules, {"websocket": module}), patch(
+            "trade_broadcast_multisymbol_probe.time.monotonic", side_effect=[0.0, 35.0]
+        ):
+            result = probe_multiple_symbols(timeout_seconds=60)
+        self.assertEqual(result["status"], "both_symbols_sustained_after_second_subscription")
+        self.assertGreaterEqual(result["post_second_subscription_by_symbol"]["BTC_USDT"], 3)
+        self.assertGreaterEqual(result["post_second_subscription_by_symbol"]["ETH_USDT"], 3)
+        self.assertFalse(state["closed"])
 
     def test_reports_replacement_or_single_symbol_behavior_without_guessing(self):
         state, module = self._fake_websocket("second_only")

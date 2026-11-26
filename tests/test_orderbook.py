@@ -121,6 +121,12 @@ class OrderBookTests(unittest.TestCase):
 
 
 class MarketSymbolTests(unittest.TestCase):
+    def test_normalizes_exchange_symbol_variants_for_matching(self):
+        from market_symbols import normalize_market_symbol
+        self.assertEqual(normalize_market_symbol(" btc_usdt "), "BTCUSDT")
+        self.assertEqual(normalize_market_symbol("BTCUSDT"), "BTCUSDT")
+        self.assertIsNone(normalize_market_symbol("BTC-USDT"))
+
     def test_resolves_tabdeal_underscore_symbol(self):
         self.assertEqual(select_market_symbol(
             [{"symbol": "ETH_USDT"}, {"symbol": "BTC_USDT"}]), "BTC_USDT")

@@ -40,7 +40,10 @@ from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase
 from kivy.resources import resource_add_path
-from market_symbols import select_market_symbol, list_market_symbols
+# Compare market identifiers by normalized BASEUSDT pair, while retaining
+# the exact exchange-native spelling for REST requests and UI display.
+from market_symbols import (select_market_symbol, list_market_symbols,
+                            normalize_market_symbol)
 from orderbook_poller import fetch_order_book_snapshot
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
@@ -559,7 +562,11 @@ class FuturesAnalyzerApp(App):
                 row.text = "--       --"
                 row.disabled = True
             self.orderbook_freshness.text = fa("در انتظار دریافت دفتر سفارش نماد جدید...")
-            if selected in self.verified_market_symbols:
+            matched = next((item for item in self.verified_market_symbols
+                            if normalize_market_symbol(item) == normalize_market_symbol(selected)), None)
+            if matched is not None:
+                # Keep the exchange-native spelling used by exchangeInfo.
+                self.current_symbol = matched
                 self._schedule_order_book_poll(0)
 
     def update_symbol_options(self, symbols):
@@ -570,9 +577,12 @@ class FuturesAnalyzerApp(App):
         if cache_manager is not None:
             cache_manager.set_allowed_symbols(self.verified_market_symbols - {self.current_symbol})
         current = self.current_symbol
+        matched_current = next((item for item in symbols
+                                if normalize_market_symbol(item) == normalize_market_symbol(current)), None)
         self.symbol_spinner.values = tuple(symbols)
-        if current in symbols:
-            self.symbol_spinner.text = current
+        if matched_current is not None:
+            self.current_symbol = matched_current
+            self.symbol_spinner.text = matched_current
         else:
             self.symbol_spinner.text = symbols[0]
             self.current_symbol = symbols[0]
@@ -828,8 +838,10 @@ class FuturesAnalyzerApp(App):
         """Schedule a depth read every two seconds without allowing overlap."""
         if self.orderbook_poll_stop.is_set():
             return False
-        symbol = str(self.current_symbol).upper()
-        if symbol not in self.verified_market_symbols:
+        requested_symbol = str(self.current_symbol).strip().upper()
+        symbol = next((item for item in self.verified_market_symbols
+                       if normalize_market_symbol(item) == normalize_market_symbol(requested_symbol)), None)
+        if symbol is None:
             return True
         if not self.orderbook_poll_lock.acquire(False):
             return True
@@ -880,7 +892,7 @@ class FuturesAnalyzerApp(App):
         if self.orderbook_poll_stop.is_set():
             return
         if snapshot is not None:
-            if snapshot.get("symbol") != self.current_symbol:
+            if normalize_market_symbol(snapshot.get("symbol")) != normalize_market_symbol(self.current_symbol):
                 return
             self.orderbook_last_success_at = snapshot["received_at"]
             self.orderbook_last_error = None
