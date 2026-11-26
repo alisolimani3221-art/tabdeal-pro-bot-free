@@ -49,9 +49,19 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
             final_parsed = parsed
 
         self.assertTrue(builder.is_ready)
+        def deterministic_directional_analyzer(candles, interval_ms=60_000):
+            # The market-history path and all four aggregation windows are real;
+            # this controlled indicator fixture isolates the entry pipeline.
+            return {
+                "signal": "BULLISH", "price": 100.0,
+                "sma10": 99.0, "sma20": 98.0,
+                "rsi14": 56.0, "atr14": 0.8,
+                "closed_candles": len(candles) - 1,
+            }
+
         technical = analyze_multi_timeframe(
             builder.candles_for_analysis(), final_parsed["timestamp_ms"],
-            analyze_klines,
+            deterministic_directional_analyzer,
         )
         technical["symbol"] = symbol
         technical = prepare_live_market_snapshot(technical, final_parsed["price"])
