@@ -61,7 +61,8 @@ class IntegratedAcceptanceTests(unittest.TestCase):
             "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {
-                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}},
+                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
+            "atr14_by_timeframe": {"5": 800.0, "15": 1200.0}},
         }
         engine = PaperTradingEngine(capital=8.0, risk_percent=0.5,
                                     max_leverage=3, fee_rate=0.0005,
