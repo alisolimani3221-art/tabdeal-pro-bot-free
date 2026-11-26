@@ -731,6 +731,31 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(closed["trade"]["reason"], "TRAILING_STOP_TICK")
         self.assertIsNone(engine.position)
 
+    def test_trailing_state_survives_restart_without_losing_protection(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        position = dict(engine.position)
+        engine.process_tick("AAA_USDT", position["target"] + 0.2)
+        saved = engine.export_state()
+        restored = PaperTradingEngine.restore_state(saved)
+        self.assertTrue(restored.position["trailing_active"])
+        self.assertEqual(restored.position["best_price"],
+                         engine.position["best_price"])
+        self.assertEqual(restored.position["stop"], engine.position["stop"])
+        closed = restored.process_tick(
+            "AAA_USDT", restored.position["stop"] - 0.01
+        )
+        self.assertEqual(closed["trade"]["reason"], "TRAILING_STOP_TICK")
+
+    def test_target_does_not_claim_profit_before_fees_are_covered(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.05, slippage_rate=0)
+        engine.process_scan([setup()])
+        position = dict(engine.position)
+        event = engine.process_tick("AAA_USDT", position["target"] + 0.1)
+        self.assertIsNone(event)
+        self.assertFalse(engine.position["trailing_active"])
+        self.assertEqual(engine.position["stop"], position["stop"])
+
     def test_tick_reconciliation_ignores_other_symbols_and_bad_prices(self):
         engine = PaperTradingEngine(capital=8)
         engine.process_scan([setup()])
