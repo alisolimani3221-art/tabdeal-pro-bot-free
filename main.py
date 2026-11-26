@@ -72,6 +72,7 @@ from multi_symbol_stream import (
     subscribe_broadcast_symbols,
 )
 from multi_symbol_paper_coordinator import MultiSymbolPaperCoordinator
+from multi_timeframe import analyze_multi_timeframe
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -2308,7 +2309,7 @@ class FuturesAnalyzerApp(App):
                 builder = previous_builder
                 builder.reset_after_reconnect()
             else:
-                builder = TradeCandleBuilder(symbol)
+                builder = TradeCandleBuilder(symbol, max_candles=2000)
             candle_cache_dir = os.path.join(self.user_data_dir, "candle-cache")
             candle_cache_path = os.path.join(candle_cache_dir, symbol + ".json")
             restored_candle_count = 0
@@ -2564,8 +2565,11 @@ class FuturesAnalyzerApp(App):
         try:
             coordinator = MultiSymbolPaperCoordinator(
                 subscription_symbols, analyze_klines, prepare_live_market_snapshot,
-                builder_factory=lambda market: builder if market == symbol else TradeCandleBuilder(market),
+                builder_factory=lambda market: builder if market == symbol else TradeCandleBuilder(market, max_candles=2000),
                 max_snapshot_age=30.0,
+                analyze_with_context=lambda candles, now_ms: analyze_multi_timeframe(
+                    candles, now_ms, analyze_klines
+                ),
             )
         except Exception as coordinator_exc:
             self.auto_stop_event.set()
