@@ -166,8 +166,11 @@ def rank_signal(technical):
         return None
     timeframe_signals = timeframe.get("signals")
     if (not isinstance(timeframe_signals, dict)
-            or any(timeframe_signals.get(str(minutes)) != signal
-                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
+            or timeframe_signals.get("5") != signal
+            or timeframe_signals.get("15") != signal
+            or timeframe.get("entry_trigger") is not True
+            or timeframe.get("entry_trigger_direction") != signal
+            or timeframe_signals.get("1") not in ("BULLISH", "BEARISH", "NEUTRAL")):
         return None
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
@@ -192,9 +195,11 @@ def rank_signal(technical):
     volatility_pct = atr / price * 100.0
     if not math.isfinite(volatility_pct) or volatility_pct > 2.0:
         return None
-    if signal == "BULLISH" and not (price > sma10 > sma20 and 50 <= rsi < 68):
+    # Higher timeframes determine direction. The 1m candle is only an
+    # entry trigger: close beyond SMA10 plus non-extreme RSI confirmation.
+    if signal == "BULLISH" and not (price > sma10 and 50 < rsi < 70):
         return None
-    if signal == "BEARISH" and not (price < sma10 < sma20 and 32 < rsi <= 50):
+    if signal == "BEARISH" and not (price < sma10 and 30 < rsi < 50):
         return None
     trend_strength = abs(sma10 - sma20) / price * 100.0
     momentum_strength = abs(rsi - 50.0) / 18.0
