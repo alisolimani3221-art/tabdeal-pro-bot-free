@@ -202,7 +202,8 @@ def parse_trade_message(message, expected_symbol=None):
     return result
 
 
-def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
+def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None,
+                    max_messages=100):
     """Connect once, send plain-text symbol on open, and observe public trades."""
     if (not isinstance(symbol, str) or len(symbol) > 32
             or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol)):
@@ -215,6 +216,9 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         raise ValueError("timeout_seconds must be a finite positive number")
     if not math.isfinite(timeout_value) or timeout_value <= 0:
         raise ValueError("timeout_seconds must be a finite positive number")
+    if (isinstance(max_messages, bool) or not isinstance(max_messages, int)
+            or max_messages <= 0):
+        raise ValueError("max_messages must be a positive integer")
     try:
         import websocket
     except ImportError as exc:
@@ -246,7 +250,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
                 on_trade(parsed)
         elif parsed.get("ok"):
             result["last_diagnostic"] = "stale_trade_timestamp"
-        if result["messages"] >= 100:
+        if result["messages"] >= max_messages:
             ws.close()
 
     def on_error(ws, error):
