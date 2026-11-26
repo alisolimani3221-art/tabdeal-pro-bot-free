@@ -53,6 +53,7 @@ class MultiSymbolPaperCoordinator:
                 "last_trade_monotonic": None,
                 "last_price": None,
                 "latest_technical": None,
+                "last_analysis_signature": None,
                 "last_analysis_error": None,
                 "accepted_trades": 0,
                 "rejected_trades": 0,
@@ -126,28 +127,44 @@ class MultiSymbolPaperCoordinator:
                 "sequence": trade.get("sequence"),
             }
             if update.get("gap_detected"):
-                # No pre-gap technical snapshot may remain eligible for entry.
+                # No pre-gap technical snapshot or cached indicator signature
+                # may remain eligible after a continuity break.
                 state["latest_technical"] = None
+                state["last_analysis_signature"] = None
             if not state["builder"].is_ready:
                 return {"accepted": True, "symbol": symbol,
                         "ready": False, "gap_detected": bool(update.get("gap_detected"))}
             try:
                 candles = state["builder"].candles_for_analysis()
-                if self.analyze_with_context is not None:
-                    technical = self.analyze_with_context(candles, timestamp)
+                closed = state["builder"].closed
+                if not closed:
+                    raise ValueError("no closed candles available for technical snapshot")
+                # Indicators depend only on completed bars. Cache the expensive
+                # four-timeframe calculation until at least one new timeframe
+                # bar closes; still refresh the live mark on every accepted tick.
+                last_closed_open = int(closed[-1][0])
+                signature = tuple(
+                    (last_closed_open + state["builder"].interval_ms)
+                    // (minutes * state["builder"].interval_ms)
+                    for minutes in (1, 5, 15, 30, 60)
+                )
+                if (state["latest_technical"] is not None
+                        and state["last_analysis_signature"] == signature):
+                    technical = dict(state["latest_technical"])
                 else:
-                    technical = self.analyze(candles)
-                if not isinstance(technical, dict):
-                    raise ValueError("analysis result is not a dictionary")
-                technical = dict(technical)
+                    if self.analyze_with_context is not None:
+                        technical = self.analyze_with_context(candles, timestamp)
+                    else:
+                        technical = self.analyze(candles)
+                    if not isinstance(technical, dict):
+                        raise ValueError("analysis result is not a dictionary")
+                    technical = dict(technical)
+                    state["last_analysis_signature"] = signature
                 technical["symbol"] = symbol
                 technical = self.prepare_snapshot(technical, state["last_price"])
                 if not isinstance(technical, dict) or technical.get("symbol") != symbol:
                     raise ValueError("snapshot preparation changed or removed symbol identity")
-                closed = state["builder"].closed
-                if not closed:
-                    raise ValueError("no closed candles available for technical snapshot")
-                technical["candle_open_time"] = int(closed[-1][0])
+                technical["candle_open_time"] = last_closed_open
                 state["latest_technical"] = dict(technical)
                 state["last_analysis_error"] = None
             except Exception as exc:
@@ -259,6 +276,7 @@ class MultiSymbolPaperCoordinator:
                     # Old technical snapshots no longer describe a forming candle.
                     # A fresh symbol trade must rebuild them before scan eligibility.
                     state["latest_technical"] = None
+                    state["last_analysis_signature"] = None
                     state["pending_tick"] = None
         return results
 
@@ -270,6 +288,7 @@ class MultiSymbolPaperCoordinator:
                 state["last_trade_monotonic"] = None
                 state["last_price"] = None
                 state["latest_technical"] = None
+                state["last_analysis_signature"] = None
                 state["pending_tick"] = None
 
     def status(self, now=None):
