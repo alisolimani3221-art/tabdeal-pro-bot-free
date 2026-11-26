@@ -110,6 +110,21 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertTrue(result["timeframe_analysis"]["entry_trigger"])
         self.assertEqual(result["timeframe_analysis"]["signals"]["1"], "BEARISH")
 
+    def test_aligned_five_and_fifteen_wait_when_one_minute_trigger_is_absent(self):
+        rows = minute_rows(24 * 60)
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 99.5,
+                    "sma10": 100.0, "sma20": 99.0,
+                    "rsi14": 56.0, "atr14": 0.5,
+                    "closed_candles": len(candles) - 1}
+        result = analyze_multi_timeframe(
+            rows, now_ms=24 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        self.assertTrue(result["timeframe_analysis"]["agreement"])
+        self.assertFalse(result["timeframe_analysis"]["entry_trigger"])
+        self.assertEqual(result["timeframe_analysis"]["direction"], "BULLISH")
+        self.assertEqual(result["signal"], "NEUTRAL")
+
     def test_fifteen_minute_history_below_minimum_blocks_agreement(self):
         rows = minute_rows(22 * 15)
         def stub_analyzer(candles, interval_ms=60_000):
