@@ -26,9 +26,12 @@ class TradeCandleBuilder:
         self.archive = archive
         self.archive_error = None
         self.history = deque(maxlen=max_candles)
+        self.last_archived_bucket = None
         if self.archive is not None:
             for archived_row in self.archive.load_recent(symbol, interval_ms, max_candles):
                 self.history.append(archived_row)
+            if self.history:
+                self.last_archived_bucket = int(self.history[-1][0])
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
@@ -87,6 +90,13 @@ class TradeCandleBuilder:
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
         if self.current is None:
+            # A restarted WebSocket may replay delayed events from a candle
+            # already committed to SQLite. Never re-add those rows to the
+            # in-memory history or contiguous warm-up window.
+            if (self.last_archived_bucket is not None
+                    and bucket <= self.last_archived_bucket):
+                self.rejected += 1
+                return {"accepted": False, "reason": "trade_not_newer_than_archive"}
             if self.last_closed_bucket is not None:
                 if bucket <= self.last_closed_bucket:
                     self.rejected += 1
@@ -111,9 +121,14 @@ class TradeCandleBuilder:
                 closed_row = self._as_row(self.current)
                 try:
                     if self.archive is not None:
-                        self.archive.save_closed(self.symbol, self.interval_ms, closed_row)
+                        inserted = self.archive.save_closed(
+                            self.symbol, self.interval_ms, closed_row
+                        )
+                        if not inserted:
+                            raise RuntimeError("closed candle already exists in archive")
                     self.closed.append(closed_row)
                     self.history.append(closed_row)
+                    self.last_archived_bucket = previous_bucket
                     self.archive_error = None
                 except Exception as exc:
                     # A missing durable row breaks continuity. Clear the
@@ -163,9 +178,14 @@ class TradeCandleBuilder:
             closed_row = self._as_row(self.current)
             try:
                 if self.archive is not None:
-                    self.archive.save_closed(self.symbol, self.interval_ms, closed_row)
+                    inserted = self.archive.save_closed(
+                        self.symbol, self.interval_ms, closed_row
+                    )
+                    if not inserted:
+                        raise RuntimeError("closed candle already exists in archive")
                 self.closed.append(closed_row)
                 self.history.append(closed_row)
+                self.last_archived_bucket = bucket
                 self.archive_error = None
             except Exception as exc:
                 self.closed.clear()
