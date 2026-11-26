@@ -11,14 +11,16 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
                 "closed_candles": 23, "candle_open_time": 60_000,
                 "timeframe_analysis": {"ready": True, "agreement": True,
-                    "direction": "BULLISH", "required_minutes": [1, 5, 15],
+                    "direction": "BULLISH", "entry_trigger": True,
+                    "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
                     "closed_candles": {"1": 1439, "5": 288, "15": 96},
                     "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}}}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
             "closed_candles": 23, "candle_open_time": 60_000,
             "timeframe_analysis": {"ready": True, "agreement": True,
-                "direction": "BEARISH", "required_minutes": [1, 5, 15],
+                "direction": "BEARISH", "entry_trigger": True,
+                "entry_trigger_direction": "BEARISH", "required_minutes": [1, 5, 15],
                 "closed_candles": {"1": 1439, "5": 288, "15": 96},
                 "signals": {"1": "BEARISH", "5": "BEARISH", "15": "BEARISH"}}}
 
