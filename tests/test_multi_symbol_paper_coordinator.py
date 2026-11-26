@@ -101,6 +101,29 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         result = self.make_coordinator().on_trade(self.trade("SOL_USDT"), received_at=10)
         self.assertEqual(result["reason"], "symbol_not_subscribed")
 
+    def test_five_symbol_builders_and_snapshots_are_isolated(self):
+        symbols = ("BTC_USDT", "ETH_USDT", "XRP_USDT", "BNB_USDT", "SOL_USDT")
+        coordinator = MultiSymbolPaperCoordinator(
+            symbols, analyze, prepare, builder_factory=FakeBuilder,
+            max_snapshot_age=30,
+        )
+        for index, symbol in enumerate(symbols):
+            coordinator.states[symbol]["builder"].is_ready = True
+            result = coordinator.on_trade(
+                self.trade(symbol, price=100 + index), received_at=10 + index
+            )
+            self.assertTrue(result["accepted"])
+            self.assertEqual(
+                coordinator.states[symbol]["builder"].received[0]["symbol"],
+                symbol,
+            )
+        candidates = coordinator.candidate_snapshots(now=20)
+        self.assertEqual({item["symbol"] for item in candidates}, set(symbols))
+        self.assertEqual(
+            {item["price"] for item in candidates},
+            {100, 101, 102, 103, 104},
+        )
+
     def test_single_symbol_coordinator_is_supported_for_safe_fallback(self):
         coordinator = MultiSymbolPaperCoordinator(
             ("BTC_USDT",), analyze, prepare,
