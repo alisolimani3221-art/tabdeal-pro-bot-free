@@ -243,16 +243,16 @@ class AIDiagnosticContextTests(unittest.TestCase):
                         "multi_timeframe_ready": False,
                         "multi_timeframe_agreement": False,
                         "timeframe_closed_candles": {
-                            "5": 288, "15": 96, "30": 48, "60": 12,
+                            "1": 1439, "5": 288, "15": 12,
                         },
                     }
                 },
             },
         )
         rendered = "\\n".join(build_engine_health_report_lines(app))
-        self.assertIn("تاریخچه چهار تایم‌فریم آماده: False", rendered)
-        self.assertIn("هم‌جهتی چهار تایم‌فریم: False", rendered)
-        self.assertIn("5m: 288/23 | 15m: 96/23 | 30m: 48/23 | 60m: 12/23", rendered)
+        self.assertIn("تاریخچه سه تایم‌فریم آماده: False", rendered)
+        self.assertIn("هم‌جهتی سه تایم‌فریم: False", rendered)
+        self.assertIn("1m: 1439/23 | 5m: 288/23 | 15m: 12/23", rendered)
 
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
