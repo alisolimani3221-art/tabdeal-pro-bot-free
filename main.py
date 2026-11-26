@@ -1412,15 +1412,7 @@ class FuturesAnalyzerApp(App):
         worker = getattr(self, "auto_trader_thread", None)
         if worker is not None and worker.is_alive() and worker is not threading.current_thread():
             worker.join(timeout=max(0.0, float(timeout)))
-        stopped = worker is None or not worker.is_alive()
-        if stopped:
-            builder = getattr(self, "auto_candle_builder", None)
-            if builder is not None:
-                try:
-                    builder.finalize_due(int(time.time() * 1000))
-                except Exception:
-                    pass
-        return stopped
+        return worker is None or not worker.is_alive()
 
     def stop_auto_paper_trader(self):
         """Stop the paper stream before closing its simulated position."""
@@ -1480,6 +1472,10 @@ class FuturesAnalyzerApp(App):
 
         data_lock = threading.RLock()
         last_trade_at = [None]
+        # A candle is clock-finalized only after a WebSocket pong received
+        # after its bucket end proves the stream remained alive past the close.
+        last_pong_wall_ms = [None]
+        stream_connected = [False]
         connected_once = False
 
         def publish_scan():
@@ -1553,8 +1549,14 @@ class FuturesAnalyzerApp(App):
                 if self.auto_stop_event.is_set():
                     break
                 with data_lock:
-                    # Persist elapsed buckets even if the next trade never arrives.
-                    builder.finalize_due(int(time.time() * 1000))
+                    current = builder.current
+                    pong_ms = last_pong_wall_ms[0]
+                    if (stream_connected[0] and current is not None and
+                            pong_ms is not None and
+                            pong_ms >= current["open_time"] + builder.interval_ms):
+                        # A pong after bucket end is evidence the feed survived
+                        # the close; without it, do not archive a possibly partial candle.
+                        builder.finalize_due(pong_ms)
                     ready = builder.is_ready
                     status = builder.status()
                     received_at = last_trade_at[0]
@@ -1590,9 +1592,11 @@ class FuturesAnalyzerApp(App):
             def on_open(ws):
                 nonlocal connected_once
                 with data_lock:
+                    stream_connected[0] = True
+                    last_pong_wall_ms[0] = None
                     if connected_once:
-                        # Preserve a candle that had already elapsed before reconnect.
-                        builder.finalize_due(int(time.time() * 1000))
+                        # A reconnect is a data gap: discard the unverified
+                        # in-progress candle rather than guessing its final OHLCV.
                         builder.reset_after_gap()
                         last_trade_at[0] = None
                     connected_once = True
@@ -1620,7 +1624,17 @@ class FuturesAnalyzerApp(App):
                         ), 0
                     )
 
+            def on_pong(ws, message):
+                with data_lock:
+                    last_pong_wall_ms[0] = int(time.time() * 1000)
+
+            def on_close(ws, close_status_code, close_msg):
+                with data_lock:
+                    stream_connected[0] = False
+
             def on_error(ws, error):
+                with data_lock:
+                    stream_connected[0] = False
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
                         "خطای جریان معاملات؛ تلاش برای اتصال مجدد. هیچ سفارش واقعی ارسال نمی‌شود."
@@ -1629,7 +1643,7 @@ class FuturesAnalyzerApp(App):
 
             app = websocket.WebSocketApp(
                 BROADCAST_URL, on_open=on_open, on_message=on_message,
-                on_error=on_error,
+                on_error=on_error, on_close=on_close, on_pong=on_pong,
             )
             self.auto_ws = app
             try:
