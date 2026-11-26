@@ -93,10 +93,10 @@ def probe_multiple_symbols(symbols=DEFAULT_SYMBOLS, timeout_seconds=60):
                 result["post_second_subscription_by_symbol"][symbol] += 1
 
             post = result["post_second_subscription_by_symbol"]
-            if result["second_subscription_sent"] and all(post[s] > 0 for s in symbols):
-                result["status"] = "both_symbols_observed_after_second_subscription"
-                ws.close()
-            elif result["messages"] >= 500:
+            # Do not close as soon as one event from each symbol arrives.
+            # Keep the SAME socket open for the full observation window so a
+            # transient pair of frames cannot masquerade as sustained fan-out.
+            if result["messages"] >= 500:
                 ws.close()
 
     def on_error(ws, error):
@@ -121,18 +121,26 @@ def probe_multiple_symbols(symbols=DEFAULT_SYMBOLS, timeout_seconds=60):
         timer.cancel()
 
     result["elapsed_seconds"] = round(time.monotonic() - started, 2)
+    post = result["post_second_subscription_by_symbol"]
+    # Require a meaningful observation window and repeated events from BOTH
+    # symbols. Short tests remain explicitly inconclusive, even if one frame
+    # from each symbol happened to arrive.
+    sustained = result["elapsed_seconds"] >= min(30.0, timeout)
+    repeated = all(post[s] >= 3 for s in symbols)
     if not result["connected"]:
         result["status"] = "connection_failed"
     elif not result["second_subscription_sent"]:
         result["status"] = "first_symbol_baseline_not_observed"
-    elif result["status"] != "both_symbols_observed_after_second_subscription":
-        post = result["post_second_subscription_by_symbol"]
-        if post[second] > 0 and post[first] == 0:
-            result["status"] = "second_symbol_only_after_second_subscription"
-        elif post[first] > 0 and post[second] == 0:
-            result["status"] = "first_symbol_only_after_second_subscription"
-        else:
-            result["status"] = "inconclusive_after_second_subscription"
+    elif sustained and repeated:
+        result["status"] = "both_symbols_sustained_after_second_subscription"
+    elif post[second] > 0 and post[first] == 0:
+        result["status"] = "second_symbol_only_after_second_subscription"
+    elif post[first] > 0 and post[second] == 0:
+        result["status"] = "first_symbol_only_after_second_subscription"
+    elif any(post.values()):
+        result["status"] = "both_symbols_observed_briefly_or_insufficiently"
+    else:
+        result["status"] = "inconclusive_after_second_subscription"
     return result
 
 
