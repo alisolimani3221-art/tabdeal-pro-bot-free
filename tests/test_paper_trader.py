@@ -661,6 +661,59 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(engine.halt_reason, "DAILY_MAX_LOSS")
         self.assertIn("daily", engine.halt_detail.lower())
 
+    def test_data_gap_rearm_requires_flat_position_and_preserves_trade_history(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        halted = engine.halt_for_data_gap("AAA_USDT", 99.5)
+        self.assertTrue(halted["halted"])
+        original_trades = list(engine.closed_trades)
+        original_cash = engine.cash
+
+        result = engine.rearm_after_data_gap()
+
+        self.assertTrue(result["rearmed"])
+        self.assertFalse(result["live_order_submitted"])
+        self.assertFalse(engine.halted)
+        self.assertIsNone(engine.halt_reason)
+        self.assertIsNone(engine.position)
+        self.assertEqual(engine.closed_trades, original_trades)
+        self.assertEqual(engine.cash, original_cash)
+        restored = PaperTradingEngine.restore_state(engine.export_state())
+        self.assertFalse(restored.halted)
+        self.assertEqual(restored.closed_trades, original_trades)
+
+    def test_data_gap_rearm_rejects_open_position_wrong_reason_and_loss_limits(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        engine.halted = True
+        engine.halt_reason = "DATA_GAP"
+        with self.assertRaisesRegex(RuntimeError, "open paper position"):
+            engine.rearm_after_data_gap()
+
+        engine.position = None
+        engine.halt_reason = "MAX_LOSS"
+        with self.assertRaisesRegex(RuntimeError, "only a data-gap halt"):
+            engine.rearm_after_data_gap()
+
+        daily = PaperTradingEngine(capital=8, daily_loss_percent=1.0)
+        daily.halted = True
+        daily.halt_reason = "DATA_GAP"
+        daily.cash = 7.9
+        daily.daily_start_equity = 8.0
+        with self.assertRaisesRegex(RuntimeError, "daily paper loss"):
+            daily.rearm_after_data_gap()
+        self.assertTrue(daily.halted)
+        self.assertEqual(daily.halt_reason, "DATA_GAP")
+
+        cumulative = PaperTradingEngine(capital=8, max_loss_percent=1.0)
+        cumulative.halted = True
+        cumulative.halt_reason = "DATA_GAP"
+        cumulative.cash = 7.9
+        with self.assertRaisesRegex(RuntimeError, "cumulative paper loss"):
+            cumulative.rearm_after_data_gap()
+        self.assertTrue(cumulative.halted)
+        self.assertEqual(cumulative.halt_reason, "DATA_GAP")
+
     def test_data_gap_flattens_and_latches_open_long_and_short_positions(self):
         for signal in ("BULLISH", "BEARISH"):
             with self.subTest(signal=signal):
