@@ -2,6 +2,8 @@
 
 import time
 
+from multi_timeframe import TRADE_TIMEFRAMES_MINUTES
+
 APP_VERSION = "1.56"
 
 APP_DIAGNOSTIC_KEYS = (
@@ -157,7 +159,7 @@ def _engine_health(app, worker_alive):
                     counts.get(str(minutes), 0)
                     if type(counts.get(str(minutes), 0)) is int else 0,
                 )
-                for minutes in (5, 15, 30, 60)
+                for minutes in TRADE_TIMEFRAMES_MINUTES
             )
     result["health_state"] = state
     result["thread_alive"] = bool(worker_alive)
@@ -277,8 +279,8 @@ def build_engine_health_report_lines(app):
             - int(health.get("candle_count", 0) or 0)
         )),
         "بازه هر کندل (ثانیه): " + value("candle_interval_seconds", "60"),
-        "تاریخچه چهار تایم‌فریم آماده: " + value("multi_timeframe_ready", "false"),
-        "هم‌جهتی چهار تایم‌فریم: " + value("multi_timeframe_agreement", "false"),
+        "تاریخچه سه تایم‌فریم آماده: " + value("multi_timeframe_ready", "false"),
+        "هم‌جهتی سه تایم‌فریم: " + value("multi_timeframe_agreement", "false"),
         "پیشرفت تاریخچه ۵/۱۵/۳۰/۶۰ دقیقه: " + value("timeframe_history_progress", "در انتظار داده"),
         "آماده‌بودن کندل‌ساز: " + value("builder_ready", "false"),
         "عمر آخرین اسکن موتور (ثانیه): " + (
