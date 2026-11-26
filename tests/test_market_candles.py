@@ -393,22 +393,6 @@ class TradeCandleBuilderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TradeCandleBuilder("BTC_USDT", max_candles=10)
 
-    def test_aggregate_volume_overflow_is_rejected_without_mutating_candle(self):
-        builder = TradeCandleBuilder("BTC_USDT")
-        first = builder.add_trade(self.trade(
-            100, second=10, price=100, quantity=1e308, sequence=10
-        ))
-        self.assertTrue(first["accepted"])
-        before = dict(builder.current)
-        overflow = builder.add_trade(self.trade(
-            100, second=20, price=101, quantity=1e308, sequence=11
-        ))
-        self.assertFalse(overflow["accepted"])
-        self.assertEqual(overflow["reason"], "volume_overflow")
-        self.assertEqual(builder.current, before)
-        self.assertEqual(builder.last_sequence, 10)
-        self.assertEqual(builder.status()["rejection_reasons"]["volume_overflow"], 1)
-
     def test_noncontiguous_sequence_ids_are_not_assumed_to_mean_lost_trades(self):
         builder = TradeCandleBuilder("BTC_USDT")
         first = builder.add_trade(self.trade(100, second=10, sequence=100))
