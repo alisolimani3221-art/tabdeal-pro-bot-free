@@ -236,7 +236,7 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         state["last_trade_monotonic"] = 10
         state["latest_technical"] = {
             "timeframe_analysis": {
-                "ready": False, "agreement": False,
+                "ready": False, "agreement": False, "entry_trigger": False,
                 "closed_candles": {"1": 500, "5": 200, "15": 12},
             }
         }
