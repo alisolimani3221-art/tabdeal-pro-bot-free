@@ -57,7 +57,8 @@ class IntegratedAcceptanceTests(unittest.TestCase):
             "rsi14": 56, "atr14": 400, "signal": "BULLISH",
             "closed_candles": 23, "candle_open_time": 60_000,
             "timeframe_analysis": {"ready": True, "agreement": True,
-            "direction": "BULLISH", "required_minutes": [1, 5, 15],
+            "direction": "BULLISH", "entry_trigger": True,
+            "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {
                 "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}},
