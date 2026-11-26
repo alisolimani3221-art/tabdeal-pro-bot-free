@@ -7,6 +7,7 @@ import math
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 
 
 class CandleArchiveError(RuntimeError):
@@ -25,15 +26,20 @@ class CandleArchive:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self._initialize()
 
-    def _connect(self):
+    @contextmanager
+    def _connection(self):
         connection = sqlite3.connect(self.path, timeout=10)
-        connection.execute("PRAGMA busy_timeout=10000")
-        connection.execute("PRAGMA synchronous=FULL")
-        return connection
+        try:
+            connection.execute("PRAGMA busy_timeout=10000")
+            connection.execute("PRAGMA synchronous=FULL")
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize(self):
         try:
-            with self._lock, self._connect() as db:
+            with self._lock, self._connection() as db:
                 db.execute("PRAGMA journal_mode=WAL")
                 db.execute("""
                     CREATE TABLE IF NOT EXISTS candles (
