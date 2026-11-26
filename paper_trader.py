@@ -573,6 +573,36 @@ class PaperTradingEngine:
             return {"halted": False, "rearmed": True,
                     "live_order_submitted": False}
 
+    def rearm_after_data_gap(self):
+        """Re-arm a flattened DATA_GAP halt only after operator confirmation.
+
+        The market-data worker must still rebuild/verify its candle history
+        before any signal can become eligible. This method only clears the
+        persisted engine latch; it never opens a position or submits an order.
+        """
+        with self._lock:
+            if not self.halted:
+                raise RuntimeError("paper engine is not halted")
+            if self.halt_reason != "DATA_GAP":
+                raise RuntimeError("only a data-gap halt can use data-gap recovery")
+            if self.position is not None:
+                raise RuntimeError("open paper position must be closed before data-gap recovery")
+            self._refresh_daily_period()
+            if self.cash <= self.daily_loss_floor:
+                raise RuntimeError("maximum UTC daily paper loss limit remains active")
+            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+            if self.cash <= loss_floor:
+                raise RuntimeError("maximum cumulative paper loss limit remains active")
+            self.halted = False
+            self.halt_reason = None
+            self.halt_detail = None
+            return {
+                "halted": False,
+                "rearmed": True,
+                "recovery_reason": "DATA_GAP",
+                "live_order_submitted": False,
+            }
+
     def daily_reset_available(self, now=None):
         """Return whether a daily-loss halt may be re-armed on a later UTC day."""
         with self._lock:
