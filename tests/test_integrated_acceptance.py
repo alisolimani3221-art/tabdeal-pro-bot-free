@@ -56,6 +56,10 @@ class IntegratedAcceptanceTests(unittest.TestCase):
             "sma10": 59_900, "sma20": 59_800,
             "rsi14": 56, "atr14": 400, "signal": "BULLISH",
             "closed_candles": 23, "candle_open_time": 60_000,
+            "timeframe_analysis": {"ready": True, "agreement": True,
+            "direction": "BULLISH", "signals": {
+                "5": "BULLISH", "15": "BULLISH",
+                "30": "BULLISH", "60": "BULLISH"}},
         }
         engine = PaperTradingEngine(capital=8.0, risk_percent=0.5,
                                     max_leverage=3, fee_rate=0.0005,
