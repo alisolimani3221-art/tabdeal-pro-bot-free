@@ -116,6 +116,21 @@ class CandleArchive:
         except (OSError, sqlite3.Error) as exc:
             raise CandleArchiveError("could not durably save closed candle") from exc
 
+    def count(self, symbol, interval_ms):
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
+            raise ValueError("symbol must be an exchange-native USDT futures symbol")
+        if isinstance(interval_ms, bool) or not isinstance(interval_ms, int) or interval_ms <= 0:
+            raise ValueError("interval_ms must be positive")
+        try:
+            with self._lock, self._connection() as db:
+                row = db.execute(
+                    "SELECT COUNT(*) FROM candles WHERE symbol=? AND interval_ms=?",
+                    (symbol, interval_ms),
+                ).fetchone()
+            return int(row[0])
+        except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+            raise CandleArchiveError("could not count archived candles") from exc
+
     def load_recent(self, symbol, interval_ms, limit=None):
         count = self.max_rows if limit is None else limit
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
