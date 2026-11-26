@@ -104,8 +104,11 @@ class TradeCandleBuilder:
                     self.history.append(closed_row)
                     self.archive_error = None
                 except Exception as exc:
-                    # Never generate trading signals from candles that failed
-                    # durable persistence. Keep the app alive for diagnostics.
+                    # A missing durable row breaks continuity. Clear the
+                    # indicator window and discard the next partial bucket.
+                    # Keep the app alive for diagnostics, but block signals.
+                    self.closed.clear()
+                    self.discard_next_close = True
                     self.archive_error = type(exc).__name__
             else:
                 self.discard_next_close = False
