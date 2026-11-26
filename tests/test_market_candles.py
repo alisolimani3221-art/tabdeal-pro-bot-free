@@ -393,6 +393,16 @@ class TradeCandleBuilderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TradeCandleBuilder("BTC_USDT", max_candles=10)
 
+    def test_noncontiguous_sequence_ids_are_not_assumed_to_mean_lost_trades(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        first = builder.add_trade(self.trade(100, second=10, sequence=100))
+        later = builder.add_trade(self.trade(100, second=20, sequence=107))
+        self.assertTrue(first["accepted"])
+        self.assertTrue(later["accepted"])
+        self.assertFalse(later["gap_detected"])
+        self.assertEqual(builder.current["volume"], 4.0)
+        self.assertEqual(builder.last_sequence, 107)
+
     def test_older_sequence_is_distinguished_from_exact_duplicate(self):
         builder = TradeCandleBuilder("BTC_USDT")
         self.assertTrue(builder.add_trade(self.trade(100, second=10, sequence=12))["accepted"])
