@@ -228,8 +228,10 @@ def diagnose_signal(technical):
         if not isinstance(timeframe, dict) or timeframe.get("ready") is not True:
             return "تاریخچهٔ کامل ۱، ۵ و ۱۵ دقیقه آماده نیست؛ ورود مسدود است"
         if timeframe.get("agreement") is not True:
-            return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
-        return "سیگنال خنثی است؛ شرایط روند و مومنتوم تأیید نشده‌اند"
+            return "جهت روند ۵ و ۱۵ دقیقه هم‌سو نیست؛ ورود مسدود است"
+        if timeframe.get("entry_trigger") is not True:
+            return "روند ۵ و ۱۵ دقیقه هم‌جهت است؛ منتظر ماشهٔ ورود یک‌دقیقه‌ای هستیم"
+        return "سیگنال خنثی است؛ شرایط ورود هنوز کامل نیست"
     if signal not in ("BULLISH", "BEARISH"):
         return "جهت سیگنال قابل‌شناسایی نیست"
     count = technical.get("closed_candles")
