@@ -333,6 +333,7 @@ class MultiSymbolPaperCoordinator:
                 )
                 timeframe_ready = timeframe.get("ready") is True
                 timeframe_agreement = timeframe.get("agreement") is True
+                timeframe_entry_trigger = timeframe.get("entry_trigger") is True
                 result[symbol] = {
                     "accepted_trades": state["accepted_trades"],
                     "rejected_trades": state["rejected_trades"],
@@ -340,9 +341,11 @@ class MultiSymbolPaperCoordinator:
                     "snapshot_fresh": snapshot_fresh,
                     "multi_timeframe_ready": timeframe_ready,
                     "multi_timeframe_agreement": timeframe_agreement,
+                    "one_minute_entry_trigger": timeframe_entry_trigger,
                     "timeframe_closed_candles": timeframe_counts,
                     "entry_ready": bool(
                         snapshot_fresh and timeframe_ready and timeframe_agreement
+                        and timeframe_entry_trigger
                     ),
                     "last_analysis_error": state["last_analysis_error"],
                     "builder": builder_status,
