@@ -149,6 +149,15 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(len(builder.closed), 0)
         self.assertEqual(builder.status()["archive_error"], "OSError")
 
+    def test_stream_heartbeat_requires_connected_recent_monotonic_pong(self):
+        from market_candles import stream_heartbeat_is_fresh
+        self.assertTrue(stream_heartbeat_is_fresh(True, 100.0, 120.0))
+        self.assertFalse(stream_heartbeat_is_fresh(False, 100.0, 101.0))
+        self.assertFalse(stream_heartbeat_is_fresh(True, None, 101.0))
+        self.assertFalse(stream_heartbeat_is_fresh(True, 60.0, 100.1))
+        self.assertFalse(stream_heartbeat_is_fresh(True, 101.0, 100.0))
+        self.assertFalse(stream_heartbeat_is_fresh(True, float("nan"), 101.0))
+
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
             with self.subTest(symbol=symbol):
