@@ -9,6 +9,23 @@ import re
 from collections import deque
 
 
+def stream_heartbeat_is_fresh(connected, last_pong_monotonic, now_monotonic, max_age=30.0):
+    """Return true only for a connected stream with a recent monotonic pong."""
+    if connected is not True:
+        return False
+    values = (last_pong_monotonic, now_monotonic, max_age)
+    try:
+        pong_at, now_at, age_limit = (float(value) for value in values)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not all(math.isfinite(value) for value in (pong_at, now_at, age_limit)):
+        return False
+    if age_limit <= 0:
+        return False
+    age = now_at - pong_at
+    return 0 <= age <= age_limit
+
+
 class TradeCandleBuilder:
     def __init__(self, symbol, interval_ms=60_000, max_candles=500, archive=None):
         if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
