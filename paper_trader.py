@@ -4,6 +4,8 @@ import re
 import threading
 from datetime import date, datetime, timezone
 
+from multi_timeframe import TRADE_TIMEFRAMES_MINUTES
+
 
 PAPER_SCAN_INTERVAL_SECONDS = 5.0
 
@@ -154,13 +156,13 @@ def rank_signal(technical):
             or timeframe.get("ready") is not True
             or timeframe.get("agreement") is not True
             or timeframe.get("direction") != signal
-            or timeframe.get("required_minutes") != [5, 15, 30, 60]):
+            or timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES)):
         return None
     timeframe_counts = timeframe.get("closed_candles")
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(str(minutes))) is not int
                    or timeframe_counts.get(str(minutes)) < 23
-                   for minutes in (5, 15, 30, 60))):
+                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
         return None
     timeframe_signals = timeframe.get("signals")
     if (not isinstance(timeframe_signals, dict)
@@ -213,7 +215,7 @@ def diagnose_signal(technical):
     if signal == "NEUTRAL":
         timeframe = technical.get("timeframe_analysis")
         if not isinstance(timeframe, dict) or timeframe.get("ready") is not True:
-            return "تاریخچهٔ کامل ۵، ۱۵، ۳۰ و ۶۰ دقیقه آماده نیست؛ ورود مسدود است"
+            return "تاریخچهٔ کامل ۱، ۵ و ۱۵ دقیقه آماده نیست؛ ورود مسدود است"
         if timeframe.get("agreement") is not True:
             return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
         return "سیگنال خنثی است؛ شرایط روند و مومنتوم تأیید نشده‌اند"
@@ -240,7 +242,7 @@ def diagnose_signal(technical):
     if (not isinstance(timeframe_signals, dict)
             or any(timeframe_signals.get(str(minutes)) != signal
                    for minutes in (5, 15, 30, 60))):
-        return "تأیید چهار تایم‌فریم کامل نیست؛ ورود مسدود است"
+        return "تأیید سه تایم‌فریم کامل نیست؛ ورود مسدود است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
