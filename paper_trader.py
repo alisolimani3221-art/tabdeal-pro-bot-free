@@ -149,6 +149,17 @@ def rank_signal(technical):
     closed_candles = technical.get("closed_candles")
     if type(closed_candles) is not int or closed_candles < 23:
         return None
+    timeframe = technical.get("timeframe_analysis")
+    if (not isinstance(timeframe, dict)
+            or timeframe.get("ready") is not True
+            or timeframe.get("agreement") is not True
+            or timeframe.get("direction") != signal):
+        return None
+    timeframe_signals = timeframe.get("signals")
+    if (not isinstance(timeframe_signals, dict)
+            or any(timeframe_signals.get(str(minutes)) != signal
+                   for minutes in (5, 15, 30, 60))):
+        return None
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
@@ -199,6 +210,17 @@ def diagnose_signal(technical):
     count = technical.get("closed_candles")
     if type(count) is not int or count < 23:
         return "داده کافی نیست: حداقل ۲۳ کندل بسته‌شده لازم است"
+    timeframe = technical.get("timeframe_analysis")
+    if (not isinstance(timeframe, dict) or timeframe.get("ready") is not True):
+        return "تاریخچهٔ کامل ۵، ۱۵، ۳۰ و ۶۰ دقیقه آماده نیست؛ ورود مسدود است"
+    if (timeframe.get("agreement") is not True
+            or timeframe.get("direction") != signal):
+        return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
+    timeframe_signals = timeframe.get("signals")
+    if (not isinstance(timeframe_signals, dict)
+            or any(timeframe_signals.get(str(minutes)) != signal
+                   for minutes in (5, 15, 30, 60))):
+        return "تأیید چهار تایم‌فریم کامل نیست؛ ورود مسدود است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
