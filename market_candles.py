@@ -19,7 +19,11 @@ class TradeCandleBuilder:
             raise ValueError("max_candles must be an integer of at least 52")
         self.symbol = symbol
         self.interval_ms = interval_ms
+        # `closed` is the contiguous warm-up window used by indicators.
+        # `history` is the retained archive shown in diagnostics; a data gap
+        # must invalidate continuity without erasing already closed candles.
         self.closed = deque(maxlen=max_candles)
+        self.history = deque(maxlen=max_candles)
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
@@ -87,13 +91,16 @@ class TradeCandleBuilder:
         else:
             previous_bucket = self.current["open_time"]
             if not self.discard_next_close:
-                self.closed.append(self._as_row(self.current))
+                closed_row = self._as_row(self.current)
+                self.closed.append(closed_row)
+                self.history.append(closed_row)
             else:
                 self.discard_next_close = False
             if bucket != previous_bucket + self.interval_ms:
                 self.gaps += 1
                 gap_detected = True
-                # Do not let indicators bridge an unknown interval.
+                # Do not let indicators bridge an unknown interval. Keep
+                # archived closed candles; only reset the contiguous window.
                 self.closed.clear()
                 self.discard_next_close = True
             self.current = self._new_candle(bucket, price, quantity, timestamp)
@@ -105,7 +112,7 @@ class TradeCandleBuilder:
                 "closed_candles": len(self.closed), "ready": self.is_ready}
 
     def reset_after_gap(self):
-        """Discard all in-flight history after any reconnect that may miss trades."""
+        """Invalidate continuity after reconnect while retaining closed history."""
         self.closed.clear()
         self.current = None
         self.last_timestamp_ms = None
@@ -146,6 +153,7 @@ class TradeCandleBuilder:
 
     def status(self):
         return {"symbol": self.symbol, "closed_candles": len(self.closed),
+                "stored_closed_candles": len(self.history),
                 "has_forming_candle": self.current is not None,
                 "ready": self.is_ready, "gaps": self.gaps,
                 "rejected_trades": self.rejected}
