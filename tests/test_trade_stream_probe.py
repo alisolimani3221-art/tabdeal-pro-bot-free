@@ -30,14 +30,15 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_millisecond_timestamp_is_preserved(self):
         payload = {"trade": {"s": "AEVO_USDT", "p": "2",
-                             "q": "3", "T": 1700000000123}}
+                             "q": "3", "T": 1700000000123, "sequence": 1002}}
         result = parse_trade_message(json.dumps(payload), "AEVO_USDT")
         self.assertTrue(result["ok"])
         self.assertEqual(result["timestamp_ms"], 1700000000123)
 
     def test_all_supported_field_aliases_are_accepted(self):
         payload = {"trade": {"symbol": "AEVO_USDT", "tradePrice": "1.5",
-                             "amount": "2.5", "tradeTime": 1700000000}}
+                             "amount": "2.5", "tradeTime": 1700000000,
+                             "sequence": 1003}}
         self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
 
     def test_duplicate_json_keys_are_rejected(self):
@@ -180,7 +181,8 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_symbol_comparison_is_case_insensitive(self):
         payload = {"trade": {"symbol": "aevo_usdt", "price": "1",
-                             "quantity": "1", "timestamp": 1700000000}}
+                             "quantity": "1", "timestamp": 1700000000,
+                             "sequence": 1004}}
         self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
