@@ -1,6 +1,6 @@
 import unittest
 
-from multi_timeframe import aggregate_closed_timeframes
+from multi_timeframe import aggregate_closed_timeframes, analyze_multi_timeframe
 
 
 def minute_rows(count=120):
@@ -65,6 +65,59 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         rows[3][0] += 1
         with self.assertRaisesRegex(ValueError, "aligned"):
             aggregate_closed_timeframes(rows, 60 * 60_000)
+
+
+    def test_multi_timeframe_analyzer_requires_and_reports_full_agreement(self):
+        rows = minute_rows(24 * 60)
+        calls = []
+        def stub_analyzer(candles, interval_ms=60_000):
+            calls.append((len(candles) - 1, interval_ms))
+            return {"signal": "BULLISH", "price": 100.0,
+                    "closed_candles": len(candles) - 1,
+                    "sma10": 99.0, "sma20": 98.0,
+                    "rsi14": 56.0, "atr14": 0.5}
+        result = analyze_multi_timeframe(
+            rows, now_ms=24 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        self.assertEqual(result["signal"], "BULLISH")
+        self.assertTrue(result["timeframe_analysis"]["ready"])
+        self.assertTrue(result["timeframe_analysis"]["agreement"])
+        self.assertEqual(
+            result["timeframe_analysis"]["signals"],
+            {"5": "BULLISH", "15": "BULLISH",
+             "30": "BULLISH", "60": "BULLISH"},
+        )
+        self.assertEqual(
+            result["timeframe_analysis"]["closed_candles"],
+            {"5": 288, "15": 96, "30": 48, "60": 24},
+        )
+        self.assertEqual({interval for _, interval in calls},
+                         {5 * 60_000, 15 * 60_000, 30 * 60_000, 60 * 60_000})
+
+    def test_multi_timeframe_disagreement_forces_neutral(self):
+        rows = minute_rows(24 * 60)
+        def stub_analyzer(candles, interval_ms=60_000):
+            direction = "BEARISH" if interval_ms == 30 * 60_000 else "BULLISH"
+            return {"signal": direction, "price": 100.0,
+                    "closed_candles": len(candles) - 1}
+        result = analyze_multi_timeframe(
+            rows, now_ms=24 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        self.assertEqual(result["signal"], "NEUTRAL")
+        self.assertFalse(result["timeframe_analysis"]["agreement"])
+
+    def test_multi_timeframe_insufficient_hourly_history_blocks_agreement(self):
+        rows = minute_rows(22 * 60)
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 100.0,
+                    "closed_candles": len(candles) - 1}
+        result = analyze_multi_timeframe(
+            rows, now_ms=22 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        self.assertFalse(result["timeframe_analysis"]["ready"])
+        self.assertFalse(result["timeframe_analysis"]["agreement"])
+        self.assertEqual(result["signal"], "NEUTRAL")
+
 
 
 if __name__ == "__main__":
