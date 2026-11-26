@@ -57,3 +57,13 @@ A review found that the original soak wrapper could report success after an earl
 - Corrected 30-minute soak: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/45853208250 — started on the corrected revision and must complete the full observation window before it can pass.
 
 The duration guard reduces false-positive success from early closure; it still does not prove lossless delivery or official sequence semantics. The corrected 30-minute observation remains a single-symbol, read-only stability test.
+
+
+## Additional candle-volume integrity guard
+
+A final code review found that individually finite trade quantities could theoretically overflow when summed into one minute's OHLCV volume. The builder now detects a non-finite aggregate, resets all forming and retained candle history, records an explicit gap/reset, and rejects the triggering event with `volume_overflow`. It does not publish an invalid candle or continue analysis across the rejected event.
+
+- Push regression run: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/45853567996 — success; **530 tests passed**.
+- Pull-request regression run: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/45853562327 — success; **530 tests passed**.
+
+This guard is defensive input-integrity protection; it is not evidence that the exchange will emit such extreme quantities.
