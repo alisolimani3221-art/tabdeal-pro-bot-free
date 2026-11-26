@@ -141,8 +141,7 @@ class PaperTraderTests(unittest.TestCase):
             "ready": True, "agreement": False, "direction": None,
             "required_minutes": [1, 5, 15],
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
-            "signals": {"5": "BULLISH", "15": "BULLISH",
-                        "30": "BEARISH", "60": "BULLISH"},
+            "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BEARISH"},
         }
         self.assertIn("هم‌سو", diagnose_signal(candidate))
 
