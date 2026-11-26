@@ -10,25 +10,32 @@ import unittest
 from market_candles import TradeCandleBuilder
 from paper_trader import PaperTradingEngine, prepare_live_market_snapshot
 from risk_analysis import analyze_klines
+from multi_timeframe import analyze_multi_timeframe
 from trade_stream_probe import parse_trade_message
 
 
 class LivePaperSignalPipelineTests(unittest.TestCase):
     def test_valid_trade_stream_reaches_closed_candle_analysis_and_paper_engine(self):
         symbol = "BTC_USDT"
-        builder = TradeCandleBuilder(symbol)
+        builder = TradeCandleBuilder(symbol, max_candles=2000)
         engine = PaperTradingEngine(capital=8.0, risk_percent=0.5, max_leverage=3)
-        first_minute = (int(time.time() * 1000) // 60_000) - 54
+        first_minute = (int(time.time() * 1000) // 60_000) - (24 * 60 + 2)
         accepted = 0
 
-        # Alternating +0.30/-0.20 closes produce a rising trend with RSI near 60.
+        # Hourly increments use a rising 3/2 gain-loss ratio, with the final
+        # hour rising. Linear intrahour movement keeps all four TFs testable.
+        hourly_steps = (1.0, -1.0, 1.0, 1.0, -1.0, 1.0)
         price = 100.0
         last_result = None
         opened_result = None
         opened_price = None
-        for index in range(53):
-            if index:
-                price += 0.30 if index % 2 else -0.20
+        final_parsed = None
+        for index in range(24 * 60 + 3):
+            hour, minute = divmod(index, 60)
+            step = hourly_steps[hour % len(hourly_steps)]
+            minute_start = 100.0 + sum(hourly_steps[h % len(hourly_steps)]
+                                       for h in range(hour))
+            price = minute_start + step * (minute + 1) / 60.0
             timestamp_ms = (first_minute + index) * 60_000 + 1_000
             raw = json.dumps({"trade": {
                 "symbol": symbol, "price": str(price), "amount": "1",
@@ -39,17 +46,22 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
             update = builder.add_trade(parsed)
             self.assertTrue(update["accepted"], update)
             accepted += 1
-            if builder.is_ready:
-                technical = analyze_klines(builder.candles_for_analysis())
-                technical["symbol"] = symbol
-                technical = prepare_live_market_snapshot(technical, parsed["price"])
-                technical["candle_open_time"] = int(builder.closed[-1][0])
-                last_result = engine.process_scan([technical])
-                if any(event.get("event") == "OPENED" for event in last_result.get("events", [])):
-                    opened_result = last_result
-                    opened_price = parsed["price"]
+            final_parsed = parsed
 
-        self.assertEqual(accepted, 53)
+        self.assertTrue(builder.is_ready)
+        technical = analyze_multi_timeframe(
+            builder.candles_for_analysis(), final_parsed["timestamp_ms"],
+            analyze_klines,
+        )
+        technical["symbol"] = symbol
+        technical = prepare_live_market_snapshot(technical, final_parsed["price"])
+        technical["candle_open_time"] = int(builder.closed[-1][0])
+        last_result = engine.process_scan([technical])
+        if any(event.get("event") == "OPENED" for event in last_result.get("events", [])):
+            opened_result = last_result
+            opened_price = final_parsed["price"]
+
+        self.assertEqual(accepted, 24 * 60 + 3)
         self.assertTrue(builder.is_ready)
         self.assertEqual(last_result["candidates"][0]["symbol"], symbol)
         self.assertIsNotNone(opened_result, "a valid setup should open a simulated position once")
