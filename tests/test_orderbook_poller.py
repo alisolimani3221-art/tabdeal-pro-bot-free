@@ -49,11 +49,29 @@ class OrderBookPollerTests(unittest.TestCase):
         self.assertTrue(result["received_at"])
         response.close.assert_called_once()
 
+    def test_accepts_exchange_native_symbol_with_or_without_separator(self):
+        for symbol in ("BTC_USDT", "BTCUSDT", " btcusdt "):
+            with self.subTest(symbol=symbol):
+                response = Mock()
+                response.status_code = 200
+                response.json.return_value = {
+                    "bids": [["100", "2"]],
+                    "asks": [["101", "3"]],
+                }
+                session = self.make_session(response)
+                result = fetch_order_book_snapshot(
+                    session, "https://api.example/fapi/v1", symbol, "/ca.pem"
+                )
+                self.assertEqual(result["symbol"], symbol.strip().upper())
+                self.assertEqual(session.get.call_args.kwargs["params"]["symbol"],
+                                 symbol.strip().upper())
+                response.close.assert_called_once()
+
     def test_rejects_unverified_symbol_format_before_network(self):
         session = Mock()
         with self.assertRaisesRegex(ValueError, "invalid futures symbol"):
             fetch_order_book_snapshot(
-                session, "https://api.example/fapi/v1", "BTCUSDT", "/ca.pem"
+                session, "https://api.example/fapi/v1", "BTC-USDT", "/ca.pem"
             )
         session.get.assert_not_called()
 
