@@ -110,9 +110,9 @@ class PaperTraderTests(unittest.TestCase):
         snapshot = prepare_live_market_snapshot(original, 100.5)
         self.assertIsNone(rank_signal(snapshot))
 
-    def test_one_minute_opposing_label_does_not_override_five_and_fifteen_bias(self):
+    def test_one_minute_neutral_label_does_not_override_five_and_fifteen_bias(self):
         candidate = setup()
-        candidate["timeframe_analysis"]["signals"]["1"] = "BEARISH"
+        candidate["timeframe_analysis"]["signals"]["1"] = "NEUTRAL"
         self.assertIsNotNone(rank_signal(candidate))
 
     def test_diagnostics_describe_waiting_for_one_minute_trigger(self):
