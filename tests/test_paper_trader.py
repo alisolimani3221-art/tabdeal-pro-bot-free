@@ -98,6 +98,28 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(snapshot["candle_open_time"], original["candle_open_time"])
         self.assertEqual(original["candle_high"], 110.0)
 
+    def test_live_snapshot_preserves_closed_candle_price_for_signal_validation(self):
+        original = dict(setup(), price=100.5)
+        snapshot = prepare_live_market_snapshot(original, 98.5)
+        self.assertEqual(snapshot["signal_price"], 100.5)
+        self.assertEqual(snapshot["price"], 98.5)
+        self.assertIsNotNone(rank_signal(snapshot))
+
+    def test_live_price_cannot_create_a_signal_missing_from_closed_candle(self):
+        original = dict(setup(), price=98.5)
+        snapshot = prepare_live_market_snapshot(original, 100.5)
+        self.assertIsNone(rank_signal(snapshot))
+
+    def test_one_minute_opposing_label_does_not_override_five_and_fifteen_bias(self):
+        candidate = setup()
+        candidate["timeframe_analysis"]["signals"]["1"] = "BEARISH"
+        self.assertIsNotNone(rank_signal(candidate))
+
+    def test_diagnostics_describe_waiting_for_one_minute_trigger(self):
+        candidate = dict(setup(), signal="NEUTRAL")
+        candidate["timeframe_analysis"]["entry_trigger"] = False
+        self.assertIn("ماشهٔ ورود یک‌دقیقه‌ای", diagnose_signal(candidate))
+
     def test_live_snapshot_rejects_invalid_current_trade_price(self):
         for value in (None, True, 0, -1, float("nan"), float("inf"), "bad"):
             with self.subTest(live_price=value):
