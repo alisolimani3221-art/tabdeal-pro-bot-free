@@ -9,7 +9,8 @@ from trade_stream_probe import MAX_MESSAGE_BYTES, parse_trade_message
 class TradeStreamProbeTests(unittest.TestCase):
     def valid_trade(self):
         return {"trade": {"symbol": "AEVO_USDT", "price": "1.25",
-                          "quantity": "4", "timestamp": 1700000000}}
+                          "quantity": "4", "timestamp": 1700000000,
+                          "sequence": 1001}}
 
     def parse_trade_with(self, field, value):
         payload = self.valid_trade()
@@ -49,6 +50,14 @@ class TradeStreamProbeTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertEqual(parse_trade_message("{}", expected)["reason"],
                                  "invalid_expected_symbol")
+
+    def test_missing_sequence_is_rejected_to_prevent_ambiguous_duplicates(self):
+        payload = self.valid_trade()
+        del payload["trade"]["sequence"]
+        self.assertEqual(
+            parse_trade_message(json.dumps(payload), "AEVO_USDT")["reason"],
+            "missing_sequence",
+        )
 
     def test_unknown_schema_is_not_guessed(self):
         result = parse_trade_message('{"trade":{"foo":"bar"}}', "AEVO_USDT")
