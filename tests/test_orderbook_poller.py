@@ -19,6 +19,8 @@ class OrderBookPollerTests(unittest.TestCase):
         self.assertIn("self.orderbook_poll_lock.acquire(False)", source)
         self.assertIn("poll_stop.set()", source)
         self.assertIn("fetch_order_book_snapshot(", source)
+        self.assertIn("normalize_market_symbol(item) == normalize_market_symbol(requested_symbol)", source)
+        self.assertIn("normalize_market_symbol(snapshot.get(\"symbol\")) != normalize_market_symbol(self.current_symbol)", source)
         self.assertIn("book_title_button.bind(on_press=self._manual_refresh_order_book)", source)
         self.assertIn("def _manual_refresh_order_book", source)
         self.assertIn("self._schedule_order_book_poll(0)", source)
