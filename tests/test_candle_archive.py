@@ -45,6 +45,22 @@ class CandleArchiveTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.archive.save_closed("BTC_USDT", 60000, row)
 
+    def test_builder_rejects_replayed_trades_covered_by_archive(self):
+        self.archive.save_closed("BTC_USDT", 60000, self.row(100))
+
+        def trade(minute, second=1):
+            return {"symbol": "BTC_USDT", "price": 100, "quantity": 1,
+                    "timestamp_ms": minute * 60000 + second * 1000}
+
+        builder = TradeCandleBuilder("BTC_USDT", archive=self.archive)
+        replay = builder.add_trade(trade(100, 50))
+        self.assertFalse(replay["accepted"])
+        self.assertEqual(replay["reason"], "trade_not_newer_than_archive")
+        self.assertEqual(builder.status()["stored_closed_candles"], 1)
+        fresh = builder.add_trade(trade(101))
+        self.assertTrue(fresh["accepted"])
+        self.assertEqual(builder.status()["stored_closed_candles"], 1)
+
     def test_builder_restores_archive_but_rebuilds_contiguous_warmup(self):
         builder = TradeCandleBuilder("BTC_USDT", archive=self.archive)
         def trade(minute):
