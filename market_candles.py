@@ -123,6 +123,17 @@ class TradeCandleBuilder:
             self._resume_bucket = None
             self._resume_last_timestamp_ms = None
         if self.current is None:
+            if self.closed:
+                last_closed_bucket = self.closed[-1][0]
+                if bucket <= last_closed_bucket:
+                    return self._reject("late_after_finalization")
+                if bucket != last_closed_bucket + self.interval_ms:
+                    self.closed.clear()
+                    self.history_clear_count += 1
+                    self.gaps += 1
+                    self.last_reset_reason = "timestamp_gap_after_finalization"
+                    self.discard_next_close = True
+                    gap_detected = True
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
             return self._reject("out_of_order")
@@ -184,6 +195,32 @@ class TradeCandleBuilder:
             self.last_sequence = sequence
         return {"accepted": True, "gap_detected": gap_detected,
                 "closed_candles": len(self.closed), "ready": self.is_ready}
+
+    def finalize_due(self, watermark_ms, grace_ms=30_000):
+        """Close a fully observed candle only after the exchange-time watermark passes it.
+
+        The caller supplies a market-wide event-time watermark from the validated
+        broadcast stream. The grace window rejects ordinary delayed events;
+        startup, reconnect, and restored partial buckets are never finalized.
+        """
+        if (isinstance(watermark_ms, bool) or not isinstance(watermark_ms, int)
+                or watermark_ms <= 0):
+            raise ValueError("watermark_ms must be a positive integer")
+        if (isinstance(grace_ms, bool) or not isinstance(grace_ms, int)
+                or grace_ms < 0):
+            raise ValueError("grace_ms must be a nonnegative integer")
+        if self.current is None:
+            return {"finalized": False, "reason": "no_forming_candle"}
+        if self.discard_next_close or self._restored_partial_bucket or self._reconnect_warmup_pending:
+            return {"finalized": False, "reason": "partial_or_reconnect_bucket"}
+        close_after = self.current["open_time"] + self.interval_ms + grace_ms
+        if watermark_ms < close_after:
+            return {"finalized": False, "reason": "watermark_not_due"}
+        row = self._as_row(self.current)
+        self.closed.append(row)
+        self.current = None
+        return {"finalized": True, "reason": "watermark_passed",
+                "closed_open_time": row[0], "closed_candles": len(self.closed)}
 
     def restore_closed_candles(self, rows):
         """Seed indicators from any verified contiguous cache, pending live continuity."""
