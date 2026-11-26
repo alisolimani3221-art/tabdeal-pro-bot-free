@@ -131,6 +131,10 @@ def prepare_live_market_snapshot(technical, live_price):
         raise ValueError("technical snapshot must be a dictionary")
     price = _positive(live_price, "live price")
     snapshot = dict(technical)
+    # Preserve the closed-candle close used by indicators and entry validation.
+    # The live trade price is kept separately for execution and position marking.
+    signal_price = technical.get("signal_price", technical.get("price"))
+    snapshot["signal_price"] = _positive(signal_price, "closed-candle signal price")
     snapshot["price"] = price
     snapshot["candle_open"] = price
     snapshot["candle_high"] = price
@@ -182,6 +186,8 @@ def rank_signal(technical):
         return None
     try:
         price = _positive(technical["price"], "price")
+        signal_price = _positive(technical.get("signal_price", technical["price"]),
+                                 "closed-candle signal price")
         sma10 = _positive(technical["sma10"], "sma10")
         sma20 = _positive(technical["sma20"], "sma20")
         if isinstance(technical["rsi14"], bool):
@@ -197,9 +203,9 @@ def rank_signal(technical):
         return None
     # Higher timeframes determine direction. The 1m candle is only an
     # entry trigger: close beyond SMA10 plus non-extreme RSI confirmation.
-    if signal == "BULLISH" and not (price > sma10 and 50 < rsi < 70):
+    if signal == "BULLISH" and not (signal_price > sma10 and 50 < rsi < 70):
         return None
-    if signal == "BEARISH" and not (price < sma10 and 30 < rsi < 50):
+    if signal == "BEARISH" and not (signal_price < sma10 and 30 < rsi < 50):
         return None
     trend_strength = abs(sma10 - sma20) / price * 100.0
     momentum_strength = abs(rsi - 50.0) / 18.0
@@ -245,9 +251,14 @@ def diagnose_signal(technical):
         return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
     timeframe_signals = timeframe.get("signals")
     if (not isinstance(timeframe_signals, dict)
-            or any(timeframe_signals.get(str(minutes)) != signal
-                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
-        return "تأیید سه تایم‌فریم کامل نیست؛ ورود مسدود است"
+            or timeframe_signals.get("5") != signal
+            or timeframe_signals.get("15") != signal):
+        return "جهت روند ۵ و ۱۵ دقیقه هم‌سو نیست؛ ورود مسدود است"
+    if (timeframe.get("entry_trigger") is not True
+            or timeframe.get("entry_trigger_direction") != signal):
+        return "روند ۵ و ۱۵ دقیقه تأیید شده، اما ماشهٔ ورود یک‌دقیقه‌ای هنوز فعال نیست"
+    if timeframe_signals.get("1") not in ("BULLISH", "BEARISH", "NEUTRAL"):
+        return "وضعیت دادهٔ یک‌دقیقه‌ای معتبر نیست؛ ورود مسدود است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
@@ -256,7 +267,8 @@ def diagnose_signal(technical):
     if not re.fullmatch(r"[A-Z0-9]+_?USDT", symbol):
         return "نماد معاملاتی نامعتبر است"
     try:
-        price = _positive(technical["price"], "price")
+        price = _positive(technical.get("signal_price", technical["price"]),
+                             "closed-candle signal price")
         sma10 = _positive(technical["sma10"], "sma10")
         sma20 = _positive(technical["sma20"], "sma20")
         rsi = float(technical["rsi14"])
@@ -269,15 +281,15 @@ def diagnose_signal(technical):
     if not math.isfinite(volatility) or volatility > 2.0:
         return "نوسان بیش از حد مجاز ۲٪ است"
     if signal == "BULLISH":
-        if not price > sma10 > sma20:
-            return "ورود خرید رد شد: قیمت باید بالاتر از SMA10 و SMA10 بالاتر از SMA20 باشد"
-        if not 50 <= rsi < 68:
-            return "ورود خرید رد شد: RSI باید از ۵۰ تا کمتر از ۶۸ باشد"
+        if not price > sma10:
+            return "ورود خرید رد شد: بسته‌شدن کندل یک‌دقیقه‌ای باید بالاتر از SMA10 باشد"
+        if not 50 < rsi < 70:
+            return "ورود خرید رد شد: RSI باید بیشتر از ۵۰ و کمتر از ۷۰ باشد"
     else:
-        if not price < sma10 < sma20:
-            return "ورود فروش رد شد: قیمت باید پایین‌تر از SMA10 و SMA10 پایین‌تر از SMA20 باشد"
-        if not 32 < rsi <= 50:
-            return "ورود فروش رد شد: RSI باید بیشتر از ۳۲ و حداکثر ۵۰ باشد"
+        if not price < sma10:
+            return "ورود فروش رد شد: بسته‌شدن کندل یک‌دقیقه‌ای باید پایین‌تر از SMA10 باشد"
+        if not 30 < rsi < 50:
+            return "ورود فروش رد شد: RSI باید بیشتر از ۳۰ و کمتر از ۵۰ باشد"
     return "شرایط سیگنال تأیید شده؛ ورود آزمایشی مجاز است"
 
 
