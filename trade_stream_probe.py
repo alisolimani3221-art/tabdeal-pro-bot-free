@@ -136,15 +136,19 @@ def parse_trade_message(message, expected_symbol=None):
     if timestamp_ms is None:
         return {"ok": False, "reason": "invalid_timestamp"}
 
+    # The observed Tabdeal broadcast schema includes a monotonically increasing
+    # sequence. Without it, duplicate delivery cannot be distinguished safely
+    # from two legitimate trades sharing the same timestamp and price/amount.
     sequence = trade.get("sequence")
-    if sequence is not None:
-        if (isinstance(sequence, bool) or not isinstance(sequence, (int, float))
-                or sequence < 0 or sequence > 9_223_372_036_854_775_807):
-            return {"ok": False, "reason": "invalid_sequence"}
-        if isinstance(sequence, float) and (
-                not math.isfinite(sequence) or not sequence.is_integer()):
-            return {"ok": False, "reason": "invalid_sequence"}
-        sequence = int(sequence)
+    if sequence is None:
+        return {"ok": False, "reason": "missing_sequence"}
+    if (isinstance(sequence, bool) or not isinstance(sequence, (int, float))
+            or sequence < 0 or sequence > 9_223_372_036_854_775_807):
+        return {"ok": False, "reason": "invalid_sequence"}
+    if isinstance(sequence, float) and (
+            not math.isfinite(sequence) or not sequence.is_integer()):
+        return {"ok": False, "reason": "invalid_sequence"}
+    sequence = int(sequence)
     side_name = trade.get("side_name")
     if side_name is not None and not isinstance(side_name, str):
         return {"ok": False, "reason": "invalid_side_name"}
