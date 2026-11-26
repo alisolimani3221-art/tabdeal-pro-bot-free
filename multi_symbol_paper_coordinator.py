@@ -10,6 +10,7 @@ import threading
 import time
 
 from market_candles import TradeCandleBuilder
+from multi_timeframe import TRADE_TIMEFRAMES_MINUTES
 
 
 _SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT")
@@ -140,7 +141,7 @@ class MultiSymbolPaperCoordinator:
                 if not closed:
                     raise ValueError("no closed candles available for technical snapshot")
                 # Indicators depend only on completed bars. Cache the expensive
-                # four-timeframe calculation until at least one new timeframe
+                # three-timeframe calculation until at least one new timeframe
                 # bar closes; still refresh the live mark on every accepted tick.
                 last_closed_open = int(closed[-1][0])
                 builder_interval_ms = getattr(state["builder"], "interval_ms", 60_000)
@@ -151,7 +152,7 @@ class MultiSymbolPaperCoordinator:
                 signature = tuple(
                     (last_closed_open + builder_interval_ms)
                     // (minutes * builder_interval_ms)
-                    for minutes in (1, 5, 15, 30, 60)
+                    for minutes in TRADE_TIMEFRAMES_MINUTES
                 )
                 if (state["latest_technical"] is not None
                         and state["last_analysis_signature"] == signature):
@@ -324,7 +325,7 @@ class MultiSymbolPaperCoordinator:
                         if type(raw_counts.get(str(minutes))) is int
                         and raw_counts.get(str(minutes)) >= 0 else 0
                     )
-                    for minutes in (5, 15, 30, 60)
+                    for minutes in TRADE_TIMEFRAMES_MINUTES
                 }
                 snapshot_fresh = bool(
                     snapshot is not None and age is not None
