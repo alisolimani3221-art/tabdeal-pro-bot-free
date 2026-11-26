@@ -70,9 +70,9 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         calls = []
         def stub_analyzer(candles, interval_ms=60_000):
             calls.append((len(candles) - 1, interval_ms))
-            return {"signal": "BULLISH", "price": 100.0,
+            return {"signal": "BULLISH", "price": 100.5,
                     "closed_candles": len(candles) - 1,
-                    "sma10": 99.0, "sma20": 98.0,
+                    "sma10": 100.0, "sma20": 99.0,
                     "rsi14": 56.0, "atr14": 0.5}
         result = analyze_multi_timeframe(
             rows, now_ms=24 * 60 * 60_000, analyzer=stub_analyzer
@@ -81,6 +81,8 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(result["signal"], "BULLISH")
         self.assertTrue(result["timeframe_analysis"]["ready"])
         self.assertTrue(result["timeframe_analysis"]["agreement"])
+        self.assertTrue(result["timeframe_analysis"]["entry_trigger"])
+        self.assertEqual(result["timeframe_analysis"]["entry_trigger_direction"], "BULLISH")
         self.assertEqual(result["timeframe_analysis"]["required_minutes"], [1, 5, 15])
         self.assertEqual(
             result["timeframe_analysis"]["signals"],
@@ -97,13 +99,16 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         rows = minute_rows(24 * 60)
         def stub_analyzer(candles, interval_ms=60_000):
             direction = "BEARISH" if interval_ms == 60_000 else "BULLISH"
-            return {"signal": direction, "price": 100.0,
-                    "closed_candles": len(candles) - 1}
+            return {"signal": direction, "price": 100.5,
+                    "sma10": 100.0, "sma20": 99.0, "rsi14": 56.0,
+                    "atr14": 0.5, "closed_candles": len(candles) - 1}
         result = analyze_multi_timeframe(
             rows, now_ms=24 * 60 * 60_000, analyzer=stub_analyzer
         )
-        self.assertEqual(result["signal"], "NEUTRAL")
-        self.assertFalse(result["timeframe_analysis"]["agreement"])
+        self.assertEqual(result["signal"], "BULLISH")
+        self.assertTrue(result["timeframe_analysis"]["agreement"])
+        self.assertTrue(result["timeframe_analysis"]["entry_trigger"])
+        self.assertEqual(result["timeframe_analysis"]["signals"]["1"], "BEARISH")
 
     def test_fifteen_minute_history_below_minimum_blocks_agreement(self):
         rows = minute_rows(22 * 15)
