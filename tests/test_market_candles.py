@@ -57,6 +57,44 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.status()["stored_closed_candles"], 2)
         self.assertFalse(builder.is_ready)
 
+    def test_clock_finalizes_elapsed_candle_without_following_trade(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))  # partial first bucket
+        builder.add_trade(self.trade(101))  # closes/discards minute 100
+        self.assertTrue(builder.finalize_due(102 * 60_000))
+        self.assertIsNone(builder.current)
+        self.assertEqual(builder.status()["closed_candles"], 1)
+        self.assertEqual(builder.candles_for_analysis()[0][0], 101 * 60_000)
+        self.assertFalse(builder.is_ready)
+
+    def test_clock_finalization_detects_gap_and_rejects_late_trade(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))
+        builder.add_trade(self.trade(101))
+        builder.finalize_due(102 * 60_000)
+        late = builder.add_trade(self.trade(101, second=50))
+        self.assertEqual(late["reason"], "late_trade_for_closed_candle")
+        resumed = builder.add_trade(self.trade(103))
+        self.assertTrue(resumed["gap_detected"])
+        self.assertEqual(builder.status()["closed_candles"], 0)
+        self.assertEqual(builder.status()["gaps"], 1)
+
+    def test_clock_finalization_persists_to_archive(self):
+        import os
+        import tempfile
+        from candle_archive import CandleArchive
+        with tempfile.TemporaryDirectory() as directory:
+            archive = CandleArchive(os.path.join(directory, "candles.sqlite3"))
+            builder = TradeCandleBuilder("BTC_USDT", archive=archive)
+            builder.add_trade(self.trade(100))
+            builder.add_trade(self.trade(101))
+            self.assertTrue(builder.finalize_due(102 * 60_000))
+            self.assertEqual(builder.status()["stored_closed_candles"], 1)
+            restored = TradeCandleBuilder(
+                "BTC_USDT", archive=CandleArchive(os.path.join(directory, "candles.sqlite3"))
+            )
+            self.assertEqual(restored.status()["stored_closed_candles"], 1)
+
     def test_reconnect_preserves_archived_closed_candles(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100))
