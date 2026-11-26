@@ -140,10 +140,6 @@ class TradeCandleBuilder:
         elif bucket == self.current["open_time"]:
             if timestamp < self.current["last_timestamp"]:
                 return self._reject("out_of_order")
-            # Finite individual quantities can still overflow when aggregated.
-            # Reject before mutating OHLCV or advancing the accepted-event cursor.
-            if not math.isfinite(self.current["volume"] + quantity):
-                return self._reject("volume_overflow")
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
