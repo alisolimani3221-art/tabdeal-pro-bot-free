@@ -1,7 +1,8 @@
 """Strict analysis of 1m, 5m and 15m closed futures candles.
 
 Only complete, exchange-epoch-aligned 5m/15m bars are aggregated from the
-validated 1m stream. Entry requires all three timeframe signals to agree.
+validated 1m stream. The 5m/15m signals establish bias; the 1m close is only
+an entry trigger and its categorical signal never overrides the higher bias.
 """
 import math
 
@@ -87,7 +88,6 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         raise ValueError("one-minute analyzer returned an invalid result")
 
     aggregated = aggregate_closed_timeframes(candles, now_ms)
-    analyses = {"1": dict(one_minute)}
     counts = {"1": one_minute.get("closed_candles", 0)}
     signals = {"1": one_minute.get("signal", "NEUTRAL")}
     closes = {}
@@ -107,13 +107,13 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         technical = analyzer(rows + [sentinel], interval_ms=interval_ms)
         if not isinstance(technical, dict):
             raise ValueError("timeframe analyzer returned an invalid result")
-        analyses[str(minutes)] = dict(technical)
         signals[str(minutes)] = technical.get("signal", "NEUTRAL")
         closes[str(minutes)] = int(last[0])
 
     ready = (
         type(counts.get("1")) is int and counts["1"] >= 23
-        and all(str(minutes) in analyses for minutes in AGGREGATED_TIMEFRAMES_MINUTES)
+        and all(counts.get(str(minutes), 0) >= 23
+                for minutes in AGGREGATED_TIMEFRAMES_MINUTES)
     )
     bias_directions = [signals.get("5"), signals.get("15")]
     bias_agreement = bool(
