@@ -14,7 +14,8 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
                     "direction": "BULLISH", "entry_trigger": True,
                     "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
                     "closed_candles": {"1": 1439, "5": 288, "15": 96},
-                    "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}}}
+                    "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
+                    "atr14_by_timeframe": {"5": 1.6, "15": 2.4}}}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
             "closed_candles": 23, "candle_open_time": 60_000,
@@ -22,7 +23,8 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
                 "direction": "BEARISH", "entry_trigger": True,
                 "entry_trigger_direction": "BEARISH", "required_minutes": [1, 5, 15],
                 "closed_candles": {"1": 1439, "5": 288, "15": 96},
-                "signals": {"1": "BEARISH", "5": "BEARISH", "15": "BEARISH"}}}
+                "signals": {"1": "BEARISH", "5": "BEARISH", "15": "BEARISH"},
+                "atr14_by_timeframe": {"5": 1.6, "15": 2.4}}}
 
 
 class PaperTradeSummaryTests(unittest.TestCase):
@@ -109,6 +111,22 @@ class PaperTraderTests(unittest.TestCase):
         original = dict(setup(), price=98.5)
         snapshot = prepare_live_market_snapshot(original, 100.5)
         self.assertIsNone(rank_signal(snapshot))
+
+    def test_missing_five_minute_risk_atr_blocks_entry(self):
+        candidate = setup()
+        candidate["timeframe_analysis"].pop("atr14_by_timeframe")
+        self.assertIsNone(rank_signal(candidate))
+
+    def test_five_minute_atr_controls_protective_stop_distance(self):
+        candidate = setup()
+        candidate["timeframe_analysis"]["atr14_by_timeframe"]["5"] = 2.0
+        engine = PaperTradingEngine()
+        result = engine.process_scan([candidate])
+        self.assertEqual(result["events"][0]["event"], "OPENED")
+        position = result["open_position"]
+        self.assertAlmostEqual(position["atr"], 2.0)
+        self.assertAlmostEqual(position["entry"] - position["stop"], 3.0)
+        self.assertAlmostEqual(position["target"] - position["entry"], 6.0)
 
     def test_one_minute_neutral_label_does_not_override_five_and_fifteen_bias(self):
         candidate = setup()
