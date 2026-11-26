@@ -1,5 +1,5 @@
-name: Experimental APK build (v1.19)
-run-name: Experimental APK v1.19 - ${{ github.ref_name }}
+name: Experimental APK build (v1.21)
+run-name: Experimental APK v1.21 - ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: tabdeal-apk-experiment-v1-19-fonts
+  group: tabdeal-apk-experiment-v1-21-fonts
   cancel-in-progress: false
 
 jobs:
@@ -100,11 +100,16 @@ jobs:
           if app_version != package_version:
               raise SystemExit("App version and Buildozer version do not match")
           if app_version != "1.21":
-              raise SystemExit("This experimental workflow is restricted to baseline v1.19")
+              raise SystemExit("This workflow requires app baseline v1.21")
           if "android.archs = arm64-v8a" not in Path("buildozer.spec").read_text(encoding="utf-8"):
               raise SystemExit("Expected ARM64 Android build configuration")
-          print("Verified baseline version:", app_version)
+          print("Verified app/package version:", app_version)
           PY
+
+      - name: Install application runtime and test dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip check
 
       - name: Run candle persistence and regression tests
         run: |
@@ -121,7 +126,7 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Futures-Analyzer-v1.19-experimental-APK
+          name: Futures-Analyzer-v1.21-experimental-APK
           path: bin/*.apk
           if-no-files-found: error
           retention-days: 7
