@@ -10,7 +10,7 @@ from collections import deque
 
 
 class TradeCandleBuilder:
-    def __init__(self, symbol, interval_ms=60_000, max_candles=500):
+    def __init__(self, symbol, interval_ms=60_000, max_candles=500, archive=None):
         if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
             raise ValueError("symbol must be an exchange-native USDT futures symbol")
         if isinstance(interval_ms, bool) or not isinstance(interval_ms, int) or interval_ms <= 0:
@@ -23,7 +23,12 @@ class TradeCandleBuilder:
         # `history` is the retained archive shown in diagnostics; a data gap
         # must invalidate continuity without erasing already closed candles.
         self.closed = deque(maxlen=max_candles)
+        self.archive = archive
+        self.archive_error = None
         self.history = deque(maxlen=max_candles)
+        if self.archive is not None:
+            for archived_row in self.archive.load_recent(symbol, interval_ms, max_candles):
+                self.history.append(archived_row)
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
@@ -92,8 +97,16 @@ class TradeCandleBuilder:
             previous_bucket = self.current["open_time"]
             if not self.discard_next_close:
                 closed_row = self._as_row(self.current)
-                self.closed.append(closed_row)
-                self.history.append(closed_row)
+                try:
+                    if self.archive is not None:
+                        self.archive.save_closed(self.symbol, self.interval_ms, closed_row)
+                    self.closed.append(closed_row)
+                    self.history.append(closed_row)
+                    self.archive_error = None
+                except Exception as exc:
+                    # Never generate trading signals from candles that failed
+                    # durable persistence. Keep the app alive for diagnostics.
+                    self.archive_error = type(exc).__name__
             else:
                 self.discard_next_close = False
             if bucket != previous_bucket + self.interval_ms:
@@ -142,7 +155,8 @@ class TradeCandleBuilder:
     @property
     def is_ready(self):
         # analyze_klines excludes the final row as a still-forming candle.
-        return len(self.closed) >= 51 and self.current is not None
+        return (self.archive_error is None and len(self.closed) >= 51
+                and self.current is not None)
 
     def candles_for_analysis(self):
         """Return chronological closed candles plus current forming candle."""
@@ -155,5 +169,6 @@ class TradeCandleBuilder:
         return {"symbol": self.symbol, "closed_candles": len(self.closed),
                 "stored_closed_candles": len(self.history),
                 "has_forming_candle": self.current is not None,
-                "ready": self.is_ready, "gaps": self.gaps,
+                "ready": self.is_ready, "archive_error": self.archive_error,
+                "gaps": self.gaps,
                 "rejected_trades": self.rejected}
