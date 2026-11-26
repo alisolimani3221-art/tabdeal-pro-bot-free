@@ -310,13 +310,38 @@ class MultiSymbolPaperCoordinator:
                 builder_status = state["builder"].status()
                 received = state["last_trade_monotonic"]
                 age = None if received is None else current - received
+                snapshot = state["latest_technical"]
+                timeframe = (
+                    snapshot.get("timeframe_analysis")
+                    if isinstance(snapshot, dict) else None
+                )
+                timeframe = timeframe if isinstance(timeframe, dict) else {}
+                raw_counts = timeframe.get("closed_candles")
+                raw_counts = raw_counts if isinstance(raw_counts, dict) else {}
+                timeframe_counts = {
+                    str(minutes): (
+                        raw_counts.get(str(minutes))
+                        if type(raw_counts.get(str(minutes))) is int
+                        and raw_counts.get(str(minutes)) >= 0 else 0
+                    )
+                    for minutes in (5, 15, 30, 60)
+                }
+                snapshot_fresh = bool(
+                    snapshot is not None and age is not None
+                    and 0 <= age <= self.max_snapshot_age
+                )
+                timeframe_ready = timeframe.get("ready") is True
+                timeframe_agreement = timeframe.get("agreement") is True
                 result[symbol] = {
                     "accepted_trades": state["accepted_trades"],
                     "rejected_trades": state["rejected_trades"],
                     "last_trade_age_seconds": age,
-                    "snapshot_fresh": bool(
-                        state["latest_technical"] is not None
-                        and age is not None and 0 <= age <= self.max_snapshot_age
+                    "snapshot_fresh": snapshot_fresh,
+                    "multi_timeframe_ready": timeframe_ready,
+                    "multi_timeframe_agreement": timeframe_agreement,
+                    "timeframe_closed_candles": timeframe_counts,
+                    "entry_ready": bool(
+                        snapshot_fresh and timeframe_ready and timeframe_agreement
                     ),
                     "last_analysis_error": state["last_analysis_error"],
                     "builder": builder_status,
