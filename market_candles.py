@@ -98,6 +98,10 @@ class TradeCandleBuilder:
 
         if self.last_timestamp_ms is not None and timestamp < self.last_timestamp_ms:
             self.rejected += 1
+            # A delayed event can change OHLC values of an already advanced
+            # candle. Rejecting it alone would leave an apparently complete,
+            # but potentially incomplete, indicator window. Fail closed.
+            self.reset_after_gap()
             return {"accepted": False, "reason": "out_of_order"}
         if (sequence is not None and self.last_sequence is not None
                 and sequence <= self.last_sequence):
