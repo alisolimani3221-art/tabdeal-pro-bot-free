@@ -510,6 +510,11 @@ class FuturesAnalyzerApp(App):
 
         self.auto_stop_event = threading.Event()
         self.auto_trader_thread = None
+        # Read-only live-price observer is independent from the paper engine latch.
+        self.read_only_price_stop = threading.Event()
+        self.read_only_price_thread = None
+        self.read_only_price_ws = None
+        self.read_only_price_symbol = None
         self.auto_engine = None
         # The WebSocket callback and periodic scan worker may persist the same
         # engine concurrently. Serialize snapshot creation and atomic replace.
@@ -2288,6 +2293,10 @@ class FuturesAnalyzerApp(App):
         try:
             ensure_paper_runner_ready(guard, coordinator_session)
         except Exception as exc:
+            # Market-price display is read-only and does not re-arm or bypass the paper-engine safety gate.
+            read_only_starter = getattr(self, "_start_read_only_price_stream", None)
+            if callable(read_only_starter):
+                read_only_starter(str(self.current_symbol).upper())
             self._update_engine_health(
                 worker_phase="blocked_by_safety",
                 last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:120]),
@@ -2371,6 +2380,10 @@ class FuturesAnalyzerApp(App):
                                             max_leverage=3, max_loss_percent=3.0)
             self._persist_paper_engine_state(engine)
         except Exception as exc:
+            # A DATA_GAP halt blocks paper execution, not a separate read-only price feed.
+            read_only_starter = getattr(self, "_start_read_only_price_stream", None)
+            if callable(read_only_starter):
+                read_only_starter(symbol)
             self._update_engine_health(
                 worker_phase="blocked_by_persisted_state",
                 last_stream_error="{}: {}".format(type(exc).__name__, str(exc)[:160]),
@@ -2378,6 +2391,9 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("راه‌اندازی موتور مسدود شد؛ وضعیت ذخیره‌شده معتبر یا قابل‌بازیابی نیست: "
                                     + type(exc).__name__ + ": " + str(exc)[:160])
             return
+        read_only_stopper = getattr(self, "_stop_read_only_price_stream", None)
+        if callable(read_only_stopper):
+            read_only_stopper(timeout=1.0)
         self.auto_stop_event.clear()
         # Tabdeal broadcast is subscribed to exactly the selected symbol.
         # No other market is assumed to arrive on this socket.
@@ -3383,6 +3399,170 @@ class FuturesAnalyzerApp(App):
             lambda dt, value=final_status: self.update_auto_status(value), 0
         )
 
+    def _start_read_only_price_stream(self, symbol):
+        """Start a market-price-only socket without touching paper-engine safety state."""
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
+            return False
+        current = getattr(self, "read_only_price_thread", None)
+        if current is not None and current.is_alive():
+            if getattr(self, "read_only_price_symbol", None) == symbol:
+                return True
+            self._stop_read_only_price_stream(timeout=1.0)
+        self.read_only_price_stop = threading.Event()
+        self.read_only_price_symbol = symbol
+        worker = threading.Thread(
+            target=self._read_only_price_stream_worker,
+            args=(symbol, self.read_only_price_stop),
+            daemon=True,
+            name="read-only-price-stream",
+        )
+        self.read_only_price_thread = worker
+        worker.start()
+        return True
+
+    def _stop_read_only_price_stream(self, timeout=1.0):
+        """Stop only the independent display feed; never alter engine/coordinator latches."""
+        stop_event = getattr(self, "read_only_price_stop", None)
+        if stop_event is not None:
+            stop_event.set()
+        ws = getattr(self, "read_only_price_ws", None)
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
+        worker = getattr(self, "read_only_price_thread", None)
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=max(0.0, float(timeout)))
+        return worker is None or not worker.is_alive()
+
+    def _read_only_price_stream_worker(self, symbol, stop_event):
+        """Reconnect a selected-symbol public feed for display only; no candles or orders."""
+        try:
+            import websocket
+        except Exception as exc:
+            self._update_engine_health(
+                worker_phase="read_only_price_unavailable",
+                last_stream_error="read_only_websocket_import: {}".format(type(exc).__name__),
+            )
+            return
+
+        received = 0
+        valid = 0
+        retry = 0
+        while not stop_event.is_set():
+            retry += 1
+            self._update_engine_health(
+                worker_phase="read_only_price_connecting",
+                websocket_connected=False,
+                retry_attempt=retry,
+            )
+
+            def on_open(ws):
+                try:
+                    subscribe_broadcast_symbols(ws, [symbol])
+                    self._update_engine_health(
+                        worker_phase="read_only_price_connected",
+                        websocket_connected=True,
+                        connected_at=time.monotonic(),
+                        subscribed_symbols=[symbol],
+                        last_stream_error="",
+                    )
+                except Exception as exc:
+                    self._update_engine_health(
+                        worker_phase="read_only_price_reconnecting",
+                        websocket_connected=False,
+                        last_stream_error="read_only_subscribe: {}: {}".format(
+                            type(exc).__name__, str(exc)[:120]
+                        ),
+                    )
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+
+            def on_message(ws, message):
+                nonlocal received, valid, retry
+                if stop_event.is_set():
+                    return
+                received += 1
+                self._update_engine_health(received_messages=received)
+                parsed = parse_trade_message(message)
+                if not parsed.get("ok"):
+                    return
+                if parsed.get("symbol") != symbol:
+                    return
+                if not is_trade_timestamp_fresh(parsed.get("timestamp_ms")):
+                    return
+                try:
+                    price = float(parsed["price"])
+                    if not math.isfinite(price) or price <= 0:
+                        return
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    return
+                valid += 1
+                retry = 0
+                now = time.monotonic()
+                self._update_engine_health(
+                    worker_phase="read_only_price_live",
+                    websocket_connected=True,
+                    valid_market_trades=valid,
+                    selected_symbol_trade_count=valid,
+                    last_any_market_trade_at=now,
+                    last_selected_symbol_trade_at=now,
+                )
+                Clock.schedule_once(
+                    lambda _dt, value=price: self.update_live_price_chart(value), 0
+                )
+
+            def on_error(ws, error):
+                self._update_engine_health(
+                    worker_phase="read_only_price_reconnecting",
+                    websocket_connected=False,
+                    last_stream_error="read_only_websocket: {}: {}".format(
+                        type(error).__name__, str(error)[:140]
+                    ),
+                )
+
+            def on_close(ws, code, message):
+                self._update_engine_health(
+                    websocket_connected=False,
+                    worker_phase=("read_only_price_stopping" if stop_event.is_set()
+                                  else "read_only_price_reconnecting"),
+                )
+
+            app = websocket.WebSocketApp(
+                BROADCAST_URL, on_open=on_open, on_message=on_message,
+                on_error=on_error, on_close=on_close,
+            )
+            self.read_only_price_ws = app
+            try:
+                app.run_forever(
+                    ping_interval=20,
+                    ping_timeout=10,
+                    reconnect=0,
+                    sslopt=tabdeal_websocket_ssl_options(certifi.where()),
+                )
+            except Exception as exc:
+                self._update_engine_health(
+                    worker_phase="read_only_price_reconnecting",
+                    websocket_connected=False,
+                    last_stream_error="read_only_run: {}: {}".format(
+                        type(exc).__name__, str(exc)[:140]
+                    ),
+                )
+            finally:
+                if getattr(self, "read_only_price_ws", None) is app:
+                    self.read_only_price_ws = None
+                self._update_engine_health(websocket_connected=False)
+            if not stop_event.is_set():
+                stop_event.wait(min(15, 2 + retry * 2))
+
+        self._update_engine_health(
+            websocket_connected=False,
+            worker_phase="read_only_price_stopped",
+        )
+
     def update_live_price_chart(self, price):
         """Update the rolling chart on Kivy's UI thread from validated live trades."""
         chart = getattr(self, "live_price_chart", None)
@@ -3607,6 +3787,9 @@ class FuturesAnalyzerApp(App):
         )
 
     def on_stop(self):
+        read_only_stopper = getattr(self, "_stop_read_only_price_stream", None)
+        if callable(read_only_stopper):
+            read_only_stopper(timeout=1.0)
         poll_stop = getattr(self, "orderbook_poll_stop", None)
         if poll_stop is not None:
             poll_stop.set()
