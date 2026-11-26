@@ -147,5 +147,18 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertNotIn("assistant_rtl_text(", assistant)
 
 
+    def test_groq_dialog_shapes_readonly_persian_output_once(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        start = source.index("    def open_openai_assistant(")
+        end = source.index("    def open_smart_analysis(", start)
+        dialog = source[start:end]
+        self.assertIn("text=assistant_rtl_text(greeting)", dialog)
+        self.assertIn('base_direction="ltr",', dialog)
+        self.assertIn('result.text = assistant_rtl_text("\\n\\n".join(lines))', dialog)
+        self.assertIn('result.text = assistant_rtl_text(message)', dialog)
+        self.assertNotIn('text=greeting,', dialog)
+        self.assertNotIn('base_direction="rtl", text_language="fa"', dialog)
+
+
 if __name__ == "__main__":
     unittest.main()
