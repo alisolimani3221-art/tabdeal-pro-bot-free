@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 BROADCAST_URL = "wss://api1.tabdeal.org/special_margin/broadcast/"
 DEFAULT_SYMBOL = "AEVO_USDT"
 MAX_MESSAGE_BYTES = 65536
+MAX_TRADE_AGE_MS = 120_000
 
 ALIASES = {
     "price": ("price", "p", "tradePrice", "dealPrice"),
@@ -35,7 +36,7 @@ def _finite_positive(value):
     return number
 
 
-def _parse_timestamp_ms(value):
+def _parse_timestamp_ms(value, now_ms=None):
     """Parse epoch seconds/milliseconds or timezone-aware ISO-8601 timestamps."""
     timestamp_ms = None
     if isinstance(value, str) and not value.strip().replace(".", "", 1).isdigit():
@@ -64,9 +65,13 @@ def _parse_timestamp_ms(value):
             return None
         timestamp_ms = int(scaled)
 
-    now_ms = int(time.time() * 1000)
-    if (timestamp_ms <= 0 or timestamp_ms >= 10_000_000_000_000
-            or timestamp_ms > now_ms + 5 * 60 * 1000):
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    if (isinstance(now_ms, bool) or not isinstance(now_ms, int)
+            or now_ms <= 0 or timestamp_ms <= 0
+            or timestamp_ms >= 10_000_000_000_000
+            or timestamp_ms > now_ms + 5 * 60 * 1000
+            or now_ms - timestamp_ms > MAX_TRADE_AGE_MS):
         return None
     return timestamp_ms
 
@@ -87,7 +92,7 @@ def _first(mapping, names):
     return None
 
 
-def parse_trade_message(message, expected_symbol=None):
+def parse_trade_message(message, expected_symbol=None, now_ms=None):
     """Return normalized trade or a safe diagnostic; never guess missing fields."""
     if expected_symbol is not None and (
             not isinstance(expected_symbol, str)
@@ -129,7 +134,7 @@ def parse_trade_message(message, expected_symbol=None):
     price = _finite_positive(_first(trade, ALIASES["price"]))
     quantity = _finite_positive(_first(trade, ALIASES["quantity"]))
     raw_timestamp = _first(trade, ALIASES["timestamp"])
-    timestamp_ms = _parse_timestamp_ms(raw_timestamp)
+    timestamp_ms = _parse_timestamp_ms(raw_timestamp, now_ms=now_ms)
     if price is None or quantity is None or raw_timestamp is None:
         return {"ok": False, "reason": "trade_schema_unrecognized",
                 "trade_keys": sorted(str(k) for k in trade.keys())[:30]}
