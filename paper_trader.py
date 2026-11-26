@@ -153,7 +153,14 @@ def rank_signal(technical):
     if (not isinstance(timeframe, dict)
             or timeframe.get("ready") is not True
             or timeframe.get("agreement") is not True
-            or timeframe.get("direction") != signal):
+            or timeframe.get("direction") != signal
+            or timeframe.get("required_minutes") != [5, 15, 30, 60]):
+        return None
+    timeframe_counts = timeframe.get("closed_candles")
+    if (not isinstance(timeframe_counts, dict)
+            or any(type(timeframe_counts.get(str(minutes))) is not int
+                   or timeframe_counts.get(str(minutes)) < 23
+                   for minutes in (5, 15, 30, 60))):
         return None
     timeframe_signals = timeframe.get("signals")
     if (not isinstance(timeframe_signals, dict)
@@ -218,6 +225,14 @@ def diagnose_signal(technical):
     timeframe = technical.get("timeframe_analysis")
     if (not isinstance(timeframe, dict) or timeframe.get("ready") is not True):
         return "تاریخچهٔ کامل ۵، ۱۵، ۳۰ و ۶۰ دقیقه آماده نیست؛ ورود مسدود است"
+    if timeframe.get("required_minutes") != [5, 15, 30, 60]:
+        return "فهرست تایم‌فریم‌های لازم معتبر نیست؛ ورود مسدود است"
+    timeframe_counts = timeframe.get("closed_candles")
+    if (not isinstance(timeframe_counts, dict)
+            or any(type(timeframe_counts.get(str(minutes))) is not int
+                   or timeframe_counts.get(str(minutes)) < 23
+                   for minutes in (5, 15, 30, 60))):
+        return "تعداد کندل بستهٔ یکی از تایم‌فریم‌ها کافی نیست؛ ورود مسدود است"
     if (timeframe.get("agreement") is not True
             or timeframe.get("direction") != signal):
         return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
