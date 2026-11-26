@@ -19,7 +19,7 @@ The observed `trade` object had these fields and JSON types:
 | `side_name` | string | side label; observed buy-like value |
 | `updated` | string | timezone-aware ISO-8601 timestamp with six fractional digits |
 
-The strict read-only parser now recognizes `amount` as quantity and `updated` as an ISO-8601 event timestamp. It rejects naive timestamps, timestamps more than five minutes ahead of the device clock, malformed symbols, non-positive price/amount, invalid sequence values and malformed JSON.
+The strict read-only parser now recognizes `amount` as quantity and `updated` as an ISO-8601 event timestamp. It rejects naive timestamps, timestamps more than five minutes ahead of the device clock, malformed symbols, non-positive price/amount, missing or invalid sequence values and malformed JSON. Sequence is mandatory in the runtime path: without it, a repeated delivery cannot be distinguished safely from two legitimate trades sharing the same timestamp, price and amount.
 
 ## What this observation does not prove
 
