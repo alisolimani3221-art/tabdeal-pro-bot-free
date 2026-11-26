@@ -119,8 +119,9 @@ class TradeStreamProbeTests(unittest.TestCase):
                                  "amount": "1", "updated": "2026-11-17T03:49:14.123456Z",
                                  "sequence": sequence}}
             with self.subTest(sequence_type=type(sequence).__name__):
-                self.assertEqual(parse_trade_message(json.dumps(payload))["reason"],
-                                 "invalid_sequence")
+                self.assertEqual(parse_trade_message(
+                    json.dumps(payload), "BTC_USDT", now_ms=1794887354123
+                )["reason"], "invalid_sequence")
 
     def test_rejects_timestamps_far_in_the_future(self):
         future_seconds = time.time() + 600
@@ -204,7 +205,9 @@ class TradeStreamProbeTests(unittest.TestCase):
         payload = {"trade": {"symbol": "aevo_usdt", "price": "1",
                              "quantity": "1", "timestamp": 1700000000,
                              "sequence": 1004}}
-        self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
+        self.assertTrue(parse_trade_message(
+            json.dumps(payload), "AEVO_USDT", now_ms=1700000000000
+        )["ok"])
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
         from trade_stream_probe import probe_broadcast
