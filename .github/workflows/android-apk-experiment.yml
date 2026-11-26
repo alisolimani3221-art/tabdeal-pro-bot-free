@@ -99,12 +99,17 @@ jobs:
           package_version = next((line.partition("=")[2].strip() for line in spec_lines if line.strip().startswith("version") and "=" in line), None)
           if app_version != package_version:
               raise SystemExit("App version and Buildozer version do not match")
-          if app_version != "1.19":
+          if app_version != "1.21":
               raise SystemExit("This experimental workflow is restricted to baseline v1.19")
           if "android.archs = arm64-v8a" not in Path("buildozer.spec").read_text(encoding="utf-8"):
               raise SystemExit("Expected ARM64 Android build configuration")
           print("Verified baseline version:", app_version)
           PY
+
+      - name: Run candle persistence and regression tests
+        run: |
+          python -m compileall -q .
+          python -m unittest discover -s tests -v
 
       - name: Build debug APK
         env:
