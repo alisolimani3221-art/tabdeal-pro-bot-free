@@ -86,7 +86,7 @@ class CandleArchive:
     def save_closed(self, symbol, interval_ms, row):
         values = self._validate(symbol, interval_ms, row)
         try:
-            with self._lock, self._connect() as db:
+            with self._lock, self._connection() as db:
                 existing = db.execute(
                     "SELECT open,high,low,close,volume FROM candles WHERE symbol=? AND interval_ms=? AND open_time=?",
                     (symbol, interval_ms, values[0]),
@@ -116,7 +116,7 @@ class CandleArchive:
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
             raise ValueError("limit must be positive")
         try:
-            with self._lock, self._connect() as db:
+            with self._lock, self._connection() as db:
                 rows = db.execute(
                     "SELECT open_time,open,high,low,close,volume FROM candles "
                     "WHERE symbol=? AND interval_ms=? ORDER BY open_time DESC LIMIT ?",
