@@ -167,7 +167,7 @@ def rank_signal(technical):
         _positive(atr_by_timeframe.get("5") if isinstance(atr_by_timeframe, dict) else None,
                   "5m risk ATR")
     except (TypeError, ValueError, OverflowError):
-        return "مقدار ATR پنج‌دقیقه‌ای برای تعیین حد ضرر معتبر نیست؛ ورود مسدود است"
+        return None
     timeframe_counts = timeframe.get("closed_candles")
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(str(minutes))) is not int
@@ -252,6 +252,12 @@ def diagnose_signal(technical):
         return "تاریخچهٔ کامل ۱، ۵ و ۱۵ دقیقه آماده نیست؛ ورود مسدود است"
     if timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES):
         return "فهرست تایم‌فریم‌های لازم معتبر نیست؛ ورود مسدود است"
+    atr_by_timeframe = timeframe.get("atr14_by_timeframe")
+    try:
+        _positive(atr_by_timeframe.get("5") if isinstance(atr_by_timeframe, dict) else None,
+                  "5m risk ATR")
+    except (TypeError, ValueError, OverflowError):
+        return "مقدار ATR پنج‌دقیقه‌ای برای تعیین حد ضرر معتبر نیست؛ ورود مسدود است"
     timeframe_counts = timeframe.get("closed_candles")
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(str(minutes))) is not int
