@@ -680,10 +680,25 @@ class PaperTradingEngine:
             }
 
     def _activate_trailing(self, position, favourable_price):
-        """Convert the first target into a net-profit-protecting trailing trigger."""
+        """Activate trailing only after costs can be covered at the protected floor."""
+        entry = position["entry"]
+        quantity = position["quantity"]
+        if position["side"] == "BULLISH":
+            floor = (entry + position["fees_entry"] / quantity) / (
+                (1.0 - self.slippage_rate) * (1.0 - self.fee_rate)
+            )
+            if favourable_price <= floor:
+                return False
+        else:
+            ceiling = (entry - position["fees_entry"] / quantity) / (
+                (1.0 + self.slippage_rate) * (1.0 + self.fee_rate)
+            )
+            if favourable_price >= ceiling:
+                return False
         position["trailing_active"] = True
         position["best_price"] = favourable_price
         self._ratchet_trailing_stop(position)
+        return True
 
     def _ratchet_trailing_stop(self, position):
         """Move protection only in the profitable direction; never loosen it."""
