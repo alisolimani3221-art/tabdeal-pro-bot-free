@@ -43,7 +43,7 @@ A collector cannot feed trading analysis until all gates pass:
 - Each supported symbol's generated OHLCV is compared against Tabdeal's official Futures chart for matching time windows, including low-volume periods and empty minutes.
 - A restart restores history only when the journal proves continuity; otherwise readiness is reset.
 - The Android importer rejects tampered, stale, wrong-symbol, wrong-interval, incomplete, and non-contiguous snapshots.
-- The 5m/15m/30m/60m gates remain closed until at least 23 verified closed candles per timeframe are present and directions agree.
+- The 1m/5m/15m gates remain closed until at least 23 verified closed candles per timeframe are present and directions agree.
 - Full regression, Android build, signed APK verification, and physical-device acceptance pass.
 
 ## Current safe behavior
