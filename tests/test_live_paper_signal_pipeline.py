@@ -30,7 +30,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
             timestamp_ms = (first_minute + index) * 60_000 + 1_000
             raw = json.dumps({"trade": {
                 "symbol": symbol, "price": str(price), "amount": "1",
-                "updated": timestamp_ms,
+                "updated": timestamp_ms, "sequence": index,
             }})
             parsed = parse_trade_message(raw, expected_symbol=symbol)
             self.assertTrue(parsed["ok"], parsed)
