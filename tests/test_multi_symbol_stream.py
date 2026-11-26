@@ -3,6 +3,7 @@ import unittest
 from multi_symbol_stream import (
     MAX_VERIFIED_BROADCAST_SYMBOLS,
     select_broadcast_symbols,
+    include_required_symbol,
     subscribe_broadcast_symbols,
 )
 
@@ -20,6 +21,19 @@ class MultiSymbolBroadcastSelectionTests(unittest.TestCase):
         )
         self.assertEqual(result, ("BTC_USDT", "ADA_USDT", "BNB_USDT", "ETH_USDT", "SOL_USDT"))
         self.assertEqual(len(result), MAX_VERIFIED_BROADCAST_SYMBOLS)
+
+    def test_recovered_open_position_gets_reserved_slot_without_exceeding_five(self):
+        selected = ("BTC_USDT", "ADA_USDT", "BNB_USDT", "ETH_USDT", "SOL_USDT")
+        result = include_required_symbol(selected, "XRP_USDT")
+        self.assertEqual(
+            result, ("BTC_USDT", "XRP_USDT", "ADA_USDT", "BNB_USDT", "ETH_USDT")
+        )
+        self.assertEqual(len(result), 5)
+        self.assertEqual(include_required_symbol(result, "XRP_USDT"), result)
+
+    def test_invalid_required_market_is_rejected(self):
+        with self.assertRaises(ValueError):
+            include_required_symbol(("BTC_USDT",), "BTC/USDT")
 
     def test_unverified_or_malformed_symbols_are_ignored(self):
         self.assertEqual(
