@@ -56,9 +56,11 @@ class MultiSymbolCandleCache:
         except FileNotFoundError:
             pass
         except Exception:
+            # Preserve malformed/stale cache bytes for post-mortem inspection.
+            # They are not restored into the builder or used for analysis.
             try:
-                os.remove(path)
-            except OSError:
+                archive_candle_cache(path, "invalid_cache", now_ms)
+            except (OSError, ValueError, TypeError):
                 pass
         self.builders[symbol] = builder
         return builder
