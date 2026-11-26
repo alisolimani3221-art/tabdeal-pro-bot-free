@@ -130,6 +130,18 @@ class PaperTraderTests(unittest.TestCase):
             with self.subTest(timeframe=timeframe):
                 self.assertIsNone(rank_signal(candidate))
 
+    def test_diagnostics_explain_missing_or_conflicting_timeframes(self):
+        candidate = dict(setup(), timeframe_analysis={
+            "ready": False, "agreement": False, "direction": None, "signals": {}
+        })
+        self.assertIn("تاریخچه", diagnose_signal(candidate))
+        candidate["timeframe_analysis"] = {
+            "ready": True, "agreement": False, "direction": None,
+            "signals": {"5": "BULLISH", "15": "BULLISH",
+                        "30": "BEARISH", "60": "BULLISH"},
+        }
+        self.assertIn("هم‌سو", diagnose_signal(candidate))
+
     def test_accepts_signal_with_minimum_closed_candle_provenance(self):
         self.assertIsNotNone(rank_signal(setup()))
         self.assertIsNotNone(rank_signal(dict(setup(), closed_candles=24)))
