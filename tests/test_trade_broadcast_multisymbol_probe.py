@@ -43,9 +43,10 @@ class MultiSymbolBroadcastProbeTests(unittest.TestCase):
         with patch.dict(sys.modules, {"websocket": module}):
             result = probe_multiple_symbols(timeout_seconds=1)
         self.assertEqual(state["sent"], ["BTC_USDT", "ETH_USDT"])
-        self.assertEqual(result["status"], "both_symbols_observed_after_second_subscription")
+        self.assertEqual(result["status"], "both_symbols_observed_briefly_or_insufficiently")
         self.assertGreater(result["post_second_subscription_by_symbol"]["BTC_USDT"], 0)
         self.assertGreater(result["post_second_subscription_by_symbol"]["ETH_USDT"], 0)
+        self.assertFalse(state["closed"], "probe must not close immediately after one event per symbol")
 
     def test_reports_replacement_or_single_symbol_behavior_without_guessing(self):
         state, module = self._fake_websocket("second_only")
