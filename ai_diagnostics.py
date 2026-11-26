@@ -29,6 +29,8 @@ HEALTH_KEYS = (
     "reconnect_history_clear_count", "reconnect_last_reset_reason",
     "duplicate_sequence_rejections", "older_sequence_rejections",
     "out_of_order_rejections", "last_stream_error",
+    "multi_timeframe_ready", "multi_timeframe_agreement",
+    "timeframe_history_progress",
 )
 NESTED_KEYS = ("price", "quantity", "qty", "size", "amount", "volume", "time")
 
@@ -134,6 +136,29 @@ def _engine_health(app, worker_alive):
         state = "SCAN_STALE"
     else:
         state = "ACTIVE"
+    per_symbol = source.get("per_symbol_health")
+    selected_symbol = str(getattr(app, "current_symbol", "")).upper()
+    selected_status = (
+        per_symbol.get(selected_symbol)
+        if isinstance(per_symbol, dict) else None
+    )
+    if isinstance(selected_status, dict):
+        result["multi_timeframe_ready"] = bool(
+            selected_status.get("multi_timeframe_ready")
+        )
+        result["multi_timeframe_agreement"] = bool(
+            selected_status.get("multi_timeframe_agreement")
+        )
+        counts = selected_status.get("timeframe_closed_candles")
+        if isinstance(counts, dict):
+            result["timeframe_history_progress"] = " | ".join(
+                "{}m: {}/23".format(
+                    minutes,
+                    counts.get(str(minutes), 0)
+                    if type(counts.get(str(minutes), 0)) is int else 0,
+                )
+                for minutes in (5, 15, 30, 60)
+            )
     result["health_state"] = state
     result["thread_alive"] = bool(worker_alive)
     return result
@@ -252,6 +277,9 @@ def build_engine_health_report_lines(app):
             - int(health.get("candle_count", 0) or 0)
         )),
         "بازه هر کندل (ثانیه): " + value("candle_interval_seconds", "60"),
+        "تاریخچه چهار تایم‌فریم آماده: " + value("multi_timeframe_ready", "false"),
+        "هم‌جهتی چهار تایم‌فریم: " + value("multi_timeframe_agreement", "false"),
+        "پیشرفت تاریخچه ۵/۱۵/۳۰/۶۰ دقیقه: " + value("timeframe_history_progress", "در انتظار داده"),
         "آماده‌بودن کندل‌ساز: " + value("builder_ready", "false"),
         "عمر آخرین اسکن موتور (ثانیه): " + (
             age("last_scan_age_seconds")
