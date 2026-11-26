@@ -253,6 +253,10 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(result["gap_detected"])
         self.assertTrue(builder.is_ready)
         self.assertEqual(len(builder.closed), 23)
+        # The forming row is excluded; technical indicators see only the
+        # validated, fully closed cached candles.
+        technical = analyze_klines(builder.candles_for_analysis())
+        self.assertEqual(technical["closed_candles"], 23)
 
         # At the next minute boundary, bucket 123 is known to be partial:
         # discard it and invalidate the old cache instead of storing it as a
