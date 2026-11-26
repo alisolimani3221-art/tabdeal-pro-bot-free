@@ -76,13 +76,12 @@ def aggregate_closed_timeframes(candles, now_ms):
 
 
 def analyze_multi_timeframe(candles, now_ms, analyzer):
-    """Require directional agreement from the closed 1m, 5m and 15m signals."""
+    """Use closed 5m/15m bars for bias and the closed 1m bar only as entry timing."""
     if not callable(analyzer):
         raise ValueError("analyzer must be callable")
     if not isinstance(candles, (list, tuple)):
         raise ValueError("one-minute candles must be a list")
 
-    # The 1m analyzer excludes the final (possibly forming) candle itself.
     one_minute = analyzer(candles)
     if not isinstance(one_minute, dict):
         raise ValueError("one-minute analyzer returned an invalid result")
@@ -99,8 +98,6 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
             continue
         interval_ms = minutes * MINUTE_MS
         last = rows[-1]
-        # analyze_klines excludes its final row; this sentinel makes all
-        # validated, fully closed aggregate rows eligible for indicators.
         sentinel_price = last[4]
         sentinel = [
             last[0] + interval_ms,
@@ -114,22 +111,43 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         signals[str(minutes)] = technical.get("signal", "NEUTRAL")
         closes[str(minutes)] = int(last[0])
 
-    base = dict(one_minute)
     ready = (
         type(counts.get("1")) is int and counts["1"] >= 23
         and all(str(minutes) in analyses for minutes in AGGREGATED_TIMEFRAMES_MINUTES)
     )
-    directions = [signals.get(str(minutes)) for minutes in TRADE_TIMEFRAMES_MINUTES]
-    agreement = bool(
-        ready and directions[0] in ("BULLISH", "BEARISH")
-        and all(direction == directions[0] for direction in directions)
+    bias_directions = [signals.get("5"), signals.get("15")]
+    bias_agreement = bool(
+        ready and bias_directions[0] in ("BULLISH", "BEARISH")
+        and bias_directions[1] == bias_directions[0]
     )
+    bias = bias_directions[0] if bias_agreement else None
+
+    # The noisy 1m signal label is deliberately NOT used as the trend filter.
+    # Entry timing requires a closed 1m close beyond SMA10 with RSI on the
+    # matching side of 50, while avoiding extreme momentum/chasing.
+    entry_direction = None
+    try:
+        price = float(one_minute["price"])
+        sma10 = float(one_minute["sma10"])
+        rsi = float(one_minute["rsi14"])
+        if all(math.isfinite(value) for value in (price, sma10, rsi)):
+            if price > sma10 and 50.0 < rsi < 70.0:
+                entry_direction = "BULLISH"
+            elif price < sma10 and 30.0 < rsi < 50.0:
+                entry_direction = "BEARISH"
+    except (KeyError, TypeError, ValueError, OverflowError):
+        entry_direction = None
+
+    entry_trigger = bool(bias_agreement and entry_direction == bias)
+    base = dict(one_minute)
     result = dict(base)
-    result["signal"] = directions[0] if agreement else "NEUTRAL"
+    result["signal"] = bias if entry_trigger else "NEUTRAL"
     result["timeframe_analysis"] = {
         "ready": ready,
-        "agreement": agreement,
-        "direction": directions[0] if agreement else None,
+        "agreement": bias_agreement,
+        "direction": bias,
+        "entry_trigger": entry_trigger,
+        "entry_trigger_direction": entry_direction,
         "required_minutes": list(TRADE_TIMEFRAMES_MINUTES),
         "closed_candles": counts,
         "signals": signals,
