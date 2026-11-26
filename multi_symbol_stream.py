@@ -3,12 +3,12 @@
 import re
 
 _SYMBOL = re.compile(r"^[A-Z0-9]+_USDT$")
-MAX_VERIFIED_BROADCAST_SYMBOLS = 2
+MAX_VERIFIED_BROADCAST_SYMBOLS = 5
 
 
 def select_broadcast_symbols(selected_symbol, verified_symbols,
                              max_symbols=MAX_VERIFIED_BROADCAST_SYMBOLS):
-    """Return selected symbol first, plus at most one verified secondary market."""
+    """Return selected symbol first, plus at most four verified secondary markets."""
     if not isinstance(selected_symbol, str):
         raise ValueError("selected symbol must be a string")
     selected = selected_symbol.strip().upper()
