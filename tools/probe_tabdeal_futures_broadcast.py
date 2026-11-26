@@ -1,7 +1,12 @@
 """Read-only live verification of the public Tabdeal Futures broadcast."""
 
 import json
+import os
 import sys
+
+# When invoked as a script, Python puts tools/ rather than the repository root
+# on sys.path. Add the project root so the probe can import its shared parser.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from trade_stream_probe import probe_broadcast
 
