@@ -57,6 +57,24 @@ class MultiSymbolCandleCacheTests(unittest.TestCase):
             self.assertEqual(result["reason"], "symbol_not_allowed")
             self.assertEqual(os.listdir(directory), [])
 
+    def test_corrupt_cache_is_archived_and_never_restored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "BTC_USDT.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("{not valid json")
+            cache = MultiSymbolCandleCache(directory, {"BTC_USDT"})
+            result = cache.add_trade(self.trade("BTC_USDT", 100), 101 * 60000)
+            self.assertTrue(result["accepted"])
+            self.assertFalse(os.path.exists(path))
+            archives = [
+                name for name in os.listdir(directory)
+                if name.startswith("BTC_USDT.json.archive-")
+            ]
+            self.assertEqual(len(archives), 1)
+            with open(os.path.join(directory, archives[0]), encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "{not valid json")
+            self.assertEqual(len(cache.builders["BTC_USDT"].closed), 0)
+
     def test_restored_cache_is_invalidated_on_gap(self):
         with tempfile.TemporaryDirectory() as directory:
             cache = MultiSymbolCandleCache(directory, {"BTC_USDT"})
