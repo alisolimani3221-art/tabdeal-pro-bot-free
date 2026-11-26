@@ -204,7 +204,12 @@ def diagnose_signal(technical):
         return "داده تحلیل نامعتبر است"
     signal = technical.get("signal")
     if signal == "NEUTRAL":
-        return "سیگنال خنثی است؛ روند و مومنتوم هم‌جهت نیستند"
+        timeframe = technical.get("timeframe_analysis")
+        if not isinstance(timeframe, dict) or timeframe.get("ready") is not True:
+            return "تاریخچهٔ کامل ۵، ۱۵، ۳۰ و ۶۰ دقیقه آماده نیست؛ ورود مسدود است"
+        if timeframe.get("agreement") is not True:
+            return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
+        return "سیگنال خنثی است؛ شرایط روند و مومنتوم تأیید نشده‌اند"
     if signal not in ("BULLISH", "BEARISH"):
         return "جهت سیگنال قابل‌شناسایی نیست"
     count = technical.get("closed_candles")
