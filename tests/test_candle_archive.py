@@ -45,6 +45,32 @@ class CandleArchiveTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.archive.save_closed("BTC_USDT", 60000, row)
 
+    def test_rejects_unaligned_fractional_and_zero_volume_rows(self):
+        invalid_rows = (
+            [6000001, 100, 102, 98, 101, 1],
+            [6000000.5, 100, 102, 98, 101, 1],
+            [6000000, 100, 102, 98, 101, 0],
+        )
+        for row in invalid_rows:
+            with self.subTest(row=row):
+                with self.assertRaises(ValueError):
+                    self.archive.save_closed("BTC_USDT", 60000, row)
+
+    def test_rejects_malformed_archive_symbol(self):
+        with self.assertRaises(ValueError):
+            self.archive.save_closed("BTCUSDT", 60000, self.row(100))
+
+    def test_load_detects_invalid_rows_inserted_outside_archive_api(self):
+        self.archive.save_closed("BTC_USDT", 60000, self.row(100))
+        import sqlite3
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                "UPDATE candles SET open_time=? WHERE symbol=?",
+                (6000001, "BTC_USDT"),
+            )
+        with self.assertRaises(CandleArchiveError):
+            self.archive.load_recent("BTC_USDT", 60000)
+
     def test_builder_rejects_replayed_trades_covered_by_archive(self):
         self.archive.save_closed("BTC_USDT", 60000, self.row(100))
 
