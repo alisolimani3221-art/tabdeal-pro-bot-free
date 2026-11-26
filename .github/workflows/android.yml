@@ -23,6 +23,7 @@ on:
       - fix/v1.45-ai-integrated
       - feature/v1.54-live-price-chart-20261125
       - fix/v1.55-websocket-control-message-classification
+      - fix/orderbook-symbol-canonicalization-20261126
   push:
     branches:
       - release/v1.49
@@ -39,6 +40,7 @@ on:
       - fix/v1.55-candle-reset-diagnostics-20261125
       - probe/multisymbol-broadcast-readonly-20261125
       - fix/orderbook-symbol-canonicalization-20261126
+      - fix/persist-and-resume-candle-history-20261126
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
@@ -56,6 +58,7 @@ on:
       - 'trade_broadcast_multisymbol_probe.py'
       - 'orderbook_multisymbol_ws_probe.py'
       - 'market_candles.py'
+      - 'candle_history.py'
       - 'multi_symbol_paper_coordinator.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
