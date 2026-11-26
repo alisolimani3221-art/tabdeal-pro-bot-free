@@ -300,7 +300,8 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {
-                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}},
+                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
+            "atr14_by_timeframe": {"5": 1.6, "15": 2.4}},
         }])
         self.assertIsNotNone(engine.position)
 
@@ -452,7 +453,8 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {
-                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}},
+                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
+            "atr14_by_timeframe": {"5": 1.6, "15": 2.4}},
         }])
         self.assertIsNotNone(engine.position)
         app.auto_engine = engine
