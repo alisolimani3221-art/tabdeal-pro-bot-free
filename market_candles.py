@@ -90,13 +90,9 @@ class TradeCandleBuilder:
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
         if self.current is None:
-            # A restarted WebSocket may replay delayed events from a candle
-            # already committed to SQLite. Never re-add those rows to the
-            # in-memory history or contiguous warm-up window.
-            if (self.last_archived_bucket is not None
-                    and bucket <= self.last_archived_bucket):
-                self.rejected += 1
-                return {"accepted": False, "reason": "trade_not_newer_than_archive"}
+            # Prefer the live-session closed-bucket diagnosis when available.
+            # After process restart, the archive watermark provides the same
+            # rejection protection without pretending we saw that live close.
             if self.last_closed_bucket is not None:
                 if bucket <= self.last_closed_bucket:
                     self.rejected += 1
@@ -106,6 +102,13 @@ class TradeCandleBuilder:
                     gap_detected = True
                     self.closed.clear()
                     self.discard_next_close = True
+            # A restarted WebSocket may replay delayed events from a candle
+            # already committed to SQLite. Never re-add those rows to the
+            # in-memory history or contiguous warm-up window.
+            if (self.last_archived_bucket is not None
+                    and bucket <= self.last_archived_bucket):
+                self.rejected += 1
+                return {"accepted": False, "reason": "trade_not_newer_than_archive"}
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
             self.rejected += 1
