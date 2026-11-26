@@ -25,6 +25,7 @@ on:
       - fix/v1.55-websocket-control-message-classification
       - fix/orderbook-symbol-canonicalization-20261126
       - fix/persist-and-resume-candle-history-20261126
+      - fix/watermark-close-candles-20261126
   push:
     branches:
       - release/v1.49
@@ -43,6 +44,7 @@ on:
       - fix/orderbook-symbol-canonicalization-20261126
       - fix/persist-and-resume-candle-history-20261126
       - fix/watermark-close-candles-20261126
+      - fix/read-only-live-price-after-data-gap-20261126
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
