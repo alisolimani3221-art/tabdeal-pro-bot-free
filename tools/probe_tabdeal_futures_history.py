@@ -1,8 +1,7 @@
-"""Read-only discovery probe for possible Tabdeal futures public market-history routes.
+"""Read-only discovery probe for Tabdeal public spot/futures market history.
 
-This probe is deliberately isolated from the app and paper engine. It sends only
-small unauthenticated GET requests, never submits orders, and never prints
-trade prices, quantities, account data, or response bodies.
+Only small unauthenticated GET requests are sent. No API keys, account data,
+orders, private endpoints, or response prices/quantities are accessed or logged.
 """
 import json
 import urllib.error
@@ -12,9 +11,12 @@ import urllib.request
 BASE = "https://api1.tabdeal.org"
 SYMBOLS = ("BTC_USDT", "BTCUSDT")
 ROUTES = (
-    ("/r/fapi/v1/trades", {"limit": "2"}),
-    ("/r/fapi/v1/aggTrades", {"limit": "2"}),
-    ("/r/fapi/v1/klines", {"interval": "1m", "limit": "2"}),
+    ("futures", "/r/fapi/v1/trades", {"limit": "2"}),
+    ("futures", "/r/fapi/v1/aggTrades", {"limit": "2"}),
+    ("futures", "/r/fapi/v1/klines", {"interval": "1m", "limit": "2"}),
+    ("spot", "/r/api/v1/trades", {"limit": "2"}),
+    ("spot", "/r/api/v1/aggTrades", {"limit": "2"}),
+    ("spot", "/r/api/v1/klines", {"interval": "1m", "limit": "2"}),
 )
 
 
@@ -37,14 +39,14 @@ def describe_json(payload):
     return {"shape": type(payload).__name__}
 
 
-def probe(path, params):
+def probe(market, path, params):
     for symbol in SYMBOLS:
         query = dict(params)
         query["symbol"] = symbol
         url = BASE + path + "?" + urllib.parse.urlencode(query)
         request = urllib.request.Request(
             url,
-            headers={"User-Agent": "Tabdeal-ReadOnly-MarketHistory-Probe/1.0",
+            headers={"User-Agent": "Tabdeal-ReadOnly-MarketHistory-Probe/1.1",
                      "Accept": "application/json"},
             method="GET",
         )
@@ -59,13 +61,13 @@ def probe(path, params):
             raw = exc.read(4096)
         except Exception as exc:
             print(json.dumps({
-                "route": path, "symbol_format": symbol,
-                "status": "NETWORK_ERROR",
-                "error_type": type(exc).__name__,
+                "market": market, "route": path, "symbol_format": symbol,
+                "status": "NETWORK_ERROR", "error_type": type(exc).__name__,
             }, sort_keys=True))
             continue
 
         result = {
+            "market": market,
             "route": path,
             "symbol_format": symbol,
             "http_status": status,
@@ -84,5 +86,5 @@ def probe(path, params):
 
 
 if __name__ == "__main__":
-    for route, params in ROUTES:
-        probe(route, params)
+    for market, route, params in ROUTES:
+        probe(market, route, params)
