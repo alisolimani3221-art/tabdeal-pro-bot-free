@@ -9,10 +9,18 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
         return {"symbol": symbol, "price": price, "sma10": 99, "sma20": 98,
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
-                "closed_candles": 23, "candle_open_time": 60_000}
+                "closed_candles": 23, "candle_open_time": 60_000,
+                "timeframe_analysis": {"ready": True, "agreement": True,
+                    "direction": "BULLISH", "signals": {
+                        "5": "BULLISH", "15": "BULLISH",
+                        "30": "BULLISH", "60": "BULLISH"}}}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
-            "closed_candles": 23, "candle_open_time": 60_000}
+            "closed_candles": 23, "candle_open_time": 60_000,
+            "timeframe_analysis": {"ready": True, "agreement": True,
+                "direction": "BEARISH", "signals": {
+                    "5": "BEARISH", "15": "BEARISH",
+                    "30": "BEARISH", "60": "BEARISH"}}}
 
 
 class PaperTradeSummaryTests(unittest.TestCase):
@@ -104,6 +112,23 @@ class PaperTraderTests(unittest.TestCase):
         for value in (None, 0, 22, 22.9, True, "23"):
             with self.subTest(closed_candles=value):
                 self.assertIsNone(rank_signal(dict(setup(), closed_candles=value)))
+
+    def test_rejects_missing_or_conflicting_multi_timeframe_confirmation(self):
+        base = setup()
+        for timeframe in (
+            None,
+            {"ready": False, "agreement": False, "direction": None, "signals": {}},
+            {"ready": True, "agreement": False, "direction": None,
+             "signals": {"5": "BULLISH", "15": "BULLISH",
+                         "30": "BEARISH", "60": "BULLISH"}},
+            {"ready": True, "agreement": True, "direction": "BULLISH",
+             "signals": {"5": "BULLISH", "15": "BULLISH",
+                         "30": "BULLISH", "60": "NEUTRAL"}},
+        ):
+            candidate = dict(base)
+            candidate["timeframe_analysis"] = timeframe
+            with self.subTest(timeframe=timeframe):
+                self.assertIsNone(rank_signal(candidate))
 
     def test_accepts_signal_with_minimum_closed_candle_provenance(self):
         self.assertIsNotNone(rank_signal(setup()))
