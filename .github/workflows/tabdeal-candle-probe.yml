@@ -1,6 +1,9 @@
 name: Read-only Tabdeal candle endpoint probe
 
 on:
+  pull_request:
+    branches:
+      - fix/watermark-close-candles-20261126
   push:
     branches:
       - fix/multitimeframe-risk-exit-20261126
