@@ -234,6 +234,26 @@ class MultiSymbolPaperCoordinator:
         """Pass the complete fresh candidate set to the shared one-position engine."""
         return engine.process_scan(self.candidate_snapshots(now=now))
 
+    def finalize_due(self, watermark_ms, grace_ms=30_000):
+        """Finalize due candles for all subscribed markets under the shared lock."""
+        if (isinstance(watermark_ms, bool) or not isinstance(watermark_ms, int)
+                or watermark_ms <= 0):
+            raise ValueError("watermark_ms must be a positive integer")
+        if (isinstance(grace_ms, bool) or not isinstance(grace_ms, int)
+                or grace_ms < 0):
+            raise ValueError("grace_ms must be a nonnegative integer")
+        results = {}
+        with self.lock:
+            for symbol, state in self.states.items():
+                result = state["builder"].finalize_due(watermark_ms, grace_ms)
+                results[symbol] = result
+                if result.get("finalized"):
+                    # Old technical snapshots no longer describe a forming candle.
+                    # A fresh symbol trade must rebuild them before scan eligibility.
+                    state["latest_technical"] = None
+                    state["pending_tick"] = None
+        return results
+
     def reset_after_reconnect(self):
         """Reset each builder independently and invalidate all prior fresh snapshots."""
         with self.lock:
