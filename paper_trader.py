@@ -32,6 +32,10 @@ def rank_signal(technical):
             return None
         rsi = float(technical["rsi14"])
         atr = _positive(technical["atr14"], "atr14")
+        # A malformed live mark must reject this candidate safely. Parsing it
+        # outside the guarded block allowed one bad feed value to abort a scan.
+        entry_price = (_positive(technical["mark_price"], "mark_price")
+                       if technical.get("mark_price") is not None else price)
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(rsi) or not 0 <= rsi <= 100:
@@ -52,8 +56,7 @@ def rank_signal(technical):
             "price": price, "atr": atr, "rsi": rsi,
             "volatility_pct": volatility_pct, "score": score,
             "signal_key": technical.get("signal_key"),
-            "entry_price": (_positive(technical.get("mark_price"), "mark_price")
-                            if technical.get("mark_price") is not None else price)}
+            "entry_price": entry_price}
 
 
 class PaperTradingEngine:

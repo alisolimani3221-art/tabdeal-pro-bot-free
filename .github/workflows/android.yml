@@ -1,5 +1,6 @@
-name: Tabdeal Futures CI (APK build paused)
-# Run validation only. APK builds stay paused until all six project gates are verified.
+name: Tabdeal Futures CI + Experimental APK
+# Validate source, run regression/API checks, and build an experimental debug APK.
+# This artifact is paper-only and is not a signed production release.
 
 on:
   workflow_dispatch:

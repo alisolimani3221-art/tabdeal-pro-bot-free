@@ -2,8 +2,8 @@
 
 Android APK build and Tabdeal USDT-margined futures market analyzer.
 
-## Current release status (1.19)
-- Android app version and Buildozer package version are 1.19 (versionCode 119).
+## Current release status (1.21)
+- Android app version and Buildozer package version are 1.21 (versionCode 119).
 - The repository defines an experimental **debug** APK workflow that supports manual runs and automatic builds after relevant app/build changes on `main`. A persistent release-signing keystore and a verified signed release artifact have not been established; do not treat the experimental APK as a production release or assume it can update an APK signed with a different key.
 - The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
 - Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
@@ -23,15 +23,13 @@ Android APK build and Tabdeal USDT-margined futures market analyzer.
 - `tabdeal_trade.py` contains a separate futures adapter for authenticated read-only account/position/order queries. All mutating order, SL/TP, and close paths remain blocked until exchange-side behavior and protection can be independently verified; the Android automatic runner is paper-only.
 
 ## Build APK
-The standard `Tabdeal Futures CI (APK build paused)` workflow is validation-only: it runs compilation, regression tests, API checks, and read-only market probes. It does **not** build or upload an APK.
-
-A separate workflow named **Experimental APK build (v1.19)** is available under **Actions**. It can be run manually from the `main` branch, and it also runs automatically when app source files, Buildozer settings, requirements, bundled fonts/assets, or the workflow itself change on `main`.
+The **Tabdeal Futures CI + Experimental APK** workflow runs compilation, regression tests, API checks, read-only market probes, and an ARM64 debug APK build. It can be started manually from **Actions** and also runs on matching pushes to `main` and pull requests. A successful run uploads the installable debug APK as the `Futures-Analyzer-APK` artifact.
 
 For a manual build:
 1. Open the **Actions** tab.
-2. Select **Experimental APK build (v1.19)**.
+2. Select **Tabdeal Futures CI + Experimental APK**.
 3. Choose **Run workflow** on the `main` branch.
-4. Wait for the build to finish successfully, then download `Futures-Analyzer-v1.19-experimental-APK` from that run's Artifacts section.
+4. Wait for the build to finish successfully, then download `Futures-Analyzer-APK` from that run's Artifacts section.
 
 This is an experimental debug APK, not a verified release build. It uses GitHub-hosted Ubuntu runners, Java 17, ARM64, and bundles the Persian/Arabic and Latin Noto fonts. Artifacts are retained for 7 days. A successful validation-only CI run does not mean an APK was produced.
 
