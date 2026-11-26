@@ -166,9 +166,9 @@ class TradeCandleBuilder:
                 "closed_candles": len(self.closed), "ready": self.is_ready}
 
     def restore_closed_candles(self, rows):
-        """Seed indicators from a verified contiguous cache, pending live continuity."""
-        if not isinstance(rows, (list, tuple)) or len(rows) < 5:
-            raise ValueError("at least 5 closed candles are required")
+        """Seed indicators from any verified contiguous cache, pending live continuity."""
+        if not isinstance(rows, (list, tuple)) or len(rows) < 1:
+            raise ValueError("at least 1 closed candle is required")
         previous = None
         normalized = []
         for row in rows:
@@ -188,12 +188,15 @@ class TradeCandleBuilder:
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
-        # The first minute after restoring a cache may be only partially
-        # observed; discard it and require a complete fresh minute to close.
-        self.discard_next_close = True
+        # A cache contains only fully closed candles. If the first live trade
+        # arrives in the immediately following minute, its forming candle is
+        # valid alongside that history; do not discard it and erase the cache.
+        # _resume_bucket enforces exact minute continuity before the cache can
+        # be used. A skipped full minute still clears the active history.
+        self.discard_next_close = False
         self._resume_bucket = self.closed[-1][0]
         self._resume_last_timestamp_ms = self._resume_bucket + self.interval_ms - 1
-        self._reconnect_warmup_pending = True
+        self._reconnect_warmup_pending = False
         return len(self.closed)
 
     def reset_after_reconnect(self):
