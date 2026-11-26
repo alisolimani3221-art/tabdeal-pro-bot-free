@@ -45,6 +45,30 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.status()["gaps"], 1)
         self.assertFalse(builder.is_ready)
 
+    def test_gap_preserves_archived_closed_candles_but_resets_warmup(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))  # partial first bucket
+        builder.add_trade(self.trade(101))
+        builder.add_trade(self.trade(102))  # closes minute 101
+        self.assertEqual(builder.status()["stored_closed_candles"], 1)
+        result = builder.add_trade(self.trade(104))  # missing minute 103
+        self.assertTrue(result["gap_detected"])
+        self.assertEqual(builder.status()["closed_candles"], 0)
+        self.assertEqual(builder.status()["stored_closed_candles"], 2)
+        self.assertFalse(builder.is_ready)
+
+    def test_reconnect_preserves_archived_closed_candles(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100))
+        builder.add_trade(self.trade(101))
+        builder.add_trade(self.trade(102))
+        self.assertEqual(builder.status()["stored_closed_candles"], 1)
+        builder.reset_after_gap()
+        self.assertEqual(builder.status()["closed_candles"], 0)
+        self.assertEqual(builder.status()["stored_closed_candles"], 1)
+        self.assertIsNone(builder.current)
+        self.assertFalse(builder.is_ready)
+
     def test_ready_requires_51_closed_and_one_forming_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 153):
