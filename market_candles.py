@@ -32,6 +32,9 @@ class TradeCandleBuilder:
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
+        # Last bucket finalized by either a following trade or the wall clock.
+        # This lets us reject late trades and detect gaps after clock finalization.
+        self.last_closed_bucket = None
         self.rejected = 0
         self.gaps = 0
         # The first bucket after subscription/reconnect may be only partially observed.
@@ -84,6 +87,15 @@ class TradeCandleBuilder:
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
         if self.current is None:
+            if self.last_closed_bucket is not None:
+                if bucket <= self.last_closed_bucket:
+                    self.rejected += 1
+                    return {"accepted": False, "reason": "late_trade_for_closed_candle"}
+                if bucket != self.last_closed_bucket + self.interval_ms:
+                    self.gaps += 1
+                    gap_detected = True
+                    self.closed.clear()
+                    self.discard_next_close = True
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
             self.rejected += 1
@@ -112,6 +124,7 @@ class TradeCandleBuilder:
                     self.archive_error = type(exc).__name__
             else:
                 self.discard_next_close = False
+            self.last_closed_bucket = previous_bucket
             if bucket != previous_bucket + self.interval_ms:
                 self.gaps += 1
                 gap_detected = True
@@ -127,12 +140,51 @@ class TradeCandleBuilder:
         return {"accepted": True, "gap_detected": gap_detected,
                 "closed_candles": len(self.closed), "ready": self.is_ready}
 
+    def finalize_due(self, now_ms=None):
+        """Finalize an elapsed candle even when no following trade arrives.
+
+        No empty candle is synthesized. The current OHLCV is persisted only
+        after its time bucket has elapsed; the first partial subscription
+        bucket is still discarded. A later trade is checked against this
+        finalized bucket so missing intervals cannot silently bridge warm-up.
+        """
+        if self.current is None:
+            return False
+        if now_ms is None:
+            import time
+            now_ms = int(time.time() * 1000)
+        if isinstance(now_ms, bool) or not isinstance(now_ms, int):
+            raise ValueError("now_ms must be an integer timestamp")
+        bucket = self.current["open_time"]
+        if now_ms < bucket + self.interval_ms:
+            return False
+
+        if not self.discard_next_close:
+            closed_row = self._as_row(self.current)
+            try:
+                if self.archive is not None:
+                    self.archive.save_closed(self.symbol, self.interval_ms, closed_row)
+                self.closed.append(closed_row)
+                self.history.append(closed_row)
+                self.archive_error = None
+            except Exception as exc:
+                self.closed.clear()
+                self.discard_next_close = True
+                self.archive_error = type(exc).__name__
+        else:
+            self.discard_next_close = False
+
+        self.last_closed_bucket = bucket
+        self.current = None
+        return True
+
     def reset_after_gap(self):
         """Invalidate continuity after reconnect while retaining closed history."""
         self.closed.clear()
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
+        self.last_closed_bucket = None
         self.gaps += 1
         self.discard_next_close = True
 
