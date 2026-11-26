@@ -96,6 +96,21 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertIsNone(builder.current)
         self.assertFalse(builder.is_ready)
 
+    def test_archive_write_failure_invalidates_indicator_warmup(self):
+        class BrokenArchive:
+            def load_recent(self, symbol, interval_ms, limit):
+                return []
+
+            def save_closed(self, symbol, interval_ms, row):
+                raise OSError("simulated disk failure")
+
+        builder = TradeCandleBuilder("BTC_USDT", archive=BrokenArchive())
+        for minute in range(100, 154):
+            builder.add_trade(self.trade(minute))
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(len(builder.closed), 0)
+        self.assertEqual(builder.status()["archive_error"], "OSError")
+
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
             with self.subTest(symbol=symbol):
