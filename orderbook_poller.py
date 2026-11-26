@@ -9,7 +9,7 @@ import re
 from orderbook import parse_order_book
 
 
-_SYMBOL_RE = re.compile(r"^[A-Z0-9]+_[A-Z0-9]+$")
+_SYMBOL_RE = re.compile(r"^[A-Z0-9]+_?USDT$")
 
 
 def fetch_order_book_snapshot(session, base_url, symbol, verify_path,
