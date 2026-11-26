@@ -22,6 +22,26 @@ A separate always-on collector may eventually reduce Android restart warm-up, bu
 8. Keep the multi-timeframe entry gate fail-closed. Any unknown provenance, gap, incomplete timeframe, stale snapshot, or schema mismatch means no entry.
 9. Keep the collector and Android app paper-only. The collector has no exchange API keys and no order/account endpoints.
 
+## Empirical broadcast observation (2026-11-26)
+
+A new read-only 30-second CI probe connected to
+`wss://api1.tabdeal.org/special_margin/broadcast/`, sent the observed plain-text
+`BTC_USDT` subscription, and received fresh events accepted by the conservative
+trade parser:
+
+- Push run: 25 messages, 23 fresh valid trades; elapsed 30.16 seconds.
+- Pull-request run: 22 messages, 21 fresh valid trades; elapsed 30.20 seconds.
+
+This confirms that the endpoint currently delivers parseable fresh BTC Futures
+trade events using the observed envelope and fields. It does **not** prove
+lossless delivery, sequence-ID semantics, replay/backfill support, or official
+candle-boundary and no-trade-minute rules. The probe logs counts and parser
+diagnostics only; it does not log prices or quantities.
+
+The Android foreground consumer already uses this broadcast stream. The
+separate always-on history collector described above remains design-only and
+is not deployed or authorized as a historical-data source.
+
 ## Required confirmation from Tabdeal
 
 Before production implementation, obtain written answers to:
