@@ -2751,21 +2751,20 @@ class FuturesAnalyzerApp(App):
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
                 retry_attempt = 0
+                # Accept only the exact symbols subscribed on this socket.
+                # Each market has its own candle builder and technical snapshot.
+                event_symbol = parsed.get("symbol")
+                if event_symbol not in subscription_symbols:
+                    return
                 event_timestamp_ms = parsed.get("timestamp_ms")
                 if isinstance(event_timestamp_ms, int) and not isinstance(event_timestamp_ms, bool):
                     market_event_watermark_ms = (
                         event_timestamp_ms if market_event_watermark_ms is None
                         else max(market_event_watermark_ms, event_timestamp_ms)
                     )
-                    # A valid trade from any market advances the broadcast watermark.
-                    # The 30-second grace matches the live-event freshness gate;
-                    # partial and reconnect buckets remain ineligible for closure.
+                    # A fresh subscribed-market trade advances the broadcast watermark.
+                    # The 30-second grace tolerates cross-symbol delivery reordering.
                     finalize_market_candles(market_event_watermark_ms)
-                # Accept only the exact symbols subscribed on this socket.
-                # Each market has its own candle builder and technical snapshot.
-                event_symbol = parsed.get("symbol")
-                if event_symbol not in subscription_symbols:
-                    return
                 if event_symbol != symbol:
                     counts = dict(
                         getattr(self, "auto_health", {}).get(
