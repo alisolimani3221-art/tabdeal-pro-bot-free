@@ -2332,9 +2332,16 @@ class FuturesAnalyzerApp(App):
                 except FileNotFoundError:
                     pass
                 except Exception as cache_exc:
-                    # Never delete a user's cache automatically. Invalid or
-                    # stale data is excluded from indicators, but retained for
-                    # diagnosis and possible recovery.
+                    # Invalid cache data is never restored into indicators.
+                    # Move it aside so future launches do not repeatedly parse
+                    # the same broken file, while preserving it for diagnosis.
+                    try:
+                        archive_candle_cache(
+                            candle_cache_path, "invalid_cache",
+                            int(time.time() * 1000),
+                        )
+                    except (OSError, TypeError, ValueError):
+                        pass
                     candle_cache_note = (
                         "کش کندل استفاده نشد و برای بررسی حفظ شد: {}."
                     ).format(type(cache_exc).__name__)
