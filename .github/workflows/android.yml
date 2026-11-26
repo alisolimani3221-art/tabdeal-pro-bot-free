@@ -384,7 +384,7 @@ jobs:
           print(json.dumps(report, sort_keys=True))
           if not report["connected"]:
               raise SystemExit("Public broadcast socket connection failed")
-          if report["status"] == "both_symbols_observed_after_second_subscription":
+          if report["status"] == "both_symbols_sustained_after_second_subscription":
               print("MULTI_SYMBOL_BROADCAST: verified for this observation window")
           elif report["status"] == "second_symbol_only_after_second_subscription":
               print("::warning::Second symbol replaced or suppressed first symbol on this connection")
