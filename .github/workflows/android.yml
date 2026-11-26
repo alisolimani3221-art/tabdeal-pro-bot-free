@@ -56,6 +56,7 @@ on:
       - 'market_format.py'
       - 'trade_stream_probe.py'
       - 'trade_broadcast_multisymbol_probe.py'
+      - 'trade_broadcast_capacity_probe.py'
       - 'orderbook_multisymbol_ws_probe.py'
       - 'market_candles.py'
       - 'candle_history.py'
@@ -401,6 +402,52 @@ jobs:
         with:
           name: trade-broadcast-multisymbol-report
           path: trade-broadcast-multisymbol-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Read-only five-symbol broadcast capacity gate
+        timeout-minutes: 4
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          from pathlib import Path
+          from market_symbols import list_market_symbols
+          from trade_broadcast_capacity_probe import probe_broadcast_capacity
+
+          request = urllib.request.Request(
+              "https://api1.tabdeal.org/r/fapi/v1/exchangeInfo",
+              headers={"User-Agent": "FuturesAnalyzer-CapacityProbe/1.0", "Accept": "application/json"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status != 200:
+                  raise SystemExit("exchangeInfo returned HTTP {}".format(response.status))
+              payload = json.loads(response.read().decode("utf-8"))
+          rows = payload if isinstance(payload, list) else payload.get("symbols")
+          if rows is None and isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+              rows = payload["data"].get("symbols")
+          if not isinstance(rows, list):
+              raise SystemExit("exchangeInfo did not return a symbols list")
+          active = set(list_market_symbols(rows))
+          preferred = ("BTC_USDT", "ETH_USDT", "XRP_USDT", "BNB_USDT", "SOL_USDT")
+          symbols = tuple(symbol for symbol in preferred if symbol in active)
+          if len(symbols) != 5:
+              raise SystemExit("Five liquid probe symbols are not all active: {}".format(symbols))
+          report = probe_broadcast_capacity(symbols, timeout_seconds=120)
+          Path("trade-broadcast-capacity-report.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(report, sort_keys=True))
+          if report["status"] != "all_symbols_sustained_after_all_subscriptions":
+              raise SystemExit("Five-symbol broadcast capacity NOT verified: " + report["status"])
+          PY
+
+      - name: Upload five-symbol broadcast capacity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-broadcast-capacity-report
+          path: trade-broadcast-capacity-report.json
           if-no-files-found: warn
           retention-days: 7
 
