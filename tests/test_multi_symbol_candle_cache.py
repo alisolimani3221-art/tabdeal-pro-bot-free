@@ -67,6 +67,18 @@ class MultiSymbolCandleCacheTests(unittest.TestCase):
             self.assertTrue(result["gap_detected"])
             self.assertEqual(result["closed_candles"], 0)
             self.assertFalse(result["ready"])
+            active_path = os.path.join(directory, "BTC_USDT.json")
+            self.assertFalse(os.path.exists(active_path))
+            archives = [
+                name for name in os.listdir(directory)
+                if name.startswith("BTC_USDT.json.archive-")
+            ]
+            self.assertEqual(len(archives), 1)
+            archived_path = os.path.join(directory, archives[0])
+            archived = load_candle_cache(
+                archived_path, "BTC_USDT", 126 * 60000
+            )
+            self.assertGreaterEqual(len(archived), 20)
 
 
 if __name__ == "__main__":
