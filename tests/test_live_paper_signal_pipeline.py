@@ -32,7 +32,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
                 "symbol": symbol, "price": str(price), "amount": "1",
                 "updated": timestamp_ms, "sequence": index,
             }})
-            parsed = parse_trade_message(raw, expected_symbol=symbol)
+            parsed = parse_trade_message(raw, expected_symbol=symbol, now_ms=timestamp_ms + 1000)
             self.assertTrue(parsed["ok"], parsed)
             update = builder.add_trade(parsed)
             self.assertTrue(update["accepted"], update)
