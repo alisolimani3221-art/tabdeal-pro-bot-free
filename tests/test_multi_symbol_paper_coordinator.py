@@ -86,6 +86,20 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         self.assertEqual(coordinator.states["BTC_USDT"]["latest_technical"]["price"], 10)
         self.assertEqual(coordinator.states["ETH_USDT"]["latest_technical"]["price"], 20)
 
+    def test_contextual_analyzer_receives_exchange_event_timestamp(self):
+        received = []
+        def contextual(candles, now_ms):
+            received.append(now_ms)
+            return {"signal": "NEUTRAL", "price": 10}
+        coordinator = MultiSymbolPaperCoordinator(
+            ("BTC_USDT",), analyze, prepare, builder_factory=FakeBuilder,
+            analyze_with_context=contextual,
+        )
+        coordinator.states["BTC_USDT"]["builder"].is_ready = True
+        coordinator.on_trade(self.trade("BTC_USDT", timestamp_ms=180_000),
+                             received_at=10)
+        self.assertEqual(received, [180_000])
+
     def test_invalid_price_does_not_mutate_candle_builder(self):
         coordinator = self.make_coordinator()
         result = coordinator.on_trade(
