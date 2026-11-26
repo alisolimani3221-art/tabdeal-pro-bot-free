@@ -1,7 +1,11 @@
 """Five-minute read-only soak test for Tabdeal Futures broadcast."""
 
 import json
+import os
 import sys
+
+# When run as a script, Python adds tools/ rather than the repository root.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from trade_stream_probe import probe_broadcast
 
