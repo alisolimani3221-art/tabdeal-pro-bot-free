@@ -1377,16 +1377,31 @@ class FuturesAnalyzerApp(App):
         else:
             signal = technical.get("signal", "NEUTRAL")
             price = float(technical["price"])
-            atr = float(technical["atr14"])
+            signal_atr = float(technical["atr14"])
+            timeframe = technical.get("timeframe_analysis")
+            atr_by_timeframe = (
+                timeframe.get("atr14_by_timeframe")
+                if isinstance(timeframe, dict) else None
+            )
+            risk_atr = None
+            try:
+                candidate_atr = float(
+                    atr_by_timeframe.get("5")
+                    if isinstance(atr_by_timeframe, dict) else None
+                )
+                if math.isfinite(candidate_atr) and candidate_atr > 0:
+                    risk_atr = candidate_atr
+            except (TypeError, ValueError, OverflowError):
+                risk_atr = None
             if signal == "BULLISH":
                 decision = "تمایل صعودی — بررسی فرصت خرید"
-                stop = price - 1.5 * atr
-                target = price + 3.0 * atr
+                stop = price - 1.5 * risk_atr if risk_atr is not None else None
+                target = price + 3.0 * risk_atr if risk_atr is not None else None
                 decision_color = (0.35, 0.9, 0.55, 1)
             elif signal == "BEARISH":
                 decision = "تمایل نزولی — بررسی فرصت فروش"
-                stop = price + 1.5 * atr
-                target = price - 3.0 * atr
+                stop = price + 1.5 * risk_atr if risk_atr is not None else None
+                target = price - 3.0 * risk_atr if risk_atr is not None else None
                 decision_color = (1, 0.55, 0.42, 1)
             else:
                 decision = "سیگنال روشن نیست — فعلاً صبر کن"
@@ -1406,14 +1421,20 @@ class FuturesAnalyzerApp(App):
             add_line("RSI 14: {:.1f}    SMA10: {}".format(
                 float(technical["rsi14"]), format_market_value(technical["sma10"])),
                 size=13, font=NUMERIC_FONT_NAME)
-            add_line("SMA20: {}    ATR14: {}".format(
-                format_market_value(technical["sma20"]), format_market_value(atr)), size=13, font=NUMERIC_FONT_NAME)
+            add_line("SMA20: {}    ATR یک‌دقیقه‌ای: {}".format(
+                format_market_value(technical["sma20"]),
+                format_market_value(signal_atr)), size=13, font=NUMERIC_FONT_NAME)
+            if risk_atr is not None:
+                add_line("ATR مبنای ریسک (۵ دقیقه‌ای): {}".format(
+                    format_market_value(risk_atr)), size=13, font=NUMERIC_FONT_NAME)
             if stop is not None and target is not None and stop > 0 and target > 0:
-                add_line("حد ضرر تخمینی: {}".format(format_market_value(stop)), font=FONT_NAME)
-                add_line("هدف سود تخمینی: {}".format(format_market_value(target)), font=FONT_NAME)
+                add_line("حد ضرر تخمینی بر پایه ATR پنج‌دقیقه‌ای: {}".format(
+                    format_market_value(stop)), font=FONT_NAME)
+                add_line("هدف سود تخمینی بر پایه ATR پنج‌دقیقه‌ای: {}".format(
+                    format_market_value(target)), font=FONT_NAME)
                 add_line("نسبت سود به زیان هدف: 2 به 1", size=14)
             else:
-                add_line("برای این وضعیت حد ضرر و هدف معامله پیشنهاد نمی‌شود.", size=13)
+                add_line("ATR پنج‌دقیقه‌ای معتبر نیست؛ حد ضرر و هدف تخمینی نمایش داده نمی‌شود.", size=13)
             add_line("این نتیجه فقط بر اساس کندل‌های بسته‌شده و شاخص‌های SMA، RSI و ATR است؛ تضمین سود نیست.",
                      size=12, height=dp(68), color=(1, 0.72, 0.35, 1))
 
