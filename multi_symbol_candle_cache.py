@@ -4,7 +4,10 @@ import re
 import threading
 import time
 
-from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
+from candle_history import (
+    archive_candle_cache, load_candle_cache, save_candle_cache,
+    validate_closed_candles,
+)
 from market_candles import TradeCandleBuilder
 
 
@@ -53,9 +56,11 @@ class MultiSymbolCandleCache:
         except FileNotFoundError:
             pass
         except Exception:
+            # Preserve malformed/stale cache bytes for post-mortem inspection.
+            # They are not restored into the builder or used for analysis.
             try:
-                os.remove(path)
-            except OSError:
+                archive_candle_cache(path, "invalid_cache", now_ms)
+            except (OSError, ValueError, TypeError):
                 pass
         self.builders[symbol] = builder
         return builder
@@ -75,9 +80,11 @@ class MultiSymbolCandleCache:
             update = builder.add_trade(trade)
             path = self._path(symbol)
             if update.get("gap_detected"):
+                # Preserve the invalidated cache for diagnosis; never silently
+                # destroy historical candles when continuity is broken.
                 try:
-                    os.remove(path)
-                except OSError:
+                    archive_candle_cache(path, "confirmed_gap", now_ms)
+                except (OSError, ValueError, TypeError):
                     pass
                 self.last_saved.pop(symbol, None)
             elif update.get("accepted") and builder.closed:

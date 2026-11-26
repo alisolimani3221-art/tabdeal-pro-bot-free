@@ -4,7 +4,8 @@ import tempfile
 import unittest
 
 from candle_history import (
-    validate_closed_candles, save_candle_cache, load_candle_cache, warm_symbols,
+    validate_closed_candles, save_candle_cache, load_candle_cache,
+    archive_candle_cache, warm_symbols,
 )
 
 
@@ -42,6 +43,19 @@ class CandleHistoryTests(unittest.TestCase):
             self.assertEqual(load_candle_cache(path, "BTC_USDT", now), rows)
             with self.assertRaisesRegex(ValueError, "symbol mismatch"):
                 load_candle_cache(path, "ETH_USDT", now)
+
+    def test_gap_archive_preserves_invalidated_cache_without_active_reuse(self):
+        now = 40 * 60000
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "BTC_USDT.json")
+            rows = validate_closed_candles(self.rows(1, 3), now)
+            save_candle_cache(path, "BTC_USDT", rows)
+            archive = archive_candle_cache(path, "confirmed_gap", now)
+            self.assertIsNotNone(archive)
+            self.assertTrue(os.path.isfile(archive))
+            self.assertFalse(os.path.exists(path))
+            self.assertEqual(load_candle_cache(archive, "BTC_USDT", now), rows)
+            self.assertIsNone(archive_candle_cache(path, "confirmed_gap", now))
 
     def test_parallel_warmup_isolates_symbol_failure(self):
         def fetch(symbol):

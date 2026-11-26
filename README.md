@@ -2,18 +2,16 @@
 
 Android APK build and Tabdeal USDT-margined futures market analyzer.
 
-## Current development status (1.55)
-- Active validation branch: `fix/v1.55-candle-reset-diagnostics-20261125`; app version in `main.py`, `ai_diagnostics.py`, and `buildozer.spec` is 1.55 (Android versionCode 155). The Android workflow display name is also v1.55.
-- Integration base: `fix/v1.55-websocket-control-message-classification`; both the active head and integration base target app version 1.55.
-- The active v1.55 branch is a validation candidate, not a released or device-verified APK. Release requires passing CI, signature/artifact verification, and Android device acceptance.
-- Historical branches `fix/v1.55-analysis-valueerror-diagnostic` and `fix/v1.55-candle-warmup-copy` still contain app version 1.54 despite their old names; their PRs are already merged and they are not active release branches. The old `fix/v1.56-websocket-control-message-classification` name is retained only as a historical ref. `main` is also an older line (v1.21), not the active v1.55 line.
+## Current development status (1.56)
+- Active validation branch: `fix/persist-and-resume-candle-history-20261126`; PR #89 is the v1.56 validation candidate. App version in `main.py`, `ai_diagnostics.py`, and `buildozer.spec` is 1.56 (Android versionCode 156), and the Android workflow display name is v1.56.
+- The v1.56 branch is not considered released or device-verified until full CI, APK signature and packaged-font verification, and Android device acceptance all pass.
 - A signed APK is not considered released until the build, certificate fingerprint, packaged fonts, and uploaded artifact are all verified.
-- The app reads active futures symbols and a current REST order-book snapshot from Tabdeal.
-- Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses.
+- The app reads active futures symbols and current REST order-book snapshots from Tabdeal. The read-only market scan has verified snapshots for all 96 active futures symbols; these are not candles and do not generate technical signals.
+- Order-book parsing rejects empty, malformed, crossed, non-finite and unverified-market responses. The tested REST snapshot path is used; an unverified WebSocket depth format is not assumed.
 - Persian UI font bundling and RTL support are verified during the Android build.
-- The Android app includes a bounded, read-only scan of all active USDT futures order books (four concurrent requests on-device), showing best bid/ask and spread. These snapshots are not candles and do not generate technical signals.
-- The paper simulator remains limited to the currently selected symbol. It builds one-minute OHLCV candles from the empirically observed public trade stream, shows a preliminary five-candle trend for monitoring, but requires 23 contiguous closed one-minute candles plus the current forming candle before technical analysis and paper entry, and resets warm-up after a data gap. It is foreground-only and paper-only.
-- Tabdeal's documented broadcast subscription is per-market: the app subscribes only to the selected symbol. It does not collect or prewarm all 96 markets in parallel. Multi-symbol collection is intentionally not enabled until separate-connection limits and sustained feed quality are validated. The official public FAPI REST documentation does not list a historical-candlestick endpoint.
+- The paper simulator now supports up to five live trade-stream subscriptions on one socket, based on a 120-second five-symbol capacity observation. The selected market remains first; a recovered open-position market receives a reserved slot. Each market has its own candle builder and technical snapshot, while the paper engine maintains a shared one-position limit. This does not establish capacity for all 96 symbols.
+- The simulator builds one-minute OHLCV candles from the empirically observed public trade stream, shows a preliminary five-candle trend for monitoring, and requires 23 contiguous closed one-minute candles plus the current forming candle before technical analysis and paper entry. Gaps invalidate active history; invalidated or malformed cache files are archived for diagnosis rather than silently deleted. The simulator remains foreground-only and paper-only.
+- The official public FAPI REST documentation does not list a historical-candlestick endpoint, so no undocumented Binance-compatible klines endpoint is assumed. A gap requires a safe live warm-up rather than fabricated historical candles.
 - The WebSocket trade payload schema is an empirical observation only; it is not treated as an official contract. See `TRADE_STREAM_SCHEMA.md`.
 
 ## Version 1.49 — Groq conversational assistant

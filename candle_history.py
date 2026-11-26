@@ -125,3 +125,42 @@ def warm_symbols(symbols, fetch_history, now_ms, max_workers=4, interval_ms=60_0
     return {"results": results, "errors": errors, "requested": len(unique),
             "ready_count": sum(len(rows) >= 23 for rows in results.values()),
             "live_orders": False}
+
+
+def archive_candle_cache(path, reason, timestamp_ms):
+    """Atomically move an invalidated active cache to a diagnostic archive.
+
+    The archived candles are never automatically fed back into indicators. A
+    confirmed gap invalidates their continuity, but the data is retained for
+    diagnosis instead of being silently deleted.
+    """
+    import re
+
+    if not isinstance(path, str) or not path:
+        raise ValueError("cache path must be a nonempty string")
+    if not isinstance(reason, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", reason):
+        raise ValueError("archive reason contains unsupported characters")
+    if (isinstance(timestamp_ms, bool) or not isinstance(timestamp_ms, int)
+            or timestamp_ms <= 0):
+        raise ValueError("archive timestamp must be a positive integer")
+    if not os.path.isfile(path):
+        return None
+
+    directory = os.path.dirname(os.path.abspath(path))
+    stem = "{}.archive-{}-{}".format(path, timestamp_ms, reason)
+    archive_path = stem + ".json"
+    suffix = 1
+    while os.path.exists(archive_path):
+        archive_path = "{}-{}.json".format(stem, suffix)
+        suffix += 1
+
+    # os.replace is atomic on the same filesystem. If it fails, the original
+    # cache remains at its active path and can still be recovered.
+    os.replace(path, archive_path)
+    flags = getattr(os, "O_DIRECTORY", 0) | os.O_RDONLY
+    dir_fd = os.open(directory, flags)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+    return archive_path

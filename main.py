@@ -10,7 +10,7 @@ import certifi
 from android_tls import (mount_tabdeal_tls_compat,
                          tabdeal_websocket_ssl_options)
 
-APP_VERSION = "1.55"
+APP_VERSION = "1.56"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -48,7 +48,8 @@ from orderbook_poller import fetch_order_book_snapshot
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
-from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
+from candle_history import (load_candle_cache, save_candle_cache,
+                            validate_closed_candles, archive_candle_cache)
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
@@ -66,7 +67,10 @@ from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
-from multi_symbol_stream import (select_broadcast_symbols, subscribe_broadcast_symbols)
+from multi_symbol_stream import (
+    select_broadcast_symbols, include_required_symbol,
+    subscribe_broadcast_symbols,
+)
 from multi_symbol_paper_coordinator import MultiSymbolPaperCoordinator
 
 # Resolve the bundled font from both the app directory and Kivy resources.
@@ -2315,7 +2319,7 @@ class FuturesAnalyzerApp(App):
                         candle_cache_path, symbol, int(time.time() * 1000),
                         interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
                     )
-                    if len(cached_rows) >= 5:
+                    if len(cached_rows) >= 1:
                         restored_candle_count = builder.restore_closed_candles(cached_rows)
                         candle_cache_note = "تاریخچه معتبر ذخیره‌شده بازیابی شد: {} کندل.".format(
                             restored_candle_count
@@ -2328,9 +2332,16 @@ class FuturesAnalyzerApp(App):
                 except FileNotFoundError:
                     pass
                 except Exception as cache_exc:
-                    # Never delete a user's cache automatically. Invalid or
-                    # stale data is excluded from indicators, but retained for
-                    # diagnosis and possible recovery.
+                    # Invalid cache data is never restored into indicators.
+                    # Move it aside so future launches do not repeatedly parse
+                    # the same broken file, while preserving it for diagnosis.
+                    try:
+                        archive_candle_cache(
+                            candle_cache_path, "invalid_cache",
+                            int(time.time() * 1000),
+                        )
+                    except (OSError, TypeError, ValueError):
+                        pass
                     candle_cache_note = (
                         "کش کندل استفاده نشد و برای بررسی حفظ شد: {}."
                     ).format(type(cache_exc).__name__)
@@ -2533,7 +2544,9 @@ class FuturesAnalyzerApp(App):
                 if isinstance(value, str)
             }
             if recovered_open_symbol in active_verified:
-                subscription_symbols = (symbol, recovered_open_symbol)
+                subscription_symbols = include_required_symbol(
+                    subscription_symbols, recovered_open_symbol
+                )
         if recovered_open_symbol is not None and recovered_open_symbol not in subscription_symbols:
             self.auto_stop_event.set()
             self._update_engine_health(
@@ -2543,7 +2556,7 @@ class FuturesAnalyzerApp(App):
             )
             Clock.schedule_once(
                 lambda dt, value=recovered_open_symbol: self.update_auto_status(
-                    "موقعیت آزمایشی بازیابی‌شده برای نماد {} باز است، اما این نماد در دو اشتراک فعال نیست؛ "
+                    "موقعیت آزمایشی بازیابی‌شده برای نماد {} باز است، اما این نماد در پنج اشتراک فعال نیست؛ "
                     "برای جلوگیری از رهاشدن موقعیت، شبیه‌ساز شروع نشد.".format(value)
                 ), 0
             )
@@ -2620,7 +2633,8 @@ class FuturesAnalyzerApp(App):
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
                     websocket_connected=True, connected_at=time.monotonic(),
-                    last_stream_error="",
+                    # Preserve the last transport/close diagnostic across a
+                    # successful reconnect; clearing it here hid the cause.
                     reconnect_count=total_reconnects,
                 )
                 # Match the previously observed working public-feed protocol:
@@ -2809,13 +2823,22 @@ class FuturesAnalyzerApp(App):
                     older_sequence_rejections=int(rejection_counts.get("older_sequence", 0)),
                     out_of_order_rejections=int(rejection_counts.get("out_of_order", 0)),
                 )
-                # A restored cache is usable only if the first fresh live trade
-                # proves there was no missing one-minute bucket. On a gap the
-                # builder clears the cache before any technical signal is made.
+                # A restored cache may support indicators while the first live
+                # bucket is forming because that incomplete row is excluded.
+                # At its close the builder discards it and signals a gap, so the
+                # old cache is archived rather than joined across a missing minute.
                 if update.get("gap_detected"):
+                    # Keep the invalidated candles for diagnosis. They are
+                    # moved out of the active cache so a later launch cannot
+                    # mistake a known-discontinuous history for live continuity.
                     try:
-                        os.remove(getattr(self, "auto_candle_cache_path", ""))
-                    except (OSError, TypeError):
+                        archive_candle_cache(
+                            getattr(self, "auto_candle_cache_path", ""),
+                            "confirmed_gap", int(time.time() * 1000),
+                        )
+                    except (OSError, TypeError, ValueError):
+                        # A failed archive must not affect market processing;
+                        # the continuity gate still blocks use of stale rows.
                         pass
                     self.auto_candle_cache_last_open_time = None
                 elif update.get("accepted") and builder.closed:
@@ -2827,7 +2850,7 @@ class FuturesAnalyzerApp(App):
                                 interval_ms=builder.interval_ms,
                                 limit=builder.closed.maxlen,
                             )
-                            if len(cache_rows) >= 5:
+                            if len(cache_rows) >= 1:
                                 save_candle_cache(
                                     self.auto_candle_cache_path, symbol, cache_rows
                                 )
