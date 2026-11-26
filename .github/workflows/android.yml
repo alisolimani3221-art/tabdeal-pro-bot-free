@@ -38,6 +38,7 @@ on:
       - fix/v1.55-candle-warmup-copy
       - fix/v1.55-candle-reset-diagnostics-20261125
       - probe/multisymbol-broadcast-readonly-20261125
+      - fix/orderbook-symbol-canonicalization-20261126
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
