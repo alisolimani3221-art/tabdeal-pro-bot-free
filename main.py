@@ -2811,9 +2811,10 @@ class FuturesAnalyzerApp(App):
                     older_sequence_rejections=int(rejection_counts.get("older_sequence", 0)),
                     out_of_order_rejections=int(rejection_counts.get("out_of_order", 0)),
                 )
-                # A restored cache is usable only if the first fresh live trade
-                # proves there was no missing one-minute bucket. On a gap the
-                # builder clears the cache before any technical signal is made.
+                # A restored cache may support indicators while the first live
+                # bucket is forming because that incomplete row is excluded.
+                # At its close the builder discards it and signals a gap, so the
+                # old cache is archived rather than joined across a missing minute.
                 if update.get("gap_detected"):
                     # Keep the invalidated candles for diagnosis. They are
                     # moved out of the active cache so a later launch cannot
