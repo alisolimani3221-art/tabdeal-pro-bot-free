@@ -19,6 +19,8 @@ def main():
         "connected": bool(result.get("connected")),
         "messages": int(result.get("messages", 0)),
         "valid_fresh_trades": int(result.get("valid_trades", 0)),
+        "sequence_present_trades": int(result.get("sequence_present_trades", 0)),
+        "sequence_missing_trades": int(result.get("sequence_missing_trades", 0)),
         "last_diagnostic": str(result.get("last_diagnostic", "unknown"))[:80],
         "elapsed_seconds": result.get("elapsed_seconds"),
     }
