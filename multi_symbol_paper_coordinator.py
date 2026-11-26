@@ -143,9 +143,14 @@ class MultiSymbolPaperCoordinator:
                 # four-timeframe calculation until at least one new timeframe
                 # bar closes; still refresh the live mark on every accepted tick.
                 last_closed_open = int(closed[-1][0])
+                builder_interval_ms = getattr(state["builder"], "interval_ms", 60_000)
+                if (isinstance(builder_interval_ms, bool)
+                        or not isinstance(builder_interval_ms, int)
+                        or builder_interval_ms <= 0):
+                    raise ValueError("builder candle interval is invalid")
                 signature = tuple(
-                    (last_closed_open + state["builder"].interval_ms)
-                    // (minutes * state["builder"].interval_ms)
+                    (last_closed_open + builder_interval_ms)
+                    // (minutes * builder_interval_ms)
                     for minutes in (1, 5, 15, 30, 60)
                 )
                 if (state["latest_technical"] is not None
