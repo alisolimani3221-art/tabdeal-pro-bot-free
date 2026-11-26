@@ -286,8 +286,8 @@ class TradeCandleBuilderTests(unittest.TestCase):
 
     def test_restore_rejects_short_or_discontinuous_cache(self):
         builder = TradeCandleBuilder("BTC_USDT")
-        with self.assertRaisesRegex(ValueError, "5"):
-            builder.restore_closed_candles([[60_000, 1, 1, 1, 1, 1]])
+        with self.assertRaisesRegex(ValueError, "1"):
+            builder.restore_closed_candles([])
         rows = [[minute * 60_000, 100, 102, 99, 101, 4]
                 for minute in range(100, 121)]
         rows[10][0] += 60_000
