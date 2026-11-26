@@ -244,8 +244,16 @@ class FuturesAnalyzerApp(App):
         self.settings_path = os.path.join(self.user_data_dir, "settings.json")
         try:
             os.makedirs(self.user_data_dir, exist_ok=True)
-        except OSError:
-            pass
+            # Initialize the durable market-candle archive at app startup,
+            # not only when the paper-trading worker is started. This makes
+            # archive availability explicit and lets diagnostics inspect it
+            # even before a simulation session begins.
+            archive_path = os.path.join(self.user_data_dir, "market-candles.sqlite3")
+            self.candle_archive = CandleArchive(archive_path, max_rows=5000)
+            self.candle_archive_error = None
+        except Exception as exc:
+            self.candle_archive = None
+            self.candle_archive_error = type(exc).__name__
         self.capital_usdt = 8.0
         try:
             with open(self.settings_path, "r", encoding="utf-8") as settings_file:
@@ -1374,8 +1382,12 @@ class FuturesAnalyzerApp(App):
             self.update_auto_status("نماد انتخاب‌شده معتبر نیست؛ شروع انجام نشد.")
             return
         try:
-            archive_path = os.path.join(self.user_data_dir, "market-candles.sqlite3")
-            candle_archive = CandleArchive(archive_path, max_rows=5000)
+            candle_archive = getattr(self, "candle_archive", None)
+            if candle_archive is None:
+                raise RuntimeError(
+                    "candle archive unavailable: "
+                    + str(getattr(self, "candle_archive_error", "not initialized"))
+                )
             builder = TradeCandleBuilder(symbol, archive=candle_archive)
             engine = PaperTradingEngine(
                 capital=self.capital_usdt, risk_percent=0.5, max_leverage=3
