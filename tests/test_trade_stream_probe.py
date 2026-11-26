@@ -3,7 +3,7 @@ import math
 import time
 import unittest
 
-from trade_stream_probe import MAX_MESSAGE_BYTES, parse_trade_message
+from trade_stream_probe import MAX_MESSAGE_BYTES, MAX_TRADE_AGE_MS, parse_trade_message
 
 
 class TradeStreamProbeTests(unittest.TestCase):
@@ -15,10 +15,10 @@ class TradeStreamProbeTests(unittest.TestCase):
     def parse_trade_with(self, field, value):
         payload = self.valid_trade()
         payload["trade"][field] = value
-        return parse_trade_message(json.dumps(payload), "AEVO_USDT")
+        return parse_trade_message(json.dumps(payload), "AEVO_USDT", now_ms=1700000000000)
 
     def test_documented_trade_envelope_with_common_fields(self):
-        result = parse_trade_message(json.dumps(self.valid_trade()), "AEVO_USDT")
+        result = parse_trade_message(json.dumps(self.valid_trade()), "AEVO_USDT", now_ms=1700000000000)
         self.assertTrue(result["ok"])
         self.assertEqual(result["price"], 1.25)
         self.assertEqual(result["quantity"], 4.0)
@@ -26,12 +26,12 @@ class TradeStreamProbeTests(unittest.TestCase):
 
     def test_valid_utf8_bytes_are_supported(self):
         raw = json.dumps(self.valid_trade()).encode("utf-8")
-        self.assertTrue(parse_trade_message(raw, "AEVO_USDT")["ok"])
+        self.assertTrue(parse_trade_message(raw, "AEVO_USDT", now_ms=1700000000000)["ok"])
 
     def test_millisecond_timestamp_is_preserved(self):
         payload = {"trade": {"s": "AEVO_USDT", "p": "2",
                              "q": "3", "T": 1700000000123, "sequence": 1002}}
-        result = parse_trade_message(json.dumps(payload), "AEVO_USDT")
+        result = parse_trade_message(json.dumps(payload), "AEVO_USDT", now_ms=1700000000000)
         self.assertTrue(result["ok"])
         self.assertEqual(result["timestamp_ms"], 1700000000123)
 
@@ -39,7 +39,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         payload = {"trade": {"symbol": "AEVO_USDT", "tradePrice": "1.5",
                              "amount": "2.5", "tradeTime": 1700000000,
                              "sequence": 1003}}
-        self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT")["ok"])
+        self.assertTrue(parse_trade_message(json.dumps(payload), "AEVO_USDT", now_ms=1700000000000)["ok"])
 
     def test_duplicate_json_keys_are_rejected(self):
         raw = '{"trade":{"symbol":"AEVO_USDT","price":"1","price":"2",'
@@ -56,7 +56,7 @@ class TradeStreamProbeTests(unittest.TestCase):
         payload = self.valid_trade()
         del payload["trade"]["sequence"]
         self.assertEqual(
-            parse_trade_message(json.dumps(payload), "AEVO_USDT")["reason"],
+            parse_trade_message(json.dumps(payload), "AEVO_USDT", now_ms=1700000000000)["reason"],
             "missing_sequence",
         )
 
@@ -100,7 +100,7 @@ class TradeStreamProbeTests(unittest.TestCase):
             "sequence": 987654, "side_name": "BUY",
             "updated": "2026-11-17T03:49:14.123456Z",
         }}
-        result = parse_trade_message(json.dumps(payload), "BTC_USDT")
+        result = parse_trade_message(json.dumps(payload), "BTC_USDT", now_ms=1794887354123)
         self.assertTrue(result["ok"])
         self.assertEqual(result["quantity"], 0.01234)
         self.assertEqual(result["sequence"], 987654)
@@ -126,6 +126,27 @@ class TradeStreamProbeTests(unittest.TestCase):
         future_seconds = time.time() + 600
         self.assertEqual(self.parse_trade_with("timestamp", future_seconds)["reason"],
                          "invalid_timestamp")
+
+    def test_rejects_stale_trade_timestamps(self):
+        now_ms = 1_800_000_000_000
+        stale_seconds = (now_ms - MAX_TRADE_AGE_MS - 1) / 1000
+        payload = {"trade": {"symbol": "AEVO_USDT", "price": "1",
+                             "quantity": "1", "timestamp": stale_seconds,
+                             "sequence": 1005}}
+        self.assertEqual(
+            parse_trade_message(json.dumps(payload), "AEVO_USDT", now_ms=now_ms)["reason"],
+            "invalid_timestamp",
+        )
+
+    def test_accepts_trade_at_stale_age_boundary(self):
+        now_ms = 1_800_000_000_000
+        boundary_seconds = (now_ms - MAX_TRADE_AGE_MS) / 1000
+        payload = {"trade": {"symbol": "AEVO_USDT", "price": "1",
+                             "quantity": "1", "timestamp": boundary_seconds,
+                             "sequence": 1006}}
+        self.assertTrue(
+            parse_trade_message(json.dumps(payload), "AEVO_USDT", now_ms=now_ms)["ok"]
+        )
 
     def test_rejects_invalid_trade_symbol_format(self):
         payload = {"trade": {"symbol": "BTC/USDT", "price": "1",
