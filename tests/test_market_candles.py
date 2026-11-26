@@ -246,22 +246,24 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.restore_closed_candles(rows), 23)
         self.assertFalse(builder.is_ready)
 
-        # The first live tick is in the minute immediately after the last
-        # closed cached candle. The forming candle completes the analysis input;
-        # the validated 23-candle cache must not be thrown away.
+        # The cached 23 closed rows are safe while the first live bucket is
+        # forming because analysis excludes that incomplete current bucket.
         result = builder.add_trade(self.trade(123, second=2))
         self.assertTrue(result["accepted"])
         self.assertFalse(result["gap_detected"])
         self.assertTrue(builder.is_ready)
         self.assertEqual(len(builder.closed), 23)
 
-        builder.add_trade(self.trade(124, second=2))
-        self.assertEqual(len(builder.closed), 24)
-        self.assertTrue(builder.is_ready)
-        technical = analyze_klines(builder.candles_for_analysis())
-        self.assertEqual(technical["closed_candles"], 24)
+        # At the next minute boundary, bucket 123 is known to be partial:
+        # discard it and invalidate the old cache instead of storing it as a
+        # complete candle. The caller archives the cache on gap_detected.
+        rollover = builder.add_trade(self.trade(124, second=2))
+        self.assertTrue(rollover["gap_detected"])
+        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(builder.status()["history_clear_count"], 1)
 
-    def test_restores_a_single_closed_candle_and_accumulates_without_reset(self):
+    def test_restores_a_single_closed_candle_and_discards_first_partial_bucket(self):
         builder = TradeCandleBuilder("BTC_USDT")
         row = [[100 * 60_000, 100, 102, 99, 101, 4]]
         self.assertEqual(builder.restore_closed_candles(row), 1)
@@ -269,9 +271,15 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertTrue(first["accepted"])
         self.assertFalse(first["gap_detected"])
         self.assertEqual(len(builder.closed), 1)
-        builder.add_trade(self.trade(102, second=2))
-        self.assertEqual(len(builder.closed), 2)
-        self.assertEqual(builder.status()["history_clear_count"], 0)
+        rollover = builder.add_trade(self.trade(102, second=2))
+        self.assertTrue(rollover["gap_detected"])
+        self.assertEqual(len(builder.closed), 0)
+        self.assertEqual(builder.status()["history_clear_count"], 1)
+        # Minute 102 has been observed continuously from its start boundary;
+        # it can close as the first complete post-startup candle.
+        builder.add_trade(self.trade(103, second=2))
+        self.assertEqual(len(builder.closed), 1)
+        self.assertEqual(builder.closed[0][0], 102 * 60_000)
 
     def test_restored_cache_is_discarded_when_live_stream_has_gap(self):
         builder = TradeCandleBuilder("BTC_USDT")
