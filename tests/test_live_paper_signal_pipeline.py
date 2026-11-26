@@ -51,10 +51,10 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         self.assertTrue(builder.is_ready)
         def deterministic_directional_analyzer(candles, interval_ms=60_000):
             # The market-history path and both aggregate windows are real.
-            # The 1m categorical signal deliberately opposes the higher-timeframe
-            # bias while its closed close/RSI still produce a valid bullish trigger.
+            # The 1m categorical signal is neutral (e.g. SMA10/SMA20 have not
+            # aligned), while its closed close/RSI still produce a bullish trigger.
             return {
-                "signal": "BEARISH" if interval_ms == 60_000 else "BULLISH",
+                "signal": "NEUTRAL" if interval_ms == 60_000 else "BULLISH",
                 "price": 100.0,
                 "sma10": 99.0, "sma20": 98.0,
                 "rsi14": 56.0, "atr14": 0.8,
@@ -65,7 +65,7 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
             builder.candles_for_analysis(), final_parsed["timestamp_ms"],
             deterministic_directional_analyzer,
         )
-        self.assertEqual(technical["timeframe_analysis"]["signals"]["1"], "BEARISH")
+        self.assertEqual(technical["timeframe_analysis"]["signals"]["1"], "NEUTRAL")
         self.assertEqual(technical["timeframe_analysis"]["signals"]["5"], "BULLISH")
         self.assertEqual(technical["timeframe_analysis"]["signals"]["15"], "BULLISH")
         self.assertTrue(technical["timeframe_analysis"]["entry_trigger"])
