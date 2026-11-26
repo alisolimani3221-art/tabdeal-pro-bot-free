@@ -83,6 +83,7 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertTrue(result["timeframe_analysis"]["agreement"])
         self.assertTrue(result["timeframe_analysis"]["entry_trigger"])
         self.assertEqual(result["timeframe_analysis"]["entry_trigger_direction"], "BULLISH")
+        self.assertEqual(result["timeframe_analysis"]["atr14_by_timeframe"], {"5": 0.5, "15": 0.5})
         self.assertEqual(result["timeframe_analysis"]["required_minutes"], [1, 5, 15])
         self.assertEqual(
             result["timeframe_analysis"]["signals"],
