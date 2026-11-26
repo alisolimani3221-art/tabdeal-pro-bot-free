@@ -67,7 +67,10 @@ from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
 from tabdeal_account import read_futures_account
 from secure_credentials import CredentialStore
 from multi_market_scan import scan_market_universe
-from multi_symbol_stream import (select_broadcast_symbols, subscribe_broadcast_symbols)
+from multi_symbol_stream import (
+    select_broadcast_symbols, include_required_symbol,
+    subscribe_broadcast_symbols,
+)
 from multi_symbol_paper_coordinator import MultiSymbolPaperCoordinator
 
 # Resolve the bundled font from both the app directory and Kivy resources.
@@ -2534,7 +2537,9 @@ class FuturesAnalyzerApp(App):
                 if isinstance(value, str)
             }
             if recovered_open_symbol in active_verified:
-                subscription_symbols = (symbol, recovered_open_symbol)
+                subscription_symbols = include_required_symbol(
+                    subscription_symbols, recovered_open_symbol
+                )
         if recovered_open_symbol is not None and recovered_open_symbol not in subscription_symbols:
             self.auto_stop_event.set()
             self._update_engine_health(
@@ -2544,7 +2549,7 @@ class FuturesAnalyzerApp(App):
             )
             Clock.schedule_once(
                 lambda dt, value=recovered_open_symbol: self.update_auto_status(
-                    "موقعیت آزمایشی بازیابی‌شده برای نماد {} باز است، اما این نماد در دو اشتراک فعال نیست؛ "
+                    "موقعیت آزمایشی بازیابی‌شده برای نماد {} باز است، اما این نماد در پنج اشتراک فعال نیست؛ "
                     "برای جلوگیری از رهاشدن موقعیت، شبیه‌ساز شروع نشد.".format(value)
                 ), 0
             )
