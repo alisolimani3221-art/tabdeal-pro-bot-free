@@ -249,15 +249,25 @@ class TradeStreamProbeTests(unittest.TestCase):
 
             def run_forever(self, **kwargs):
                 self.callbacks["on_open"](self)
-                message = json.dumps({
+                message_with_sequence = json.dumps({
                     "trade": {
                         "symbol": "BTC_USDT",
                         "price": "90000",
                         "quantity": "0.01",
                         "timestamp": time.time(),
+                        "sequence": 101,
                     }
                 })
-                self.callbacks["on_message"](self, message)
+                message_without_sequence = json.dumps({
+                    "trade": {
+                        "symbol": "BTC_USDT",
+                        "price": "90001",
+                        "quantity": "0.02",
+                        "timestamp": time.time(),
+                    }
+                })
+                self.callbacks["on_message"](self, message_with_sequence)
+                self.callbacks["on_message"](self, message_without_sequence)
 
         timeout_state = {"value": None}
         fake_module = types.SimpleNamespace(
@@ -273,9 +283,11 @@ class TradeStreamProbeTests(unittest.TestCase):
             )
 
         self.assertTrue(result["connected"])
-        self.assertEqual(result["valid_trades"], 1)
+        self.assertEqual(result["valid_trades"], 2)
+        self.assertEqual(result["sequence_present_trades"], 1)
+        self.assertEqual(result["sequence_missing_trades"], 1)
         self.assertEqual(observed["sent"], ["BTC_USDT"])
-        self.assertEqual(len(observed["trades"]), 1)
+        self.assertEqual(len(observed["trades"]), 2)
         self.assertIsNone(timeout_state["value"])
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
