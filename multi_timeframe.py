@@ -90,6 +90,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
     aggregated = aggregate_closed_timeframes(candles, now_ms)
     counts = {"1": one_minute.get("closed_candles", 0)}
     signals = {"1": one_minute.get("signal", "NEUTRAL")}
+    atr_by_timeframe = {}
     closes = {}
     for minutes in AGGREGATED_TIMEFRAMES_MINUTES:
         rows = aggregated[minutes]
@@ -108,6 +109,12 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         if not isinstance(technical, dict):
             raise ValueError("timeframe analyzer returned an invalid result")
         signals[str(minutes)] = technical.get("signal", "NEUTRAL")
+        try:
+            atr_value = float(technical.get("atr14"))
+            if math.isfinite(atr_value) and atr_value > 0:
+                atr_by_timeframe[str(minutes)] = atr_value
+        except (TypeError, ValueError, OverflowError):
+            pass
         closes[str(minutes)] = int(last[0])
 
     ready = (
@@ -151,6 +158,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         "required_minutes": list(TRADE_TIMEFRAMES_MINUTES),
         "closed_candles": counts,
         "signals": signals,
+        "atr14_by_timeframe": atr_by_timeframe,
         "last_closed_open_times": closes,
     }
     return result
