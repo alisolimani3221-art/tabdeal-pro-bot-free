@@ -265,8 +265,14 @@ class TradeCandleBuilder:
         return rows
 
     def status(self):
+        stored_count = len(self.history)
+        if self.archive is not None:
+            try:
+                stored_count = self.archive.count(self.symbol, self.interval_ms)
+            except Exception as exc:
+                self.archive_error = type(exc).__name__
         return {"symbol": self.symbol, "closed_candles": len(self.closed),
-                "stored_closed_candles": len(self.history),
+                "stored_closed_candles": stored_count,
                 "has_forming_candle": self.current is not None,
                 "ready": self.is_ready, "archive_error": self.archive_error,
                 "gaps": self.gaps,
