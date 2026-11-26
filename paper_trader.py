@@ -162,6 +162,12 @@ def rank_signal(technical):
             or timeframe.get("direction") != signal
             or timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES)):
         return None
+    atr_by_timeframe = timeframe.get("atr14_by_timeframe")
+    try:
+        _positive(atr_by_timeframe.get("5") if isinstance(atr_by_timeframe, dict) else None,
+                  "5m risk ATR")
+    except (TypeError, ValueError, OverflowError):
+        return "مقدار ATR پنج‌دقیقه‌ای برای تعیین حد ضرر معتبر نیست؛ ورود مسدود است"
     timeframe_counts = timeframe.get("closed_candles")
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(str(minutes))) is not int
