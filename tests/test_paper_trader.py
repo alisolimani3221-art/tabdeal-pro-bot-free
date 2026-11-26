@@ -11,15 +11,17 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
                 "closed_candles": 23, "candle_open_time": 60_000,
                 "timeframe_analysis": {"ready": True, "agreement": True,
-                    "direction": "BULLISH", "signals": {
-                        "5": "BULLISH", "15": "BULLISH",
+                    "direction": "BULLISH", "required_minutes": [5, 15, 30, 60],
+                    "closed_candles": {"5": 288, "15": 96, "30": 48, "60": 24},
+                    "signals": {"5": "BULLISH", "15": "BULLISH",
                         "30": "BULLISH", "60": "BULLISH"}}}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
             "closed_candles": 23, "candle_open_time": 60_000,
             "timeframe_analysis": {"ready": True, "agreement": True,
-                "direction": "BEARISH", "signals": {
-                    "5": "BEARISH", "15": "BEARISH",
+                "direction": "BEARISH", "required_minutes": [5, 15, 30, 60],
+                "closed_candles": {"5": 288, "15": 96, "30": 48, "60": 24},
+                "signals": {"5": "BEARISH", "15": "BEARISH",
                     "30": "BEARISH", "60": "BEARISH"}}}
 
 
@@ -119,11 +121,15 @@ class PaperTraderTests(unittest.TestCase):
             None,
             {"ready": False, "agreement": False, "direction": None, "signals": {}},
             {"ready": True, "agreement": False, "direction": None,
+             "required_minutes": [5, 15, 30, 60],
+             "closed_candles": {"5": 288, "15": 96, "30": 48, "60": 24},
              "signals": {"5": "BULLISH", "15": "BULLISH",
                          "30": "BEARISH", "60": "BULLISH"}},
             {"ready": True, "agreement": True, "direction": "BULLISH",
+             "required_minutes": [5, 15, 30, 60],
+             "closed_candles": {"5": 288, "15": 96, "30": 48, "60": 22},
              "signals": {"5": "BULLISH", "15": "BULLISH",
-                         "30": "BULLISH", "60": "NEUTRAL"}},
+                         "30": "BULLISH", "60": "BULLISH"}},
         ):
             candidate = dict(base)
             candidate["timeframe_analysis"] = timeframe
