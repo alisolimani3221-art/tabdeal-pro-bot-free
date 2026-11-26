@@ -2126,7 +2126,7 @@ class FuturesAnalyzerApp(App):
                                 "قفل زیان روزانه هنوز فعال است؛ بازآماده‌سازی فقط پس از شروع روز UTC بعدی ممکن است."
                             )
                             return
-                    elif paper_engine.halt_reason != "EMERGENCY_STOP":
+                    elif paper_engine.halt_reason not in ("EMERGENCY_STOP", "DATA_GAP"):
                         self.update_auto_status(
                             "بازآماده‌سازی رد شد؛ توقف سقف زیان تجمعی یا قفل ایمنی قابل‌بازیابی نیست."
                         )
@@ -2152,6 +2152,14 @@ class FuturesAnalyzerApp(App):
                 "بازآماده‌سازی فقط پس از کنترل دوباره سقف زیان تجمعی و نبود موقعیت باز انجام می‌شود.\n"
                 "اگر سقف زیان تجمعی هم فعال باشد، قفل حفظ خواهد شد.\n"
                 "سرمایه مجازی و تاریخچه حفظ می‌شوند؛ هیچ سفارش واقعی ارسال نمی‌شود."
+            )
+        elif paper_engine is not None and paper_engine.halt_reason == "DATA_GAP":
+            explanation = (
+                "توقف به‌علت شکاف داده بازار ثبت شده و موقعیت قبلی باید بسته مانده باشد.\n"
+                "بازآماده‌سازی فقط پس از تأیید شما و کنترل دوباره حدود زیان انجام می‌شود.\n"
+                "پس از شروع، موتور تا ساخت حداقل ۲۳ کندل بسته و پیوسته اجازه ورود آزمایشی نمی‌دهد.\n"
+                "در صورت ناپیوستگی داده، تاریخچه نامعتبر وارد تحلیل نمی‌شود و موتور دوباره متوقف می‌ماند.\n"
+                "سرمایه مجازی و سابقه معاملات حفظ می‌شوند؛ هیچ سفارش واقعی ارسال نمی‌شود."
             )
         else:
             explanation = (
@@ -2215,6 +2223,8 @@ class FuturesAnalyzerApp(App):
                         raise RuntimeError("open paper position must be closed before re-arming")
                     if paper_engine.halt_reason == "EMERGENCY_STOP":
                         paper_engine.rearm_after_operator_stop()
+                    elif paper_engine.halt_reason == "DATA_GAP":
+                        paper_engine.rearm_after_data_gap()
                     elif paper_engine.halt_reason == "DAILY_MAX_LOSS":
                         paper_engine.rearm_after_daily_reset()
                     else:
