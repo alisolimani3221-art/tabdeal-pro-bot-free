@@ -17,7 +17,8 @@ _SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT")
 
 class MultiSymbolPaperCoordinator:
     def __init__(self, symbols, analyze, prepare_snapshot,
-                 builder_factory=TradeCandleBuilder, max_snapshot_age=30.0):
+                 builder_factory=TradeCandleBuilder, max_snapshot_age=30.0,
+                 analyze_with_context=None):
         if not isinstance(symbols, (list, tuple)) or not 1 <= len(symbols) <= 20:
             raise ValueError("symbols must contain 1-20 USDT futures markets")
         normalized = []
@@ -29,6 +30,8 @@ class MultiSymbolPaperCoordinator:
             normalized.append(symbol)
         if not callable(analyze) or not callable(prepare_snapshot):
             raise ValueError("analysis and snapshot functions must be callable")
+        if analyze_with_context is not None and not callable(analyze_with_context):
+            raise ValueError("contextual analyzer must be callable")
         if isinstance(max_snapshot_age, bool):
             raise ValueError("max_snapshot_age must be finite and positive")
         try:
@@ -39,6 +42,7 @@ class MultiSymbolPaperCoordinator:
             raise ValueError("max_snapshot_age must be between 1 and 120 seconds")
         self.symbols = tuple(normalized)
         self.analyze = analyze
+        self.analyze_with_context = analyze_with_context
         self.prepare_snapshot = prepare_snapshot
         self.max_snapshot_age = age
         self.lock = threading.RLock()
@@ -128,7 +132,11 @@ class MultiSymbolPaperCoordinator:
                 return {"accepted": True, "symbol": symbol,
                         "ready": False, "gap_detected": bool(update.get("gap_detected"))}
             try:
-                technical = self.analyze(state["builder"].candles_for_analysis())
+                candles = state["builder"].candles_for_analysis()
+                if self.analyze_with_context is not None:
+                    technical = self.analyze_with_context(candles, timestamp)
+                else:
+                    technical = self.analyze(candles)
                 if not isinstance(technical, dict):
                     raise ValueError("analysis result is not a dictionary")
                 technical = dict(technical)
