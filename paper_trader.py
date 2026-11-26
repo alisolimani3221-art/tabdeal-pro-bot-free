@@ -167,7 +167,7 @@ def rank_signal(technical):
     timeframe_signals = timeframe.get("signals")
     if (not isinstance(timeframe_signals, dict)
             or any(timeframe_signals.get(str(minutes)) != signal
-                   for minutes in (5, 15, 30, 60))):
+                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
         return None
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
@@ -226,14 +226,14 @@ def diagnose_signal(technical):
         return "داده کافی نیست: حداقل ۲۳ کندل بسته‌شده لازم است"
     timeframe = technical.get("timeframe_analysis")
     if (not isinstance(timeframe, dict) or timeframe.get("ready") is not True):
-        return "تاریخچهٔ کامل ۵، ۱۵، ۳۰ و ۶۰ دقیقه آماده نیست؛ ورود مسدود است"
-    if timeframe.get("required_minutes") != [5, 15, 30, 60]:
+        return "تاریخچهٔ کامل ۱، ۵ و ۱۵ دقیقه آماده نیست؛ ورود مسدود است"
+    if timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES):
         return "فهرست تایم‌فریم‌های لازم معتبر نیست؛ ورود مسدود است"
     timeframe_counts = timeframe.get("closed_candles")
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(str(minutes))) is not int
                    or timeframe_counts.get(str(minutes)) < 23
-                   for minutes in (5, 15, 30, 60))):
+                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
         return "تعداد کندل بستهٔ یکی از تایم‌فریم‌ها کافی نیست؛ ورود مسدود است"
     if (timeframe.get("agreement") is not True
             or timeframe.get("direction") != signal):
@@ -241,7 +241,7 @@ def diagnose_signal(technical):
     timeframe_signals = timeframe.get("signals")
     if (not isinstance(timeframe_signals, dict)
             or any(timeframe_signals.get(str(minutes)) != signal
-                   for minutes in (5, 15, 30, 60))):
+                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
         return "تأیید سه تایم‌فریم کامل نیست؛ ورود مسدود است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
