@@ -5,6 +5,7 @@ interval and candle open time; conflicting duplicate rows fail closed.
 """
 import math
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -60,8 +61,8 @@ class CandleArchive:
 
     @staticmethod
     def _validate(symbol, interval_ms, row):
-        if not isinstance(symbol, str) or not symbol:
-            raise ValueError("symbol is required")
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9]+_USDT", symbol):
+            raise ValueError("symbol must be an exchange-native USDT futures symbol")
         if isinstance(interval_ms, bool) or not isinstance(interval_ms, int) or interval_ms <= 0:
             raise ValueError("interval_ms must be positive")
         if not isinstance(row, (list, tuple)) or len(row) != 6:
@@ -77,8 +78,12 @@ class CandleArchive:
             if not math.isfinite(number):
                 raise ValueError("candle values must be finite numbers")
             values.append(number)
-        if values[0] <= 0 or any(v <= 0 for v in values[1:5]) or values[5] < 0:
-            raise ValueError("invalid candle timestamp or OHLCV value")
+        if (values[0] <= 0 or not values[0].is_integer()
+                or values[0] > 9_223_372_036_854_775_807
+                or int(values[0]) % interval_ms != 0
+                or any(v <= 0 for v in values[1:])
+                ):
+            raise ValueError("invalid or unaligned candle timestamp or OHLCV value")
         if values[2] < max(values[1], values[4], values[3]) or values[3] > min(values[1], values[4]):
             raise ValueError("inconsistent candle high/low")
         return int(values[0]), *values[1:]
@@ -122,6 +127,14 @@ class CandleArchive:
                     "WHERE symbol=? AND interval_ms=? ORDER BY open_time DESC LIMIT ?",
                     (symbol, interval_ms, min(count, self.max_rows)),
                 ).fetchall()
-            return [list(row) for row in reversed(rows)]
+            ordered = []
+            for row in reversed(rows):
+                try:
+                    ordered.append(list(self._validate(symbol, interval_ms, row)))
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise CandleArchiveError("archive contains an invalid candle row") from exc
+            return ordered
+        except CandleArchiveError:
+            raise
         except (OSError, sqlite3.Error) as exc:
             raise CandleArchiveError("could not read candle archive") from exc
