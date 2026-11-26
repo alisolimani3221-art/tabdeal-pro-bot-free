@@ -229,6 +229,31 @@ class AIDiagnosticContextTests(unittest.TestCase):
         self.assertIn("بازه هر کندل (ثانیه): 60", rendered)
         self.assertIn("هنوز اجرا نشده؛ در انتظار تکمیل کندل‌های معتبر", rendered)
 
+    def test_engine_report_includes_selected_symbol_timeframe_progress(self):
+        from ai_diagnostics import build_engine_health_report_lines
+        worker = Mock()
+        worker.is_alive.return_value = True
+        app = SimpleNamespace(
+            current_symbol="BTC_USDT",
+            auto_trader_thread=worker,
+            auto_health={
+                "websocket_connected": True,
+                "per_symbol_health": {
+                    "BTC_USDT": {
+                        "multi_timeframe_ready": False,
+                        "multi_timeframe_agreement": False,
+                        "timeframe_closed_candles": {
+                            "5": 288, "15": 96, "30": 48, "60": 12,
+                        },
+                    }
+                },
+            },
+        )
+        rendered = "\\n".join(build_engine_health_report_lines(app))
+        self.assertIn("تاریخچه چهار تایم‌فریم آماده: False", rendered)
+        self.assertIn("هم‌جهتی چهار تایم‌فریم: False", rendered)
+        self.assertIn("5m: 288/23 | 15m: 96/23 | 30m: 48/23 | 60m: 12/23", rendered)
+
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
         worker.is_alive.return_value = False
