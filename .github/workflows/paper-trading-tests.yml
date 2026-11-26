@@ -1,6 +1,9 @@
 name: Paper trading regression tests
 
 on:
+  pull_request:
+    branches:
+      - fix/watermark-close-candles-20261126
   push:
     branches:
       - fix/paper-persistence-fail-closed-20261124
