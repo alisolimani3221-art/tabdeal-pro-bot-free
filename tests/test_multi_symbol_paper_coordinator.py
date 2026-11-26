@@ -237,14 +237,14 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         state["latest_technical"] = {
             "timeframe_analysis": {
                 "ready": False, "agreement": False,
-                "closed_candles": {"5": 200, "15": 66, "30": 33, "60": 12},
+                "closed_candles": {"1": 500, "5": 200, "15": 12},
             }
         }
         status = coordinator.status(now=11)["BTC_USDT"]
         self.assertFalse(status["multi_timeframe_ready"])
         self.assertFalse(status["multi_timeframe_agreement"])
         self.assertFalse(status["entry_ready"])
-        self.assertEqual(status["timeframe_closed_candles"]["60"], 12)
+        self.assertEqual(status["timeframe_closed_candles"]["15"], 12)
 
     def test_reconcile_tick_rejects_malformed_events_before_engine_mutation(self):
         coordinator = self.make_coordinator()
