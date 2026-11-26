@@ -193,12 +193,16 @@ def rank_signal(technical):
         if isinstance(technical["rsi14"], bool):
             return None
         rsi = float(technical["rsi14"])
-        atr = _positive(technical["atr14"], "atr14")
+        signal_atr = _positive(technical["atr14"], "1m atr14")
+        atr_by_timeframe = timeframe.get("atr14_by_timeframe")
+        if not isinstance(atr_by_timeframe, dict):
+            return None
+        risk_atr = _positive(atr_by_timeframe.get("5"), "5m risk atr14")
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(rsi) or not 0 <= rsi <= 100:
         return None
-    volatility_pct = atr / price * 100.0
+    volatility_pct = signal_atr / price * 100.0
     if not math.isfinite(volatility_pct) or volatility_pct > 2.0:
         return None
     # Higher timeframes determine direction. The 1m candle is only an
@@ -213,7 +217,7 @@ def rank_signal(technical):
     if not math.isfinite(score):
         return None
     return {"symbol": normalized_symbol, "side": signal,
-            "price": price, "atr": atr, "rsi": rsi,
+            "price": price, "atr": risk_atr, "signal_atr": signal_atr, "rsi": rsi,
             "candle_open_time": candle_open_time,
             "volatility_pct": volatility_pct, "score": score}
 
