@@ -48,7 +48,8 @@ from orderbook_poller import fetch_order_book_snapshot
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
-from candle_history import load_candle_cache, save_candle_cache, validate_closed_candles
+from candle_history import (load_candle_cache, save_candle_cache,
+                            validate_closed_candles, archive_candle_cache)
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
@@ -2315,7 +2316,7 @@ class FuturesAnalyzerApp(App):
                         candle_cache_path, symbol, int(time.time() * 1000),
                         interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
                     )
-                    if len(cached_rows) >= 5:
+                    if len(cached_rows) >= 1:
                         restored_candle_count = builder.restore_closed_candles(cached_rows)
                         candle_cache_note = "تاریخچه معتبر ذخیره‌شده بازیابی شد: {} کندل.".format(
                             restored_candle_count
@@ -2620,7 +2621,8 @@ class FuturesAnalyzerApp(App):
                 self._update_engine_health(
                     worker_phase="connected_waiting_for_trade",
                     websocket_connected=True, connected_at=time.monotonic(),
-                    last_stream_error="",
+                    # Preserve the last transport/close diagnostic across a
+                    # successful reconnect; clearing it here hid the cause.
                     reconnect_count=total_reconnects,
                 )
                 # Match the previously observed working public-feed protocol:
@@ -2813,9 +2815,17 @@ class FuturesAnalyzerApp(App):
                 # proves there was no missing one-minute bucket. On a gap the
                 # builder clears the cache before any technical signal is made.
                 if update.get("gap_detected"):
+                    # Keep the invalidated candles for diagnosis. They are
+                    # moved out of the active cache so a later launch cannot
+                    # mistake a known-discontinuous history for live continuity.
                     try:
-                        os.remove(getattr(self, "auto_candle_cache_path", ""))
-                    except (OSError, TypeError):
+                        archive_candle_cache(
+                            getattr(self, "auto_candle_cache_path", ""),
+                            "confirmed_gap", int(time.time() * 1000),
+                        )
+                    except (OSError, TypeError, ValueError):
+                        # A failed archive must not affect market processing;
+                        # the continuity gate still blocks use of stale rows.
                         pass
                     self.auto_candle_cache_last_open_time = None
                 elif update.get("accepted") and builder.closed:
@@ -2827,7 +2837,7 @@ class FuturesAnalyzerApp(App):
                                 interval_ms=builder.interval_ms,
                                 limit=builder.closed.maxlen,
                             )
-                            if len(cache_rows) >= 5:
+                            if len(cache_rows) >= 1:
                                 save_candle_cache(
                                     self.auto_candle_cache_path, symbol, cache_rows
                                 )
