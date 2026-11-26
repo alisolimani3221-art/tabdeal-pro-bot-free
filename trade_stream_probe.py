@@ -221,6 +221,7 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         raise RuntimeError("websocket-client is not installed") from exc
 
     result = {"connected": False, "messages": 0, "valid_trades": 0,
+              "sequence_present_trades": 0, "sequence_missing_trades": 0,
               "last_diagnostic": "no_message", "symbol": symbol}
 
     def on_open(ws):
@@ -237,6 +238,10 @@ def probe_broadcast(symbol=DEFAULT_SYMBOL, timeout_seconds=15, on_trade=None):
         result["last_diagnostic"] = parsed.get("reason", "ok")
         if parsed.get("ok") and is_trade_timestamp_fresh(parsed["timestamp_ms"]):
             result["valid_trades"] += 1
+            if parsed.get("sequence") is None:
+                result["sequence_missing_trades"] += 1
+            else:
+                result["sequence_present_trades"] += 1
             if on_trade:
                 on_trade(parsed)
         elif parsed.get("ok"):
