@@ -143,6 +143,8 @@ class PaperTraderTests(unittest.TestCase):
         self.assertIn("تاریخچه", diagnose_signal(candidate))
         candidate["timeframe_analysis"] = {
             "ready": True, "agreement": False, "direction": None,
+            "required_minutes": [5, 15, 30, 60],
+            "closed_candles": {"5": 288, "15": 96, "30": 48, "60": 24},
             "signals": {"5": "BULLISH", "15": "BULLISH",
                         "30": "BEARISH", "60": "BULLISH"},
         }
