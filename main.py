@@ -3535,21 +3535,34 @@ class FuturesAnalyzerApp(App):
                         pnl_color = (1, 0.48, 0.42, 1)
                 except (TypeError, ValueError, OverflowError):
                     pass
+                duration_value = trade.get("duration_seconds")
+                try:
+                    duration_number = float(duration_value)
+                    duration_text = (
+                        "{:.1f} ثانیه".format(duration_number)
+                        if math.isfinite(duration_number) and duration_number >= 0
+                        else "نامشخص"
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    duration_text = "نامشخص (رکورد قدیمی)"
                 details = (
                     "معامله بسته‌شده {} | {} {}\n"
-                    "ورود: {} | خروج: {} | مقدار: {}\n"
-                    "حد ضرر: {} | حد سود: {} | اهرم: {}x\n"
+                    "ورود: {} | خروج اجراشده: {} | مقدار: {}\n"
+                    "قیمت برخورد: {} | حد ضرر: {} | حد سود: {}\n"
+                    "مدت نگهداری: {} | اهرم: {}x\n"
                     "ناخالص: {} | کارمزد ورود/خروج: {}/{}\n"
                     "سود/زیان خالص: {} USDT | علت خروج: {}"
                 ).format(
                     index, trade.get("symbol", "—"), side,
                     number(trade.get("entry")), number(trade.get("exit")),
-                    number(trade.get("quantity")), number(trade.get("stop")),
-                    number(trade.get("target")), number(trade.get("leverage")),
+                    number(trade.get("quantity")),
+                    number(trade.get("exit_trigger_price")),
+                    number(trade.get("stop")), number(trade.get("target")),
+                    duration_text, number(trade.get("leverage")),
                     number(trade.get("gross_pnl")), number(trade.get("fees_entry")),
                     number(trade.get("fees_exit")), pnl, trade.get("reason", "—")
                 )
-                add_row(details, dp(136), pnl_color)
+                add_row(details, dp(154), pnl_color)
             position = state.get("position")
             if isinstance(position, dict):
                 side = "خرید" if position.get("side") == "BULLISH" else "فروش"
