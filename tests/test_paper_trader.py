@@ -142,12 +142,15 @@ class PaperTraderTests(unittest.TestCase):
                                - engine.closed_trades[-1]["fees_entry"]
                                - engine.closed_trades[-1]["fees_exit"])
 
-    def test_target_closes_long_position(self):
+    def test_target_activates_long_trailing_protection_instead_of_closing(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
         result = engine.process_scan([dict(setup(price=103.0), signal="NEUTRAL")])
-        self.assertEqual(result["events"][0]["event"], "CLOSED")
-        self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
+        self.assertEqual(result["events"], [])
+        self.assertIsNotNone(engine.position)
+        self.assertTrue(engine.position["trailing_active"])
+        self.assertGreater(engine.position["stop"], engine.position["entry"])
+        self.assertGreater(engine.position["best_price"], engine.position["target"])
 
     def test_long_stop_triggers_on_intrabar_low_even_when_close_recovers(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
@@ -182,12 +185,16 @@ class PaperTraderTests(unittest.TestCase):
                                            signal="NEUTRAL")])
         self.assertEqual(result["events"][0]["trade"]["reason"], "STOP")
 
-    def test_target_closes_short_position(self):
+    def test_target_activates_short_trailing_protection_instead_of_closing(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup(signal="BEARISH")])
         result = engine.process_scan([dict(setup(price=97.0, signal="BEARISH"),
                                            signal="NEUTRAL")])
-        self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
+        self.assertEqual(result["events"], [])
+        self.assertIsNotNone(engine.position)
+        self.assertTrue(engine.position["trailing_active"])
+        self.assertLess(engine.position["stop"], engine.position["entry"])
+        self.assertLess(engine.position["best_price"], engine.position["target"])
 
     def test_does_not_reopen_on_same_candle_after_stop_across_scans(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
@@ -708,14 +715,21 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(event["trade"]["reason"], "STOP_TICK")
         self.assertGreaterEqual(event["trade"]["exit"], short_position["stop"])
 
-    def test_tick_level_target_closes_position_without_reopening(self):
+    def test_tick_target_activates_trailing_and_later_retracement_closes(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
         position = dict(engine.position)
         event = engine.process_tick("AAA_USDT", position["target"] + 0.1)
-        self.assertEqual(event["trade"]["reason"], "TARGET_TICK")
+        self.assertIsNone(event)
+        self.assertIsNotNone(engine.position)
+        self.assertTrue(engine.position["trailing_active"])
+        first_stop = engine.position["stop"]
+        self.assertGreater(first_stop, position["entry"])
+        self.assertIsNone(engine.process_tick("AAA_USDT", position["target"] + 1.0))
+        self.assertGreaterEqual(engine.position["stop"], first_stop)
+        closed = engine.process_tick("AAA_USDT", engine.position["stop"] - 0.01)
+        self.assertEqual(closed["trade"]["reason"], "TRAILING_STOP_TICK")
         self.assertIsNone(engine.position)
-        self.assertIsNone(engine.process_tick("AAA_USDT", 100.0))
 
     def test_tick_reconciliation_ignores_other_symbols_and_bad_prices(self):
         engine = PaperTradingEngine(capital=8)
