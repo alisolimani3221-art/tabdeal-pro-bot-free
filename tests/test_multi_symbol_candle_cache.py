@@ -37,8 +37,8 @@ class MultiSymbolCandleCacheTests(unittest.TestCase):
                 self.assertGreaterEqual(len(rows), 20)
                 self.assertEqual(rows[-1][4], price)
                 result = restored.add_trade(
-                    self.trade(symbol, 123, second=2, price=price),
-                    124 * 60000,
+                    self.trade(symbol, 122, second=30, price=price),
+                    123 * 60000,
                 )
                 self.assertTrue(result["accepted"])
                 self.assertFalse(result["gap_detected"])
