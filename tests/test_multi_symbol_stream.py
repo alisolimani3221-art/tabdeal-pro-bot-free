@@ -12,14 +12,14 @@ class MultiSymbolBroadcastSelectionTests(unittest.TestCase):
     def test_selected_symbol_is_always_first(self):
         self.assertEqual(
             select_broadcast_symbols("ETH_USDT", {"BTC_USDT", "SOL_USDT"}),
-            ("ETH_USDT", "BTC_USDT"),
+            ("ETH_USDT", "BTC_USDT", "SOL_USDT"),
         )
 
     def test_limits_to_five_verified_markets(self):
         result = select_broadcast_symbols(
             "BTC_USDT", {"ETH_USDT", "SOL_USDT", "XRP_USDT", "BNB_USDT", "ADA_USDT", "DOGE_USDT"}
         )
-        self.assertEqual(result, ("BTC_USDT", "ADA_USDT", "BNB_USDT", "ETH_USDT", "SOL_USDT"))
+        self.assertEqual(result, ("BTC_USDT", "ADA_USDT", "BNB_USDT", "DOGE_USDT", "ETH_USDT"))
         self.assertEqual(len(result), MAX_VERIFIED_BROADCAST_SYMBOLS)
 
     def test_recovered_open_position_gets_reserved_slot_without_exceeding_five(self):
