@@ -212,6 +212,48 @@ class PaperTraderTests(unittest.TestCase):
                              result["open_position"]["leverage"], 2.0)
         self.assertLessEqual(result["open_position"]["risk_budget"], 0.04)
 
+    def test_tick_exit_records_trigger_price_fill_price_reason_and_duration(self):
+        engine = PaperTradingEngine(
+            capital=8, fee_rate=0.0005, slippage_rate=0.001
+        )
+        opened = engine.process_scan([setup()])
+        position = opened["open_position"]
+        self.assertTrue(position["entry_time_utc"].endswith("Z"))
+        trigger_price = position["stop"] - 0.1
+        closed = engine.process_tick("AAA_USDT", trigger_price)
+        trade = closed["trade"]
+        self.assertEqual(trade["reason"], "STOP_TICK")
+        self.assertAlmostEqual(trade["exit_trigger_price"], trigger_price)
+        self.assertAlmostEqual(
+            trade["exit"], trigger_price * (1 - engine.slippage_rate)
+        )
+        self.assertTrue(trade["closed_at_utc"].endswith("Z"))
+        self.assertIsNotNone(trade["duration_seconds"])
+        self.assertGreaterEqual(trade["duration_seconds"], 0)
+        self.assertAlmostEqual(
+            trade["entry"] - trade["stop"], 1.5 * trade["atr"]
+        )
+
+    def test_legacy_open_position_without_entry_timestamp_still_restores(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        state = engine.export_state()
+        state["position"].pop("entry_time_utc")
+        restored = PaperTradingEngine.restore_state(state)
+        self.assertIsNone(restored.position["entry_time_utc"])
+        closed = restored.process_tick(
+            "AAA_USDT", restored.position["stop"] - 0.1
+        )
+        self.assertIsNone(closed["trade"]["duration_seconds"])
+
+    def test_restore_rejects_invalid_entry_timestamp(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        state = engine.export_state()
+        state["position"]["entry_time_utc"] = "2026-11-26T10:00:00"
+        with self.assertRaises(ValueError):
+            PaperTradingEngine.restore_state(state)
+
     def test_stop_closes_position_and_records_net_result(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
