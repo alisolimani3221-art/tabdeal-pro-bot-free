@@ -230,6 +230,22 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         coordinator.on_trade(self.trade("BTC_USDT"), received_at=20)
         self.assertFalse(coordinator.status(now=10)["BTC_USDT"]["snapshot_fresh"])
 
+    def test_status_exposes_timeframe_warmup_and_entry_readiness(self):
+        coordinator = self.make_coordinator()
+        state = coordinator.states["BTC_USDT"]
+        state["last_trade_monotonic"] = 10
+        state["latest_technical"] = {
+            "timeframe_analysis": {
+                "ready": False, "agreement": False,
+                "closed_candles": {"5": 200, "15": 66, "30": 33, "60": 12},
+            }
+        }
+        status = coordinator.status(now=11)["BTC_USDT"]
+        self.assertFalse(status["multi_timeframe_ready"])
+        self.assertFalse(status["multi_timeframe_agreement"])
+        self.assertFalse(status["entry_ready"])
+        self.assertEqual(status["timeframe_closed_candles"]["60"], 12)
+
     def test_reconcile_tick_rejects_malformed_events_before_engine_mutation(self):
         coordinator = self.make_coordinator()
         invalid_events = (
