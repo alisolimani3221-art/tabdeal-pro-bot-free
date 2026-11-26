@@ -318,6 +318,71 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(trend["trade_allowed"])
         self.assertIsNone(trend["signal"])
 
+    def test_watermark_finalizes_only_complete_bucket_after_lateness_grace(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, second=1))
+        builder.add_trade(self.trade(101, second=1))
+        due_at = 102 * 60_000 + 30_000
+
+        early = builder.finalize_due(due_at - 1)
+        self.assertFalse(early["finalized"])
+        self.assertEqual(early["reason"], "watermark_not_due")
+        closed = builder.finalize_due(due_at)
+        self.assertTrue(closed["finalized"])
+        self.assertEqual(closed["closed_open_time"], 101 * 60_000)
+        self.assertIsNone(builder.current)
+        self.assertEqual(builder.closed[-1][0], 101 * 60_000)
+
+    def test_watermark_never_finalizes_initial_or_reconnect_partial_bucket(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, second=1))
+        partial = builder.finalize_due(110 * 60_000)
+        self.assertFalse(partial["finalized"])
+        self.assertEqual(partial["reason"], "partial_or_reconnect_bucket")
+
+        builder.add_trade(self.trade(101, second=1))
+        builder.reset_after_reconnect()
+        builder.add_trade(self.trade(101, second=20))
+        reconnect_partial = builder.finalize_due(110 * 60_000)
+        self.assertFalse(reconnect_partial["finalized"])
+        self.assertEqual(reconnect_partial["reason"], "partial_or_reconnect_bucket")
+
+    def test_late_trade_for_watermark_finalized_bucket_is_rejected(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, second=1))
+        builder.add_trade(self.trade(101, second=1))
+        builder.finalize_due(102 * 60_000 + 30_000)
+
+        late = builder.add_trade(self.trade(101, second=50))
+        self.assertFalse(late["accepted"])
+        self.assertEqual(late["reason"], "late_after_finalization")
+        self.assertEqual(builder.closed[-1][0], 101 * 60_000)
+
+    def test_gap_after_watermark_finalization_clears_history(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, second=1))
+        builder.add_trade(self.trade(101, second=1))
+        builder.finalize_due(102 * 60_000 + 30_000)
+
+        gap = builder.add_trade(self.trade(103, second=1))
+        self.assertTrue(gap["accepted"])
+        self.assertTrue(gap["gap_detected"])
+        self.assertEqual(len(builder.closed), 0)
+        self.assertEqual(builder.status()["last_reset_reason"],
+                         "timestamp_gap_after_finalization")
+
+    def test_contiguous_trade_after_watermark_finalization_starts_new_forming_bucket(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, second=1))
+        builder.add_trade(self.trade(101, second=1))
+        builder.finalize_due(102 * 60_000 + 30_000)
+
+        next_trade = builder.add_trade(self.trade(102, second=2))
+        self.assertTrue(next_trade["accepted"])
+        self.assertFalse(next_trade["gap_detected"])
+        self.assertEqual(len(builder.closed), 1)
+        self.assertEqual(builder.current["open_time"], 102 * 60_000)
+
     def test_invalid_builder_configuration(self):
         for symbol in ("BTCUSDT", "BTC/USDT", "BTC__USDT", ""):
             with self.subTest(symbol=symbol):
