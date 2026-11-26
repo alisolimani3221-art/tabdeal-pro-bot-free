@@ -45,3 +45,15 @@ This is stronger evidence that the currently observed broadcast connection remai
 It does **not** prove lossless delivery, complete market coverage, official sequence semantics, sequence continuity across reconnects, replay/backfill, candle boundary rules, or no-trade-minute behavior. A five-minute observation is not the required multi-hour soak test. Sequence remains optional in the parser until Tabdeal documents its contract; sequence jumps are not treated as proof of missing trades.
 
 No historical collector is deployed, no Spot data is substituted, and no live trading is enabled. The collector remains design-only and the app must continue to fail closed when candle history/continuity cannot be proven.
+
+
+## Follow-up validation and corrected thirty-minute soak
+
+A review found that the original soak wrapper could report success after an early WebSocket close if it had already received at least one valid trade. The wrapper was hardened: it now requires at least 99% of the requested observation duration, a connected socket, valid trade events, consistent message counts, and no recorded WebSocket error. Two regression tests cover early termination and disconnect/error cases.
+
+- Corrected regression run: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/45853219249 — success; **529 tests passed**.
+- Corrected independent 30-second broadcast probe: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/45853219226 — success; 30.2 seconds, 45 messages, 37 fresh valid trades, 37 with sequence, 0 without, diagnostic `ok`.
+- The earlier 30-minute run (45850858106) was cancelled when the corrected branch revision superseded it; it is **not** counted as a successful soak.
+- Corrected 30-minute soak: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/45853208250 — started on the corrected revision and must complete the full observation window before it can pass.
+
+The duration guard reduces false-positive success from early closure; it still does not prove lossless delivery or official sequence semantics. The corrected 30-minute observation remains a single-symbol, read-only stability test.
