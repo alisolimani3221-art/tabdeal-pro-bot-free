@@ -33,8 +33,28 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertTrue(builder.add_trade(self.trade(100, 20, sequence=9))["accepted"])
         self.assertEqual(builder.add_trade(self.trade(100, 10, sequence=10))["reason"],
                          "out_of_order")
-        self.assertEqual(builder.add_trade(self.trade(100, 30, sequence=9))["reason"],
-                         "duplicate_or_old_sequence")
+        self.assertIsNone(builder.current)
+        self.assertEqual(builder.status()["gaps"], 1)
+
+        duplicate_builder = TradeCandleBuilder("BTC_USDT")
+        self.assertTrue(duplicate_builder.add_trade(
+            self.trade(100, 20, sequence=9)
+        )["accepted"])
+        self.assertEqual(duplicate_builder.add_trade(
+            self.trade(100, 30, sequence=9)
+        )["reason"], "duplicate_or_old_sequence")
+
+    def test_out_of_order_trade_invalidates_ready_indicator_window(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 153):
+            builder.add_trade(self.trade(minute))
+        self.assertTrue(builder.is_ready)
+        late = builder.add_trade(self.trade(151, second=50))
+        self.assertEqual(late["reason"], "out_of_order")
+        self.assertFalse(builder.is_ready)
+        self.assertEqual(builder.status()["closed_candles"], 0)
+        self.assertIsNone(builder.current)
+        self.assertEqual(builder.status()["gaps"], 1)
 
     def test_gap_clears_warmup_history(self):
         builder = TradeCandleBuilder("BTC_USDT")
