@@ -38,7 +38,7 @@ from kivy.resources import resource_add_path
 from market_symbols import select_market_symbol, list_market_symbols
 from risk_analysis import analyze_klines, calculate_position_risk, recommend_leverage
 from market_format import format_market_value
-from market_candles import TradeCandleBuilder
+from market_candles import TradeCandleBuilder, stream_heartbeat_is_fresh
 from candle_archive import CandleArchive
 from paper_trader import PaperTradingEngine
 from trade_stream_probe import BROADCAST_URL, parse_trade_message
@@ -1497,9 +1497,9 @@ class FuturesAnalyzerApp(App):
                 # or heartbeat-stale stream, even during the 30-second trade
                 # freshness grace period.
                 pong_at = last_pong_monotonic[0]
-                if (not stream_connected[0] or pong_at is None
-                        or time.monotonic() - pong_at < 0
-                        or time.monotonic() - pong_at > 30):
+                if not stream_heartbeat_is_fresh(
+                        stream_connected[0], pong_at, time.monotonic()):
+
                     return
                 archive_error = builder.archive_error
                 if archive_error:
@@ -1573,8 +1573,9 @@ class FuturesAnalyzerApp(App):
                     current = builder.current
                     pong_ms = last_pong_wall_ms[0]
                     pong_at = last_pong_monotonic[0]
-                    pong_fresh = (pong_at is not None
-                                  and 0 <= time.monotonic() - pong_at <= 30)
+                    pong_fresh = stream_heartbeat_is_fresh(
+                        stream_connected[0], pong_at, time.monotonic()
+                    )
                     if (stream_connected[0] and pong_fresh and current is not None and
                             pong_ms is not None and
                             pong_ms >= current["open_time"] + builder.interval_ms):
