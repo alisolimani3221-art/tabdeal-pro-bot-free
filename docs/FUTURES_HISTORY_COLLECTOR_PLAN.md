@@ -31,6 +31,16 @@ trade parser:
 
 - Push run: 25 messages, 23 fresh valid trades; elapsed 30.16 seconds.
 - Pull-request run: 22 messages, 21 fresh valid trades; elapsed 30.20 seconds.
+- Sequence-coverage run: 51 messages, 36 fresh valid trades; all 36 valid
+  trades included a sequence field; zero valid trades omitted it; elapsed
+  30.17 seconds.
+
+The sequence-coverage result is one short observation only. The Android parser
+and candle builder continue to treat sequence as optional, reject repeated or
+older sequence values when comparable within the current connection, and do not
+assume consecutive IDs or preserve sequence continuity across reconnects.
+A sequence jump alone is not treated as proof of lost trades because Tabdeal
+has not documented the sequence semantics.
 
 This confirms that the endpoint currently delivers parseable fresh BTC Futures
 trade events using the observed envelope and fields. It does **not** prove
@@ -59,7 +69,7 @@ A collector cannot feed trading analysis until all gates pass:
 
 - Official endpoint/protocol confirmation is recorded.
 - A multi-hour soak test demonstrates stable connections and bounded memory/disk use.
-- Reconnect, process kill, network loss, duplicate, out-of-order, missing-sequence and timestamp-gap tests all fail closed.
+- Reconnect, process kill, network loss, duplicate, out-of-order and timestamp-gap tests all fail closed. Missing-sequence behavior must follow the official protocol contract; until Tabdeal confirms whether sequence is mandatory, the current live parser records coverage but does not invent that requirement.
 - Each supported symbol's generated OHLCV is compared against Tabdeal's official Futures chart for matching time windows, including low-volume periods and empty minutes.
 - A restart restores history only when the journal proves continuity; otherwise readiness is reset.
 - The Android importer rejects tampered, stale, wrong-symbol, wrong-interval, incomplete, and non-contiguous snapshots.
