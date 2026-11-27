@@ -100,6 +100,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
     counts = {"1": one_minute.get("closed_candles", 0)}
     signals = {"1": one_minute.get("signal", "NEUTRAL")}
     atr_by_timeframe = {}
+    risk_range_by_timeframe = {}
     closes = {}
     required_counts = {"5": 2, "15": 1}
     if type(one_minute.get("closed_candles")) is int and one_minute["closed_candles"] >= 23:
@@ -125,6 +126,28 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         else:
             signals[str(minutes)] = "NEUTRAL"
         closes[str(minutes)] = int(rows[-1][0])
+
+    # With only two 5m bars an ATR(14) is not statistically available.
+    # Use the largest true range of the two completed bars as a clearly
+    # labelled conservative stop-distance proxy instead.
+    five_rows = aggregated[5]
+    if len(five_rows) >= 2:
+        recent = five_rows[-2:]
+        ranges = []
+        previous_close = recent[0][4]
+        for index, row in enumerate(recent):
+            high, low = row[2], row[3]
+            true_range = high - low
+            if index > 0:
+                true_range = max(
+                    true_range, abs(high - previous_close),
+                    abs(low - previous_close),
+                )
+            ranges.append(true_range)
+            previous_close = row[4]
+        risk_range = max(ranges)
+        if math.isfinite(risk_range) and risk_range > 0:
+            risk_range_by_timeframe["5"] = risk_range
 
     ready = (
         type(counts.get("1")) is int and counts["1"] >= 23
@@ -168,6 +191,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         "closed_candles": counts,
         "signals": signals,
         "atr14_by_timeframe": atr_by_timeframe,
+        "risk_range_by_timeframe": risk_range_by_timeframe,
         "last_closed_open_times": closes,
     }
     return result
