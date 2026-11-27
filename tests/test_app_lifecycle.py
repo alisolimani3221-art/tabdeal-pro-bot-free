@@ -286,14 +286,16 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
         app.auto_ws = socket
 
         app.on_stop()
-        socket.close.assert_called_once_with()
-        self.assertEqual(worker.join_timeout, 3.0)
+        # A live, explicitly active monitor is retained by the same-process
+        # foreground service when the Activity closes or moves away.
+        socket.close.assert_not_called()
         self.assertTrue(app.runtime_guard.held)
 
-        # Once the worker is confirmed stopped, a later shutdown callback may
-        # safely release the app-wide lock.
+        # Once the worker is actually stopped, shutdown must close its socket
+        # and release the app-wide lock.
         worker.alive = False
         app.on_stop()
+        socket.close.assert_called_once_with()
         self.assertFalse(app.runtime_guard.held)
 
     def test_emergency_stop_closes_and_persists_even_when_worker_is_still_alive(self):
