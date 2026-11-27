@@ -14,11 +14,13 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         self.assertIn("android.add_src = android_src", spec)
         self.assertIn("android.extra_manifest_application_arguments = android_manifest_application_arguments.xml", spec)
         self.assertIn("android:foregroundServiceType=\"specialUse\"", manifest)
+        self.assertIn("PROPERTY_SPECIAL_USE_FGS_SUBTYPE", manifest)
+        self.assertIn("Continuous user-requested read-only futures market monitoring", manifest)
         self.assertIn("android:exported=\"false\"", manifest)
         # No android:process override: the native service shares the Kivy app
         # process, so it protects the already-running Python worker.
         self.assertNotIn("android:process", manifest)
-        self.assertIn("START_STICKY", java)
+        self.assertIn("START_NOT_STICKY", java)
         self.assertIn("FOREGROUND_SERVICE_TYPE_SPECIAL_USE", java)
         self.assertIn("PARTIAL_WAKE_LOCK", java)
         self.assertIn("wakeLock.release()", java)
