@@ -2344,49 +2344,27 @@ class FuturesAnalyzerApp(App):
             restored_candle_count = 0
             candle_cache_note = "هنوز تاریخچه کندل ذخیره‌شده‌ای وجود ندارد."
             if previous_builder is None or previous_builder.symbol != symbol:
+                # SQLite is the source of truth. JSON is only a legacy import
+                # path: merge any valid old rows first, then always restore the
+                # newest contiguous run from the durable archive. A stale but
+                # readable JSON file must never shadow newer archived candles.
+                cache_import_note = ""
                 try:
                     cached_rows = load_candle_cache(
                         candle_cache_path, symbol, int(time.time() * 1000),
                         interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
                     )
-                    if len(cached_rows) >= 1:
-                        # Migrate any pre-SQLite cache rows into the durable archive.
+                    if cached_rows:
                         record_closed_candles(
                             candle_archive_path, symbol, cached_rows,
                             interval_ms=builder.interval_ms,
                         )
-                        restored_candle_count = builder.restore_closed_candles(cached_rows)
-                        candle_cache_note = "تاریخچه معتبر ذخیره‌شده بازیابی شد: {} کندل.".format(
-                            restored_candle_count
-                        )
-                    else:
-                        candle_cache_note = (
-                            "تاریخچه ذخیره‌شده کافی نیست: {} از ۲۳ کندل؛ "
-                            "گرم‌سازی با معاملات زنده ادامه می‌یابد."
-                        ).format(len(cached_rows))
+                        cache_import_note = " کش قدیمی با آرشیو ادغام شد."
                 except FileNotFoundError:
-                    # Recover the newest contiguous run from SQLite when the
-                    # convenience JSON cache is missing. The live stream must
-                    # still confirm adjacency before this history is trusted.
-                    try:
-                        archived_rows = load_latest_contiguous_candles(
-                            candle_archive_path, symbol, int(time.time() * 1000),
-                            interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
-                        )
-                        if archived_rows:
-                            restored_candle_count = builder.restore_closed_candles(archived_rows)
-                            candle_cache_note = (
-                                "تاریخچه پیوسته از آرشیو دائمی بازیابی شد: {} کندل؛ "
-                                "تأیید اتصال زنده الزامی است."
-                            ).format(restored_candle_count)
-                    except Exception as archive_exc:
-                        candle_cache_note = (
-                            "بازیابی آرشیو دائمی ناموفق بود: {}."
-                        ).format(type(archive_exc).__name__)
+                    pass
                 except Exception as cache_exc:
-                    # Invalid cache data is never restored into indicators.
-                    # Move it aside so future launches do not repeatedly parse
-                    # the same broken file, while preserving it for diagnosis.
+                    # Preserve a bad legacy cache for diagnosis, but never let
+                    # it prevent recovery from the durable SQLite archive.
                     try:
                         archive_candle_cache(
                             candle_cache_path, "invalid_cache",
@@ -2394,9 +2372,31 @@ class FuturesAnalyzerApp(App):
                         )
                     except (OSError, TypeError, ValueError):
                         pass
-                    candle_cache_note = (
-                        "کش کندل استفاده نشد و برای بررسی حفظ شد: {}."
+                    cache_import_note = (
+                        " کش قدیمی قابل‌استفاده نبود ({})؛ آرشیو مستقل بررسی شد."
                     ).format(type(cache_exc).__name__)
+                try:
+                    archived_rows = load_latest_contiguous_candles(
+                        candle_archive_path, symbol, int(time.time() * 1000),
+                        interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
+                    )
+                    if archived_rows:
+                        restored_candle_count = builder.restore_closed_candles(archived_rows)
+                        candle_cache_note = (
+                            "تاریخچهٔ پیوسته از آرشیو دائمی بازیابی شد: {} کندل؛ "
+                            "تأیید پیوستگی با جریان زنده الزامی است."
+                        ).format(restored_candle_count) + cache_import_note
+                    else:
+                        durable_count = count_closed_candles(
+                            candle_archive_path, symbol, builder.interval_ms
+                        )
+                        candle_cache_note = (
+                            "آرشیو دائمی: {} کندل؛ اجرای تحلیل تا تشکیل تاریخچهٔ پیوستهٔ معتبر متوقف می‌ماند."
+                        ).format(durable_count) + cache_import_note
+                except Exception as archive_exc:
+                    candle_cache_note = (
+                        "بازیابی آرشیو دائمی ناموفق بود: {}؛ تحلیل غیرفعال می‌ماند."
+                    ).format(type(archive_exc).__name__)
             self._update_engine_health(
                 analysis_required_candles=int(builder.status().get("analysis_required_candles", 23)),
                 candle_interval_seconds=max(1, int(builder.interval_ms // 1000)),
