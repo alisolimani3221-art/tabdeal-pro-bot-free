@@ -135,20 +135,20 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("tar -tf /tmp/private.tar", workflow)
 
 
-    def test_groq_dialog_keeps_logical_persian_and_uses_one_android_rtl_pass(self):
+    def test_groq_dialog_shapes_display_labels_once_and_keeps_input_logical(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         start = source.index("    def open_openai_assistant(")
         end = source.index("    def open_smart_analysis(", start)
         dialog = source[start:end]
-        # Labels and TextInput must receive logical Unicode, never pre-shaped
-        # presentation forms plus another Android/Kivy bidi pass.
-        self.assertIn('text=greeting,', dialog)
-        self.assertIn('base_direction="rtl", text_language="ar",', dialog)
-        self.assertIn('result.text = "\\n\\n".join(lines)', dialog)
-        self.assertIn('result.text = message', dialog)
-        self.assertNotIn("assistant_rtl_text(", dialog)
+        # The read-only result Label uses one explicit shaping/bidi pass and
+        # LTR widget direction; stored prompts/history remain logical Unicode.
+        self.assertIn('text=assistant_rtl_text(greeting),', dialog)
+        self.assertIn('base_direction="ltr", text_language="en",', dialog)
+        self.assertIn('result.text = assistant_rtl_text("\\n\\n".join(lines))', dialog)
+        self.assertIn('result.text = assistant_rtl_text(message)', dialog)
         self.assertIn('multiline=True, font_name=FONT_NAME', dialog)
         self.assertIn('base_direction="rtl", text_language="ar", halign="right"', dialog)
+        self.assertIn('chat_history.append({"role": "user", "content": prompt})', dialog)
 
 
 if __name__ == "__main__":
