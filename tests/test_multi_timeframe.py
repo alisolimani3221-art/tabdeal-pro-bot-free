@@ -93,8 +93,7 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
             result["timeframe_analysis"]["closed_candles"],
             {"1": 1439, "5": 288, "15": 96},
         )
-        self.assertEqual({interval for _, interval in calls},
-                         {60_000, 5 * 60_000, 15 * 60_000})
+        self.assertEqual(calls, [(1439, 60_000)])
 
     def test_one_minute_disagreement_forces_neutral(self):
         rows = minute_rows(24 * 60)
