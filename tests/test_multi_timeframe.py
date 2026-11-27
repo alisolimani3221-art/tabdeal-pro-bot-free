@@ -83,7 +83,7 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertTrue(result["timeframe_analysis"]["agreement"])
         self.assertTrue(result["timeframe_analysis"]["entry_trigger"])
         self.assertEqual(result["timeframe_analysis"]["entry_trigger_direction"], "BULLISH")
-        self.assertEqual(result["timeframe_analysis"]["atr14_by_timeframe"], {"5": 0.5, "15": 0.5})
+        self.assertEqual(result["timeframe_analysis"]["atr14_by_timeframe"], {"1": 0.5})
         self.assertEqual(result["timeframe_analysis"]["required_minutes"], [1, 5, 15])
         self.assertEqual(
             result["timeframe_analysis"]["signals"],
@@ -126,13 +126,50 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(result["timeframe_analysis"]["direction"], "BULLISH")
         self.assertEqual(result["signal"], "NEUTRAL")
 
-    def test_fifteen_minute_history_below_minimum_blocks_agreement(self):
-        rows = minute_rows(22 * 15)
+    def test_one_fifteen_minute_candle_and_two_five_minute_candles_are_enough(self):
+        rows = minute_rows(23 * 60)
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 100.5,
+                    "closed_candles": len(candles) - 1,
+                    "sma10": 100.0, "rsi14": 56.0, "atr14": 0.5}
+        result = analyze_multi_timeframe(
+            rows, now_ms=23 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        status = result["timeframe_analysis"]
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["agreement"])
+        self.assertEqual(status["closed_candles"]["5"], 276)
+        self.assertEqual(status["closed_candles"]["15"], 92)
+        self.assertEqual(status["signals"]["5"], "BULLISH")
+        self.assertEqual(status["signals"]["15"], "BULLISH")
+
+    def test_mixed_last_two_five_minute_candles_block_higher_timeframe_bias(self):
+        rows = minute_rows(23 * 60)
+        # Flip the final complete 5m bucket's body direction without breaking OHLC.
+        for index in range(len(rows) - 5, len(rows)):
+            row = rows[index]
+            row[4] = row[1] - 0.05
+            row[2] = max(row[1], row[4]) + 0.2
+            row[3] = min(row[1], row[4]) - 0.2
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 100.5,
+                    "closed_candles": len(candles) - 1,
+                    "sma10": 100.0, "rsi14": 56.0, "atr14": 0.5}
+        result = analyze_multi_timeframe(
+            rows, now_ms=23 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        self.assertFalse(result["timeframe_analysis"]["agreement"])
+        self.assertEqual(result["timeframe_analysis"]["signals"]["5"], "NEUTRAL")
+        self.assertEqual(result["signal"], "NEUTRAL")
+
+    def test_missing_closed_fifteen_minute_bucket_blocks_agreement(self):
+        rows = minute_rows(14)
         def stub_analyzer(candles, interval_ms=60_000):
             return {"signal": "BULLISH", "price": 100.0,
+                    "sma10": 99.0, "rsi14": 56.0, "atr14": 0.5,
                     "closed_candles": len(candles) - 1}
         result = analyze_multi_timeframe(
-            rows, now_ms=22 * 15 * 60_000, analyzer=stub_analyzer
+            rows, now_ms=14 * 60_000, analyzer=stub_analyzer
         )
         self.assertFalse(result["timeframe_analysis"]["ready"])
         self.assertFalse(result["timeframe_analysis"]["agreement"])
