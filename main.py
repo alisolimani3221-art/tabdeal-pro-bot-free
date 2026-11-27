@@ -49,7 +49,7 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import (load_candle_cache, save_candle_cache,
-                            validate_closed_candles, archive_candle_cache)
+                            validate_closed_candles, archive_candle_cache,\n                            load_archived_candle_history)
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
@@ -2297,7 +2297,7 @@ class FuturesAnalyzerApp(App):
             "selected_symbol_trade_count": 0,
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
-            "candle_count": 0, "builder_ready": False,
+            "candle_count": 0, "archived_display_candle_count": 0, "builder_ready": False,
             "reconnect_partial_buckets_discarded": 0,
             "reconnect_history_clear_count": 0,
             "reconnect_last_reset_reason": "startup",
@@ -2337,6 +2337,16 @@ class FuturesAnalyzerApp(App):
                 builder = TradeCandleBuilder(symbol, max_candles=2000)
             candle_cache_dir = os.path.join(self.user_data_dir, "candle-cache")
             candle_cache_path = os.path.join(candle_cache_dir, symbol + ".json")
+            # Archived runs remain available for historical display after restart,
+            # but are deliberately kept outside builder.closed and all signals.
+            archived_display_rows = load_archived_candle_history(
+                candle_cache_dir, symbol, int(time.time() * 1000),
+                interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
+            )
+            self.auto_candle_display_history = archived_display_rows
+            self._update_engine_health(
+                archived_display_candle_count=len(archived_display_rows)
+            )
             restored_candle_count = 0
             candle_cache_note = "هنوز تاریخچه کندل ذخیره‌شده‌ای وجود ندارد."
             if previous_builder is None or previous_builder.symbol != symbol:
@@ -2907,6 +2917,18 @@ class FuturesAnalyzerApp(App):
                         # the continuity gate still blocks use of stale rows.
                         pass
                     self.auto_candle_cache_last_open_time = None
+                    try:
+                        archived_display_rows = load_archived_candle_history(
+                            candle_cache_dir, symbol, int(time.time() * 1000),
+                            interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
+                        )
+                        self.auto_candle_display_history = archived_display_rows
+                        self._update_engine_health(
+                            archived_display_candle_count=len(archived_display_rows)
+                        )
+                    except (OSError, ValueError, TypeError):
+                        # Display archive failures never affect live candle safety.
+                        pass
                 elif update.get("accepted") and builder.closed:
                     cached_open_time = builder.closed[-1][0]
                     if cached_open_time != getattr(self, "auto_candle_cache_last_open_time", None):
