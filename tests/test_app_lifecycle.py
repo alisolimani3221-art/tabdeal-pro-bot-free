@@ -58,6 +58,11 @@ class LifecycleHarness:
     request_rearm_paper_runner = LIFECYCLE_GLOBALS["request_rearm_paper_runner"]
     _persist_paper_engine_state = LIFECYCLE_GLOBALS["_persist_paper_engine_state"]
 
+    def _stop_background_market_service(self):
+        # Native Android service calls are intentionally stubbed in this
+        # platform-neutral lifecycle harness.
+        return True
+
     def __init__(self, user_data_dir):
         self.user_data_dir = user_data_dir
         self.auto_stop_event = threading.Event()
