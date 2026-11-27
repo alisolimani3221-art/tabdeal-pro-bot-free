@@ -9,6 +9,7 @@ on:
       - fix/paper-persistence-fail-closed-20261124
       - fix/v1.52-legacy-paper-schema-v4-migration
       - fix/multitimeframe-risk-exit-20261126
+      - fix/preserve-closed-candles-on-reconnect-20261127
     paths:
       - '**.py'
       - 'tests/**'
