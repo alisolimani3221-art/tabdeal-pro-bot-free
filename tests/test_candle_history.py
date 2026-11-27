@@ -57,6 +57,40 @@ class CandleHistoryTests(unittest.TestCase):
             self.assertEqual(load_candle_cache(archive, "BTC_USDT", now), rows)
             self.assertIsNone(archive_candle_cache(path, "confirmed_gap", now))
 
+    def test_archived_history_survives_restart_for_display_without_active_cache(self):
+        now = 40 * 60000
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "BTC_USDT.json")
+            first = validate_closed_candles(self.rows(1, 4), now)
+            save_candle_cache(path, "BTC_USDT", first)
+            archive_candle_cache(path, "confirmed_gap", now)
+            # A second disconnected run is retained for display as well.
+            second = validate_closed_candles(self.rows(10, 4), now)
+            save_candle_cache(path, "BTC_USDT", second)
+            archive_candle_cache(path, "confirmed_gap", now + 1)
+            display_rows = load_archived_candle_history(
+                directory, "BTC_USDT", now + 2
+            )
+            self.assertEqual(len(display_rows), 8)
+            self.assertEqual(display_rows[0][0], 60000)
+            self.assertEqual(display_rows[-1][0], 13 * 60000)
+            # Loading display history is a separate operation; it does not
+            # recreate the active cache path or alter a builder's warm-up rows.
+            self.assertFalse(os.path.exists(path))
+
+    def test_archived_history_is_symbol_isolated(self):
+        now = 40 * 60000
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "BTC_USDT.json")
+            save_candle_cache(
+                path, "BTC_USDT",
+                validate_closed_candles(self.rows(1, 3), now)
+            )
+            archive_candle_cache(path, "confirmed_gap", now)
+            self.assertEqual(
+                load_archived_candle_history(directory, "ETH_USDT", now), []
+            )
+
     def test_parallel_warmup_isolates_symbol_failure(self):
         def fetch(symbol):
             if symbol == "BAD_USDT":
