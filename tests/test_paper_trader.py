@@ -813,7 +813,7 @@ class PaperTraderTests(unittest.TestCase):
         engine.process_scan([setup()])
         engine.halt_for_data_gap("AAA_USDT", 99.5)
         # Simulate corrupted/recovered state that still carries an open position.
-        engine.position = dict(setup_position := engine.position)
+        engine.position = {"symbol": "AAA_USDT"}
         with self.assertRaises(RuntimeError):
             engine.rearm_after_data_gap()
         self.assertTrue(engine.halted)
