@@ -3791,10 +3791,19 @@ class FuturesAnalyzerApp(App):
         return True
 
     def on_start(self):
-        # A sticky service may have survived an OS-killed UI process. Stop it
-        # before the foreground worker is restored to avoid two feed owners.
+        # A native keepalive may have survived an OS-killed UI process. Stop it
+        # before restoring the foreground worker.
         self._stop_background_market_service()
-        self._background_pause_stopped_worker = False
+        try:
+            from jnius import autoclass
+            build = autoclass("android.os.Build")
+            if int(build.VERSION.SDK_INT) >= 33:
+                from android.permissions import Permission, request_permissions
+                request_permissions([Permission.POST_NOTIFICATIONS])
+        except Exception:
+            # Notification permission denial must not crash app startup; Android
+            # still exposes foreground-service state through system task controls.
+            pass
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
         self.runtime_guard = AppRuntimeGuard(self.user_data_dir)
