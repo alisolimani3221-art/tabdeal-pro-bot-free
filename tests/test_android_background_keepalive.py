@@ -23,6 +23,20 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         self.assertIn("PARTIAL_WAKE_LOCK", java)
         self.assertIn("wakeLock.release()", java)
 
+    def test_kivy_pause_keeps_worker_and_resume_avoids_duplicate_worker(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        pause_start = source.index("    def on_pause(self):")
+        resume_start = source.index("    def on_resume(self):", pause_start)
+        start_start = source.index("    def on_start(self):", resume_start)
+        pause = source[pause_start:resume_start]
+        resume = source[resume_start:start_start]
+
+        self.assertIn("_start_background_market_service()", pause)
+        self.assertNotIn("_stop_auto_worker(", pause)
+        self.assertIn("_stop_background_market_service()", resume)
+        self.assertIn("worker.is_alive()", resume)
+        self.assertIn("start_auto_paper_trader()", resume)
+
     def test_required_android_permissions_are_declared(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
         for permission in (
