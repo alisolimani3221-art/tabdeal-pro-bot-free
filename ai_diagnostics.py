@@ -2,7 +2,10 @@
 
 import time
 
-from multi_timeframe import TRADE_TIMEFRAMES_MINUTES
+from multi_timeframe import (
+    MIN_CLOSED_CANDLES_BY_TIMEFRAME,
+    TRADE_TIMEFRAMES_MINUTES,
+)
 
 APP_VERSION = "1.56"
 
@@ -154,10 +157,11 @@ def _engine_health(app, worker_alive):
         counts = selected_status.get("timeframe_closed_candles")
         if isinstance(counts, dict):
             result["timeframe_history_progress"] = " | ".join(
-                "{}m: {}/23".format(
+                "{}m: {}/{}".format(
                     minutes,
                     counts.get(str(minutes), 0)
                     if type(counts.get(str(minutes), 0)) is int else 0,
+                    MIN_CLOSED_CANDLES_BY_TIMEFRAME[str(minutes)],
                 )
                 for minutes in TRADE_TIMEFRAMES_MINUTES
             )
