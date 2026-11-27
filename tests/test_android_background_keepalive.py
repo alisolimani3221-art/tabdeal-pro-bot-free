@@ -1,5 +1,8 @@
+import configparser
 import pathlib
+import shlex
 import unittest
+import xml.etree.ElementTree as ET
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -27,6 +30,28 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         self.assertIn("FOREGROUND_SERVICE_TYPE_SPECIAL_USE", java)
         self.assertIn("PARTIAL_WAKE_LOCK", java)
         self.assertIn("wakeLock.release()", java)
+
+    def test_p4a_application_xml_argument_is_valid_child_element(self):
+        spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
+        config = configparser.ConfigParser()
+        config.read_string(spec)
+        args = shlex.split(config.get("app", "p4a.extra_args"))
+
+        self.assertEqual(args[0], "--extra-manifest-application-xml")
+        self.assertEqual(len(args), 2)
+        wrapped = (
+            '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+            '<application>' + args[1] + '</application></manifest>'
+        )
+        root = ET.fromstring(wrapped)
+        service = root.find("./application/service")
+        self.assertIsNotNone(service)
+        android_ns = "{http://schemas.android.com/apk/res/android}"
+        self.assertEqual(
+            service.attrib[android_ns + "name"],
+            "org.tabdeal.futuresanalyzer.MarketKeepService",
+        )
+        self.assertEqual(service.attrib[android_ns + "exported"], "false")
 
     def test_kivy_pause_keeps_worker_and_resume_avoids_duplicate_worker(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
