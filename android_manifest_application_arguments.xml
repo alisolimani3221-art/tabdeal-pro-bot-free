@@ -1,4 +1,8 @@
 <service
     android:name="org.tabdeal.futuresanalyzer.MarketKeepService"
     android:exported="false"
-    android:foregroundServiceType="specialUse">\n    <property\n        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n        android:value="Continuous user-requested read-only futures market monitoring while the app is backgrounded" />\n</service>
+    android:foregroundServiceType="specialUse">
+    <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Continuous user-requested read-only futures market monitoring while the app is backgrounded" />
+</service>
