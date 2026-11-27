@@ -184,17 +184,12 @@ def rank_signal(technical):
             or timeframe.get("direction") != signal
             or timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES)):
         return None
-    atr_by_timeframe = timeframe.get("atr14_by_timeframe")
-    try:
-        _positive(atr_by_timeframe.get("5") if isinstance(atr_by_timeframe, dict) else None,
-                  "5m risk ATR")
-    except (TypeError, ValueError, OverflowError):
-        return None
     timeframe_counts = timeframe.get("closed_candles")
+    minimum_counts = {"1": 23, "5": 2, "15": 1}
     if (not isinstance(timeframe_counts, dict)
-            or any(type(timeframe_counts.get(str(minutes))) is not int
-                   or timeframe_counts.get(str(minutes)) < 23
-                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
+            or any(type(timeframe_counts.get(key)) is not int
+                   or timeframe_counts.get(key) < minimum
+                   for key, minimum in minimum_counts.items())):
         return None
     timeframe_signals = timeframe.get("signals")
     if (not isinstance(timeframe_signals, dict)
@@ -222,10 +217,10 @@ def rank_signal(technical):
             return None
         rsi = float(technical["rsi14"])
         signal_atr = _positive(technical["atr14"], "1m atr14")
-        atr_by_timeframe = timeframe.get("atr14_by_timeframe")
-        if not isinstance(atr_by_timeframe, dict):
+        risk_ranges = timeframe.get("risk_range_by_timeframe")
+        if not isinstance(risk_ranges, dict):
             return None
-        risk_atr = _positive(atr_by_timeframe.get("5"), "5m risk atr14")
+        risk_range = _positive(risk_ranges.get("5"), "5m recent true range")
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(rsi) or not 0 <= rsi <= 100:
@@ -245,7 +240,7 @@ def rank_signal(technical):
     if not math.isfinite(score):
         return None
     return {"symbol": normalized_symbol, "side": signal,
-            "price": price, "atr": risk_atr, "signal_atr": signal_atr, "rsi": rsi,
+            "price": price, "risk_range": risk_range, "signal_atr": signal_atr, "rsi": rsi,
             "candle_open_time": candle_open_time,
             "volatility_pct": volatility_pct, "score": score}
 
@@ -276,10 +271,10 @@ def diagnose_signal(technical):
         return "فهرست تایم‌فریم‌های لازم معتبر نیست؛ ورود مسدود است"
     timeframe_counts = timeframe.get("closed_candles")
     if (not isinstance(timeframe_counts, dict)
-            or any(type(timeframe_counts.get(str(minutes))) is not int
-                   or timeframe_counts.get(str(minutes)) < 23
-                   for minutes in TRADE_TIMEFRAMES_MINUTES)):
-        return "تعداد کندل بستهٔ یکی از تایم‌فریم‌ها کافی نیست؛ ورود مسدود است"
+            or any(type(timeframe_counts.get(key)) is not int
+                   or timeframe_counts.get(key) < minimum
+                   for key, minimum in {"1": 23, "5": 2, "15": 1}.items())):
+        return "حداقل کندل بستهٔ لازم: یک‌دقیقه ۲۳، پنج‌دقیقه ۲ و پانزده‌دقیقه ۱؛ ورود مسدود است"
     if (timeframe.get("agreement") is not True
             or timeframe.get("direction") != signal):
         return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
@@ -293,12 +288,12 @@ def diagnose_signal(technical):
         return "روند ۵ و ۱۵ دقیقه تأیید شده، اما ماشهٔ ورود یک‌دقیقه‌ای هنوز فعال نیست"
     if timeframe_signals.get("1") not in ("BULLISH", "BEARISH", "NEUTRAL"):
         return "وضعیت دادهٔ یک‌دقیقه‌ای معتبر نیست؛ ورود مسدود است"
-    atr_by_timeframe = timeframe.get("atr14_by_timeframe")
+    risk_ranges = timeframe.get("risk_range_by_timeframe")
     try:
-        _positive(atr_by_timeframe.get("5") if isinstance(atr_by_timeframe, dict) else None,
-                  "5m risk ATR")
+        _positive(risk_ranges.get("5") if isinstance(risk_ranges, dict) else None,
+                  "5m recent true range")
     except (TypeError, ValueError, OverflowError):
-        return "مقدار ATR پنج‌دقیقه‌ای برای تعیین حد ضرر معتبر نیست؛ ورود مسدود است"
+        return "دامنهٔ نوسان دو کندل اخیر پنج‌دقیقه‌ای برای حد ضرر معتبر نیست؛ ورود مسدود است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
@@ -1037,7 +1032,7 @@ class PaperTradingEngine:
                         "halted": self.halted, "halt_reason": self.halt_reason}
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
                                        else 1 - self.slippage_rate)
-            stop_distance = 1.5 * choice["atr"]
+            stop_distance = 1.5 * choice["risk_range"]
             risk_cash = self.cash * self.risk_percent / 100.0
             # Size for the full estimated stop loss, including entry/exit
             # slippage and both-side fees, rather than price distance alone.
@@ -1060,7 +1055,7 @@ class PaperTradingEngine:
                 notional = quantity * entry
             if quantity > 0 and notional > 0 and notional / leverage <= self.cash:
                 stop = entry - stop_distance if choice["side"] == "BULLISH" else entry + stop_distance
-                target = entry + 3 * choice["atr"] if choice["side"] == "BULLISH" else entry - 3 * choice["atr"]
+                target = entry + 3 * choice["risk_range"] if choice["side"] == "BULLISH" else entry - 3 * choice["risk_range"]
                 fee = notional * self.fee_rate
                 if fee < self.cash and notional / leverage <= self.cash - fee:
                     self.cash -= fee
@@ -1072,7 +1067,7 @@ class PaperTradingEngine:
                         "risk_budget": quantity * risk_per_unit,
                         "risk_limit": risk_cash, "fees_entry": fee,
                         "score": choice["score"],
-                        "atr": choice["atr"], "trailing_active": False,
+                        "atr": choice["risk_range"], "trailing_active": False,
                         "best_price": choice["price"],
                         "entry_time_utc": _utc_timestamp(),
                     }
