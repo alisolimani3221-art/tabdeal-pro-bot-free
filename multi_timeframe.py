@@ -76,8 +76,17 @@ def aggregate_closed_timeframes(candles, now_ms):
     return result
 
 
+def _candle_direction(row):
+    """Return a closed candle's body direction; flat candles cannot confirm bias."""
+    if row[4] > row[1]:
+        return "BULLISH"
+    if row[4] < row[1]:
+        return "BEARISH"
+    return "NEUTRAL"
+
+
 def analyze_multi_timeframe(candles, now_ms, analyzer):
-    """Use closed 5m/15m bars for bias and the closed 1m bar only as entry timing."""
+    """Use short higher-timeframe candle-body confirmation, not under-sampled indicators."""
     if not callable(analyzer):
         raise ValueError("analyzer must be callable")
     if not isinstance(candles, (list, tuple)):
@@ -92,34 +101,34 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
     signals = {"1": one_minute.get("signal", "NEUTRAL")}
     atr_by_timeframe = {}
     closes = {}
+    required_counts = {"5": 2, "15": 1}
+    if type(one_minute.get("closed_candles")) is int and one_minute["closed_candles"] >= 23:
+        try:
+            one_minute_atr = float(one_minute.get("atr14"))
+            if math.isfinite(one_minute_atr) and one_minute_atr > 0:
+                atr_by_timeframe["1"] = one_minute_atr
+        except (TypeError, ValueError, OverflowError):
+            pass
+
     for minutes in AGGREGATED_TIMEFRAMES_MINUTES:
         rows = aggregated[minutes]
         counts[str(minutes)] = len(rows)
-        if len(rows) < 23:
+        required = required_counts[str(minutes)]
+        if len(rows) < required:
             continue
-        interval_ms = minutes * MINUTE_MS
-        last = rows[-1]
-        sentinel_price = last[4]
-        sentinel = [
-            last[0] + interval_ms,
-            sentinel_price, sentinel_price, sentinel_price,
-            sentinel_price, 0.0,
-        ]
-        technical = analyzer(rows + [sentinel], interval_ms=interval_ms)
-        if not isinstance(technical, dict):
-            raise ValueError("timeframe analyzer returned an invalid result")
-        signals[str(minutes)] = technical.get("signal", "NEUTRAL")
-        try:
-            atr_value = float(technical.get("atr14"))
-            if math.isfinite(atr_value) and atr_value > 0:
-                atr_by_timeframe[str(minutes)] = atr_value
-        except (TypeError, ValueError, OverflowError):
-            pass
-        closes[str(minutes)] = int(last[0])
+        selected = rows[-required:]
+        directions = [_candle_direction(row) for row in selected]
+        # Two consecutive 5m candle bodies must agree. A single completed
+        # 15m candle is only a directional confirmation, never an indicator.
+        if all(direction == directions[0] for direction in directions) and directions[0] != "NEUTRAL":
+            signals[str(minutes)] = directions[0]
+        else:
+            signals[str(minutes)] = "NEUTRAL"
+        closes[str(minutes)] = int(rows[-1][0])
 
     ready = (
         type(counts.get("1")) is int and counts["1"] >= 23
-        and all(counts.get(str(minutes), 0) >= 23
+        and all(counts.get(str(minutes), 0) >= required_counts[str(minutes)]
                 for minutes in AGGREGATED_TIMEFRAMES_MINUTES)
     )
     bias_directions = [signals.get("5"), signals.get("15")]
