@@ -2539,6 +2539,7 @@ class FuturesAnalyzerApp(App):
             )
         if not worker_stopped:
             message += " خروج رشته پس‌زمینه هنوز کامل نشده؛ موتور قفل و متوقف باقی می‌ماند."
+        self._stop_background_market_service()
         self.update_auto_status(message)
 
     def _update_engine_health(self, **values):
