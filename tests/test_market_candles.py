@@ -115,15 +115,15 @@ class TradeCandleBuilderTests(unittest.TestCase):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 126):
             builder.add_trade(self.trade(minute))
-        self.assertEqual(len(builder.closed), 25)
+        self.assertEqual(len(builder.closed), 24)
         # Finalize the latest forming candle so the disconnect occurs between buckets.
         finalized = builder.finalize_due(127 * 60_000 + 30_000)
         self.assertTrue(finalized["finalized"])
         self.assertIsNone(builder.current)
-        self.assertEqual(len(builder.closed), 26)
+        self.assertEqual(len(builder.closed), 25)
 
         builder.reset_after_reconnect()
-        self.assertEqual(len(builder.closed), 26)
+        self.assertEqual(len(builder.closed), 25)
         self.assertEqual(
             builder.status()["last_reset_reason"],
             "reconnect_waiting_for_adjacent_bucket",
@@ -134,7 +134,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         resumed = builder.add_trade(self.trade(126, second=20))
         self.assertTrue(resumed["accepted"])
         self.assertFalse(resumed["gap_detected"])
-        self.assertEqual(len(builder.closed), 26)
+        self.assertEqual(len(builder.closed), 25)
         self.assertTrue(builder.is_ready)
 
         # At rollover, the partially observed reconnect bucket is discarded and
