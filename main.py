@@ -3800,9 +3800,12 @@ class FuturesAnalyzerApp(App):
         return True
 
     def on_start(self):
-        # A native keepalive may have survived an OS-killed UI process. Stop it
-        # before restoring the foreground worker.
-        self._stop_background_market_service()
+        # Stop a stale keepalive only when this process has no live market worker.
+        # If the Activity is recreated while the same-process worker is alive,
+        # keep its foreground service and avoid dropping the CPU lock.
+        existing_worker = getattr(self, "auto_trader_thread", None)
+        if existing_worker is None or not existing_worker.is_alive():
+            self._stop_background_market_service()
         try:
             from jnius import autoclass
             build = autoclass("android.os.Build")
@@ -3847,7 +3850,10 @@ class FuturesAnalyzerApp(App):
         )
 
     def on_stop(self):
-        self._stop_background_market_service()
+        # on_stop can run when the Activity closes even though the user only
+        # wants the UI gone. If paper monitoring is still active, keep the
+        # existing Python worker and native foreground service alive. The
+        # explicit Stop button remains responsible for halting both.
         poll_stop = getattr(self, "orderbook_poll_stop", None)
         if poll_stop is not None:
             poll_stop.set()
@@ -3860,6 +3866,39 @@ class FuturesAnalyzerApp(App):
         poll_thread = getattr(self, "orderbook_poll_thread", None)
         if poll_thread is not None and poll_thread.is_alive():
             poll_thread.join(timeout=1.0)
+
+        market_worker = getattr(self, "auto_trader_thread", None)
+        stop_event = getattr(self, "auto_stop_event", None)
+        keep_monitoring = (
+            market_worker is not None
+            and market_worker.is_alive()
+            and (stop_event is None or not stop_event.is_set())
+        )
+        if keep_monitoring:
+            try:
+                self._flush_candle_archive()
+            except Exception as exc:
+                self.update_auto_status(
+                    "ذخیرهٔ آرشیو کندل هنگام بستن صفحه ناموفق بود: "
+                    + type(exc).__name__
+                )
+            engine = getattr(self, "auto_engine", None)
+            if engine is not None:
+                try:
+                    self._persist_paper_engine_state(engine)
+                except Exception as exc:
+                    self.update_auto_status(
+                        "ذخیرهٔ وضعیت موتور هنگام بستن صفحه ناموفق بود: "
+                        + type(exc).__name__
+                    )
+            if not self._start_background_market_service():
+                self.update_auto_status(
+                    "سرویس پس‌زمینه هنگام بستن صفحه شروع نشد: "
+                    + str(getattr(self, "_background_service_error", "unknown"))
+                )
+            return
+
+        self._stop_background_market_service()
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
