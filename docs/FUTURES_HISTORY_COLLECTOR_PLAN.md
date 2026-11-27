@@ -81,3 +81,20 @@ A collector cannot feed trading analysis until all gates pass:
 Until the above is satisfied, the Android app uses its existing foreground live stream only. A restart or confirmed gap may require a fresh warm-up. This is slower, but it avoids fabricating a market history or generating a signal from data that cannot be proven complete.
 
 No collector service is deployed by this design document, no unverified endpoint is added, and no live trading is enabled.
+
+## Follow-up evidence (2026-11-27)
+
+The corrected thirty-minute read-only soak completed the full requested window:
+- Run: https://github.com/alisolimani-art/tabdeal-pro-bot-free/actions/runs/45853208250
+- Observed duration: 1,800.17 seconds of 1,800 requested
+- Fresh valid BTC Futures trades: 1,423 from 1,710 total messages
+- All 1,423 accepted trades carried a sequence field in this sample
+- Final parser diagnostic: `missing_trade_object` (non-trade/control messages were observed; accepted trade events remained valid)
+- Result: `FULL_DURATION_FRESH_FUTURES_STREAM_OBSERVED`
+
+A separate two-minute read-only broadcast-capacity experiment subscribed to five symbols on the same broadcast connection and observed fresh accepted trades from all five:
+BTC_USDT (89), ETH_USDT (71), XRP_USDT (77), BNB_USDT (61), and SOL_USDT (69). This is evidence for that five-symbol sample and window only; it does not establish an exchange-wide connection/subscription limit or lossless delivery.
+
+The official Tabdeal Python SDK's current `Future` class was also inspected. Its public market-data methods are `ping`, `time`, `exchange_info`, `depth`, and `agg_depth`; it exposes no public Futures kline or recent-public-trades method. Its `user_trades` method is authenticated account history and is not a substitute for public market history. This SDK cross-check supports the conservative decision above, but does not rule out an undocumented or separately documented endpoint.
+
+These results strengthen confidence in the observed live trade broadcast, but they do not provide historical backfill or official candle semantics. The Android app must continue to build only from validated live Futures trades and preserve fail-closed warm-up after an actual continuity gap.
