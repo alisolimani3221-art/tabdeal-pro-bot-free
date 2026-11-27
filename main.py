@@ -60,7 +60,7 @@ from trade_stream_probe import (
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import (build_ai_diagnostic_context,
                              build_engine_health_report_lines)
-from trade_stream_watchdog import TradeStreamWatchdog
+from trade_stream_watchdog import TradeStreamWatchdog, reconnect_backoff_seconds
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
@@ -2658,7 +2658,7 @@ class FuturesAnalyzerApp(App):
             self._update_engine_health(worker_phase="connecting",
                                        websocket_connected=False,
                                        retry_attempt=retry_attempt)
-            attempt_delay = min(15, 2 + retry_attempt * 2)
+            attempt_delay = reconnect_backoff_seconds(retry_attempt)
             Clock.schedule_once(
                 lambda dt, number=retry_attempt: self.update_auto_status(
                     "در حال تلاش برای اتصال به جریان معاملات؛ تلاش شماره {}. "
@@ -2781,7 +2781,6 @@ class FuturesAnalyzerApp(App):
                 # Only a fresh, fully validated broadcast trade refreshes liveness.
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
-                retry_attempt = 0
                 # Accept only the exact symbols subscribed on this socket.
                 # Each market has its own candle builder and technical snapshot.
                 event_symbol = parsed.get("symbol")
@@ -3414,6 +3413,12 @@ class FuturesAnalyzerApp(App):
                 watchdog_stop.set()
                 watchdog_thread.join(timeout=1.0)
                 self.auto_ws = None
+            # Reset backoff only after a genuinely stable session. Resetting it
+            # on every single trade caused short-lived sockets to retry forever
+            # at the minimum delay, amplifying transient Android DNS failures.
+            opened_at = market_connection_state.get("opened_at")
+            if opened_at is not None and time.monotonic() - opened_at >= 60.0:
+                retry_attempt = 0
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
