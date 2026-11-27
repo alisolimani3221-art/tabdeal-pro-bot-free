@@ -102,3 +102,39 @@ def count_closed_candles(path, symbol, interval_ms=60_000):
         ).fetchone()[0]
     finally:
         db.close()
+
+
+def load_latest_contiguous_candles(path, symbol, now_ms, interval_ms=60_000, limit=500):
+    """Load only the newest contiguous closed run from the durable archive.
+
+    Older archived runs remain stored for diagnostics, but a gap is never
+    bridged. The live builder must still confirm continuity on its first tick.
+    """
+    if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms <= 0:
+        raise ValueError("now_ms must be a positive integer")
+    if isinstance(interval_ms, bool) or not isinstance(interval_ms, int) or interval_ms <= 0:
+        raise ValueError("invalid candle interval")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    if not isinstance(symbol, str) or not symbol.endswith("_USDT"):
+        raise ValueError("invalid futures symbol")
+    if not os.path.isfile(path):
+        return []
+    db = _connect(path)
+    try:
+        rows = db.execute(
+            "SELECT open_time, open, high, low, close, volume "
+            "FROM closed_candles WHERE symbol=? AND interval_ms=? "
+            "AND open_time < ? ORDER BY open_time DESC LIMIT ?",
+            (symbol, interval_ms, now_ms - (now_ms % interval_ms), limit),
+        ).fetchall()
+    finally:
+        db.close()
+    rows.reverse()
+    if not rows:
+        return []
+    start = 0
+    for index in range(1, len(rows)):
+        if rows[index][0] - rows[index - 1][0] != interval_ms:
+            start = index
+    return [list(row) for row in rows[start:]]
