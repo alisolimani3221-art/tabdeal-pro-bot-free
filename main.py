@@ -2469,7 +2469,7 @@ class FuturesAnalyzerApp(App):
         ).format(self.capital_usdt)
         if not keepalive_started:
             status_text += (
-                "\\nسرویس نگهدارندهٔ پس‌زمینه فعال نشد: "
+                "\nسرویس نگهدارندهٔ پس‌زمینه فعال نشد: "
                 + str(getattr(self, "_background_service_error", "unknown"))
             )
         self.update_auto_status(status_text)
