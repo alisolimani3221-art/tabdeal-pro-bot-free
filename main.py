@@ -49,7 +49,8 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import (load_candle_cache, save_candle_cache,
-                            validate_closed_candles, archive_candle_cache,\n                            load_archived_candle_history)
+                            validate_closed_candles, archive_candle_cache,
+                            load_archived_candle_history)
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
