@@ -32,11 +32,11 @@ public final class MarketKeepService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Android may recreate a sticky service after process pressure.
-        // Keep the foreground notification and CPU lock re-established.
+        // Do not resurrect a service without the Python market worker if the
+        // whole app process is killed. The Activity restarts the worker on launch.
         startForegroundCompat();
         acquireCpuLock();
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void createNotificationChannel() {
