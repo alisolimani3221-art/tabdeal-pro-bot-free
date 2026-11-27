@@ -50,7 +50,8 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import (load_candle_cache, save_candle_cache,
                             validate_closed_candles, archive_candle_cache)
-from candle_archive import (record_closed_candles, count_closed_candles,\n                            load_latest_contiguous_candles)
+from candle_archive import (record_closed_candles, count_closed_candles,
+                            load_latest_contiguous_candles)
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
