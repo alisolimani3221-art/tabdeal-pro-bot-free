@@ -50,6 +50,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import (load_candle_cache, save_candle_cache,
                             validate_closed_candles, archive_candle_cache)
+from candle_archive import record_closed_candles, count_closed_candles
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
@@ -2337,6 +2338,8 @@ class FuturesAnalyzerApp(App):
                 builder = TradeCandleBuilder(symbol, max_candles=2000)
             candle_cache_dir = os.path.join(self.user_data_dir, "candle-cache")
             candle_cache_path = os.path.join(candle_cache_dir, symbol + ".json")
+            candle_archive_path = os.path.join(self.user_data_dir, "closed-candles.sqlite3")
+            self.auto_candle_archive_path = candle_archive_path
             restored_candle_count = 0
             candle_cache_note = "هنوز تاریخچه کندل ذخیره‌شده‌ای وجود ندارد."
             if previous_builder is None or previous_builder.symbol != symbol:
@@ -2346,6 +2349,11 @@ class FuturesAnalyzerApp(App):
                         interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
                     )
                     if len(cached_rows) >= 1:
+                        # Migrate any pre-SQLite cache rows into the durable archive.
+                        record_closed_candles(
+                            candle_archive_path, symbol, cached_rows,
+                            interval_ms=builder.interval_ms,
+                        )
                         restored_candle_count = builder.restore_closed_candles(cached_rows)
                         candle_cache_note = "تاریخچه معتبر ذخیره‌شده بازیابی شد: {} کندل.".format(
                             restored_candle_count
@@ -2376,6 +2384,9 @@ class FuturesAnalyzerApp(App):
                 candle_interval_seconds=max(1, int(builder.interval_ms // 1000)),
                 candle_count=int(builder.status().get("closed_candles", 0)),
                 builder_ready=bool(builder.is_ready),
+                durable_candle_count=count_closed_candles(
+                    candle_archive_path, symbol, builder.interval_ms
+                ),
             )
             self.auto_candle_cache_path = candle_cache_path
             self.auto_candle_cache_last_open_time = (
@@ -2629,10 +2640,15 @@ class FuturesAnalyzerApp(App):
                         limit=builder.closed.maxlen,
                     )
                     if cache_rows:
+                        durable_count = record_closed_candles(
+                            self.auto_candle_archive_path, symbol, cache_rows,
+                            interval_ms=builder.interval_ms,
+                        )
                         save_candle_cache(
                             self.auto_candle_cache_path, symbol, cache_rows
                         )
                         self.auto_candle_cache_last_open_time = cache_rows[-1][0]
+                        self._update_engine_health(durable_candle_count=durable_count)
                 except Exception as cache_exc:
                     Clock.schedule_once(
                         lambda dt, name=type(cache_exc).__name__: self.update_auto_status(
@@ -2917,10 +2933,15 @@ class FuturesAnalyzerApp(App):
                                 limit=builder.closed.maxlen,
                             )
                             if len(cache_rows) >= 1:
+                                durable_count = record_closed_candles(
+                                    self.auto_candle_archive_path, symbol, cache_rows,
+                                    interval_ms=builder.interval_ms,
+                                )
                                 save_candle_cache(
                                     self.auto_candle_cache_path, symbol, cache_rows
                                 )
                                 self.auto_candle_cache_last_open_time = cache_rows[-1][0]
+                                self._update_engine_health(durable_candle_count=durable_count)
                         except Exception as cache_exc:
                             # Cache is an optimization only; a cache-write error
                             # must not corrupt paper-engine state or enable stale data.
