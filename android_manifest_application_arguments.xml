@@ -1,0 +1,4 @@
+<service
+    android:name="org.tabdeal.futuresanalyzer.MarketKeepService"
+    android:exported="false"
+    android:foregroundServiceType="dataSync" />
