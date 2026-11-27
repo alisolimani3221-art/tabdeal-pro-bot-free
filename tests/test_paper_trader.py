@@ -15,7 +15,7 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
                     "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
                     "closed_candles": {"1": 1439, "5": 288, "15": 96},
                     "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
-                    "atr14_by_timeframe": {"5": 0.8, "15": 1.2}}}
+                    "risk_range_by_timeframe": {"5": 0.8}}}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
             "closed_candles": 23, "candle_open_time": 60_000,
@@ -24,7 +24,7 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
                 "entry_trigger_direction": "BEARISH", "required_minutes": [1, 5, 15],
                 "closed_candles": {"1": 1439, "5": 288, "15": 96},
                 "signals": {"1": "BEARISH", "5": "BEARISH", "15": "BEARISH"},
-                "atr14_by_timeframe": {"5": 0.8, "15": 1.2}}}
+                "risk_range_by_timeframe": {"5": 0.8}}}
 
 
 class PaperTradeSummaryTests(unittest.TestCase):
@@ -112,14 +112,14 @@ class PaperTraderTests(unittest.TestCase):
         snapshot = prepare_live_market_snapshot(original, 100.5)
         self.assertIsNone(rank_signal(snapshot))
 
-    def test_missing_five_minute_risk_atr_blocks_entry(self):
+    def test_missing_five_minute_risk_range_blocks_entry(self):
         candidate = setup()
-        candidate["timeframe_analysis"].pop("atr14_by_timeframe")
+        candidate["timeframe_analysis"].pop("risk_range_by_timeframe")
         self.assertIsNone(rank_signal(candidate))
 
-    def test_five_minute_atr_controls_protective_stop_distance(self):
+    def test_five_minute_recent_range_controls_protective_stop_distance(self):
         candidate = setup()
-        candidate["timeframe_analysis"]["atr14_by_timeframe"]["5"] = 2.0
+        candidate["timeframe_analysis"]["risk_range_by_timeframe"]["5"] = 2.0
         engine = PaperTradingEngine()
         result = engine.process_scan([candidate])
         self.assertEqual(result["events"][0]["event"], "OPENED")
@@ -166,7 +166,7 @@ class PaperTraderTests(unittest.TestCase):
              "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BEARISH"}},
             {"ready": True, "agreement": True, "direction": "BULLISH",
              "required_minutes": [1, 5, 15],
-             "closed_candles": {"1": 1439, "5": 288, "15": 22},
+             "closed_candles": {"1": 1439, "5": 2, "15": 0},
              "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}},
         ):
             candidate = dict(base)
