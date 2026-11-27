@@ -17,7 +17,7 @@ fullscreen = 0
 android.permissions = INTERNET, FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE, POST_NOTIFICATIONS, WAKE_LOCK
 
 android.api = 35
-android.minapi = 23
+android.minapi = 24
 android.archs = arm64-v8a
 android.numeric_version = 157
 android.allow_backup = False
