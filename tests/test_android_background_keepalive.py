@@ -33,9 +33,10 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
 
         self.assertIn("_start_background_market_service()", pause)
         self.assertNotIn("_stop_auto_worker(", pause)
-        self.assertIn("_stop_background_market_service()", resume)
+        self.assertNotIn("_stop_background_market_service()", resume)
         self.assertIn("worker.is_alive()", resume)
         self.assertIn("start_auto_paper_trader()", resume)
+        self.assertIn("_start_background_market_service()", source[source.index("    def start_auto_paper_trader"):pause_start])
 
     def test_required_android_permissions_are_declared(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
