@@ -63,6 +63,9 @@ class LifecycleHarness:
         # platform-neutral lifecycle harness.
         return True
 
+    def _start_background_market_service(self):
+        return True
+
     def __init__(self, user_data_dir):
         self.user_data_dir = user_data_dir
         self.auto_stop_event = threading.Event()
