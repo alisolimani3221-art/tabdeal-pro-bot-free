@@ -66,7 +66,7 @@ public final class MarketKeepService extends Service {
         return builder
             .setSmallIcon(getApplicationInfo().icon)
             .setContentTitle("Futures Analyzer")
-            .setContentText("دریافت و نگهداری داده بازار در پس‌زمینه")
+            .setContentText("Market data monitor is active in the background")
             .setCategory(Notification.CATEGORY_SERVICE)
             .setOngoing(true)
             .build();
