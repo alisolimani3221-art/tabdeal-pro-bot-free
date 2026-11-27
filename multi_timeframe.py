@@ -8,6 +8,7 @@ import math
 
 MINUTE_MS = 60_000
 TRADE_TIMEFRAMES_MINUTES = (1, 5, 15)
+MIN_CLOSED_CANDLES_BY_TIMEFRAME = {"1": 23, "5": 2, "15": 1}
 AGGREGATED_TIMEFRAMES_MINUTES = (5, 15)
 
 
@@ -102,7 +103,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
     atr_by_timeframe = {}
     risk_range_by_timeframe = {}
     closes = {}
-    required_counts = {"5": 2, "15": 1}
+    required_counts = MIN_CLOSED_CANDLES_BY_TIMEFRAME
     if type(one_minute.get("closed_candles")) is int and one_minute["closed_candles"] >= 23:
         try:
             one_minute_atr = float(one_minute.get("atr14"))
