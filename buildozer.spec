@@ -14,7 +14,7 @@ requirements = python3,kivy,requests,websocket-client==1.8.0,certifi,arabic-resh
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET, FOREGROUND_SERVICE, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS, WAKE_LOCK
+android.permissions = INTERNET, FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE, POST_NOTIFICATIONS, WAKE_LOCK
 
 android.api = 35
 android.minapi = 23
