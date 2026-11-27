@@ -1240,20 +1240,18 @@ class FuturesAnalyzerApp(App):
         body.add_widget(key_input)
 
         chat_history = []
-        # Keep editable and displayed Persian as logical Unicode text.
-        # Kivy performs the RTL layout itself; pre-reordering here would
-        # reverse the greeting or user-entered text on Android.
+        # Keep Persian conversation text in logical Unicode order. Let Kivy's
+        # Arabic shaping/bidi pipeline render it once; do not feed presentation-
+        # form, visually reordered text back into a widget that can reorder it.
+        # Use the widely supported Arabic language tag for Persian script on
+        # Android's text backend (the "fa" tag is inconsistently handled there).
         greeting = "سلام! من دستیار هوشمند برنامه هستم. پیام خود را بنویسید."
         result = Label(
-            # Resolve Arabic shaping and bidi exactly once. Some Android/Kivy
-            # builds do not apply native Persian shaping consistently to
-            # Labels, which caused reversed/unjoined text in this dialog.
-            # After visual-order conversion keep the widget direction LTR.
-            text=assistant_rtl_text(greeting),
+            text=greeting,
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            base_direction="ltr",
+            base_direction="rtl", text_language="ar",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
@@ -1275,7 +1273,7 @@ class FuturesAnalyzerApp(App):
             # before sending it to the AI API.
             # Use the Android/Kivy Persian-language shaping path for Persian
             # input. The TextInput retains logical Unicode for the API request.
-            base_direction="rtl", text_language="fa", halign="right",
+            base_direction="rtl", text_language="ar", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)
@@ -1298,7 +1296,7 @@ class FuturesAnalyzerApp(App):
             for item in chat_history:
                 label = "شما" if item["role"] == "user" else "Groq"
                 lines.append(label + ":\n" + item["content"])
-            result.text = assistant_rtl_text("\n\n".join(lines))
+            result.text = "\n\n".join(lines)
             Clock.schedule_once(lambda _dt: setattr(
                 result_scroll, "scroll_y", 0), 0)
 
@@ -1306,7 +1304,7 @@ class FuturesAnalyzerApp(App):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = assistant_rtl_text("کلید Groq و پیام خود را وارد کنید.")
+                result.text = "کلید Groq و پیام خود را وارد کنید."
                 return
 
             # This context is allow-listed; account data, balances, positions,
@@ -1336,7 +1334,7 @@ class FuturesAnalyzerApp(App):
                         prompt_input.text = ""
                         render_chat()
                     else:
-                        result.text = assistant_rtl_text(message)
+                        result.text = message
                     send_button.disabled = False
                     send_button.text = fa("ارسال به هوش مصنوعی")
                     prompt_input.disabled = False
