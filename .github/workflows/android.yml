@@ -25,6 +25,7 @@ on:
       - fix/v1.55-websocket-control-message-classification
       - fix/orderbook-symbol-canonicalization-20261126
       - fix/persist-and-resume-candle-history-20261126
+      - fix/preserve-closed-candles-on-reconnect-20261127
   push:
     branches:
       - release/v1.49
@@ -44,6 +45,7 @@ on:
       - fix/persist-and-resume-candle-history-20261126
       - fix/watermark-close-candles-20261126
       - fix/multitimeframe-risk-exit-20261126
+      - fix/preserve-closed-candles-on-reconnect-20261127
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
@@ -63,6 +65,7 @@ on:
       - 'orderbook_multisymbol_ws_probe.py'
       - 'market_candles.py'
       - 'candle_history.py'
+      - 'candle_archive.py'
       - 'multi_symbol_paper_coordinator.py'
       - 'buildozer.spec'
       - 'multi_bot.py'
