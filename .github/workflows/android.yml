@@ -274,6 +274,32 @@ jobs:
               symbol, bids[0][0], asks[0][0], sizing["risk_amount"]))
           PY
 
+      - name: Probe Tabdeal public Futures candle history (read-only)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tabdeal_candle_endpoint_probe import probe
+
+          report = probe(timeout=12)
+          Path("tabdeal-candle-endpoint-probe.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(report, sort_keys=True))
+          if report["status"] == "validated_public_klines":
+              print("TABDEAL_PUBLIC_KLINES: validated")
+          else:
+              print("::warning::No validated public Futures kline endpoint; keep candle-history warm-up gated.")
+
+      - name: Upload Tabdeal candle endpoint probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-candle-endpoint-probe
+          path: tabdeal-candle-endpoint-probe.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Live read-only scan of every active futures order book
         timeout-minutes: 5
         run: |
