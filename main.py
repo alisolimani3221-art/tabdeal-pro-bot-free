@@ -50,7 +50,7 @@ from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import (load_candle_cache, save_candle_cache,
                             validate_closed_candles, archive_candle_cache)
-from candle_archive import record_closed_candles, count_closed_candles
+from candle_archive import (record_closed_candles, count_closed_candles,\n                            load_latest_contiguous_candles)
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
@@ -2364,7 +2364,24 @@ class FuturesAnalyzerApp(App):
                             "گرم‌سازی با معاملات زنده ادامه می‌یابد."
                         ).format(len(cached_rows))
                 except FileNotFoundError:
-                    pass
+                    # Recover the newest contiguous run from SQLite when the
+                    # convenience JSON cache is missing. The live stream must
+                    # still confirm adjacency before this history is trusted.
+                    try:
+                        archived_rows = load_latest_contiguous_candles(
+                            candle_archive_path, symbol, int(time.time() * 1000),
+                            interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
+                        )
+                        if archived_rows:
+                            restored_candle_count = builder.restore_closed_candles(archived_rows)
+                            candle_cache_note = (
+                                "تاریخچه پیوسته از آرشیو دائمی بازیابی شد: {} کندل؛ "
+                                "تأیید اتصال زنده الزامی است."
+                            ).format(restored_candle_count)
+                    except Exception as archive_exc:
+                        candle_cache_note = (
+                            "بازیابی آرشیو دائمی ناموفق بود: {}."
+                        ).format(type(archive_exc).__name__)
                 except Exception as cache_exc:
                     # Invalid cache data is never restored into indicators.
                     # Move it aside so future launches do not repeatedly parse
