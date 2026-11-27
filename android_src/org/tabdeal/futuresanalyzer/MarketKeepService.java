@@ -78,7 +78,7 @@ public final class MarketKeepService extends Service {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
             );
         } else {
             startForeground(NOTIFICATION_ID, notification);
