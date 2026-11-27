@@ -111,6 +111,39 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(len(builder.closed), 1)
         self.assertFalse(builder.is_ready)
 
+    def test_reconnect_after_finalized_candle_preserves_history_until_continuity_check(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 126):
+            builder.add_trade(self.trade(minute))
+        self.assertEqual(len(builder.closed), 25)
+        # Finalize the latest forming candle so the disconnect occurs between buckets.
+        finalized = builder.finalize_due(127 * 60_000 + 30_000)
+        self.assertTrue(finalized["finalized"])
+        self.assertIsNone(builder.current)
+        self.assertEqual(len(builder.closed), 26)
+
+        builder.reset_after_reconnect()
+        self.assertEqual(len(builder.closed), 26)
+        self.assertEqual(
+            builder.status()["last_reset_reason"],
+            "reconnect_waiting_for_adjacent_bucket",
+        )
+
+        # An adjacent live bucket keeps the validated closed history available
+        # while it forms; the forming candle itself is not included in analysis.
+        resumed = builder.add_trade(self.trade(126, second=20))
+        self.assertTrue(resumed["accepted"])
+        self.assertFalse(resumed["gap_detected"])
+        self.assertEqual(len(builder.closed), 26)
+        self.assertTrue(builder.is_ready)
+
+        # At rollover, the partially observed reconnect bucket is discarded and
+        # the old cache is cleared rather than joining across a missing minute.
+        rollover = builder.add_trade(self.trade(127, second=2))
+        self.assertTrue(rollover["gap_detected"])
+        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(builder.is_ready)
+
     def test_reconnect_with_no_closed_history_does_not_stick_warmup_gate(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100))
