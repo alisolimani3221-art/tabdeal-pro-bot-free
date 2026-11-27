@@ -43,6 +43,25 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         self.assertIn("start_auto_paper_trader()", resume)
         self.assertIn("_start_background_market_service()", source[source.index("    def start_auto_paper_trader"):pause_start])
 
+    def test_closing_ui_keeps_active_market_worker_and_foreground_service(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        stop_start = source.index("    def on_stop(self):")
+        stop_end = source.index("\n    def ", stop_start + 10)
+        stop = source[stop_start:stop_end]
+        preserve = stop[:stop.index("        self._stop_background_market_service()")]
+
+        self.assertIn("keep_monitoring", stop)
+        self.assertIn("self._start_background_market_service()", preserve)
+        self.assertIn("return", preserve)
+        self.assertNotIn("self._stop_auto_worker(", preserve)
+        self.assertIn("self._persist_paper_engine_state(engine)", preserve)
+
+        start_start = source.index("    def on_start(self):")
+        start_end = source.index("\n    def ", start_start + 10)
+        start = source[start_start:start_end]
+        self.assertIn("existing_worker.is_alive()", start)
+        self.assertIn("if existing_worker is None or not existing_worker.is_alive():", start)
+
     def test_required_android_permissions_are_declared(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
         for permission in (
