@@ -22,9 +22,9 @@ class LivePaperSignalPipelineTests(unittest.TestCase):
         first_minute = (int(time.time() * 1000) // 60_000) - (24 * 60 + 2)
         accepted = 0
 
-        # Hourly increments use a rising 3/2 gain-loss ratio, with the final
-        # hour rising. Linear intrahour movement keeps all four TFs testable.
-        hourly_steps = (1.0, -1.0, 1.0, 1.0, -1.0, 1.0)
+        # A monotonic rising synthetic stream gives the final two 5m bars
+        # and final closed 15m bar unambiguous bullish body confirmation.
+        hourly_steps = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
         price = 100.0
         last_result = None
         opened_result = None
