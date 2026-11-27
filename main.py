@@ -3008,15 +3008,19 @@ class FuturesAnalyzerApp(App):
                     if now - last_status_update >= 10:
                         last_status_update = now
                         stream_status = builder.status()
+                        durable_total = count_closed_candles(
+                            self.auto_candle_archive_path, symbol, builder.interval_ms
+                        )
                         status_text = (
-                            "جریان معاملات فعال است. کندل بسته معتبر: {}/23 | "
+                            "جریان معاملات فعال است. کندل‌های ذخیره‌شده در آرشیو: {} | "
+                            "کندل‌های پیوستهٔ معتبر برای تحلیل: {}/23 | "
                             "پیام دریافتی: {} | معتبر: {} | ردشده: {} | شکاف: {} | "
                             "علت ردها: {} | اتصال‌مجدد: {} | حذف کندل ناقص: {} | "
-                            "پاک‌سازی تاریخچه: {} | آخرین علت بازنشانی: {}. "
-                            "از ۵ کندل پایش اولیه فعال می‌شود؛ تحلیل و ورود فقط پس از ۲۳ کندل معتبر."
-                        ).format(stream_status["closed_candles"], received_messages,
-                                 valid_messages, stream_status["rejected_trades"],
-                                 stream_status["gaps"],
+                            "پاک‌سازی تاریخچهٔ تحلیلی: {} | آخرین علت بازنشانی: {}. "
+                            "آرشیو با شکاف داده پاک نمی‌شود؛ تحلیل فقط از تاریخچهٔ پیوسته استفاده می‌کند."
+                        ).format(durable_total, stream_status["closed_candles"],
+                                 received_messages, valid_messages,
+                                 stream_status["rejected_trades"], stream_status["gaps"],
                                  ",".join("{}={}".format(k, v) for k, v in
                                           sorted(stream_status["rejection_reasons"].items()))
                                  or "ندارد", stream_status["reconnect_count"],
