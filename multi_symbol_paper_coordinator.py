@@ -10,7 +10,8 @@ import threading
 import time
 
 from market_candles import TradeCandleBuilder
-from multi_timeframe import TRADE_TIMEFRAMES_MINUTES
+from multi_timeframe import (TRADE_TIMEFRAMES_MINUTES,
+                             aggregate_closed_timeframes)
 
 
 _SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT")
@@ -317,16 +318,35 @@ class MultiSymbolPaperCoordinator:
                     if isinstance(snapshot, dict) else None
                 )
                 timeframe = timeframe if isinstance(timeframe, dict) else {}
-                raw_counts = timeframe.get("closed_candles")
-                raw_counts = raw_counts if isinstance(raw_counts, dict) else {}
+                # Warm-up progress must come from the builder itself, not
+                # from latest_technical. The latter is intentionally absent
+                # until the one-minute builder is ready, so deriving progress
+                # from it made a partially warmed stream misleadingly report
+                # 0/23, 0/2 and 0/1.
+                closed_rows = list(getattr(state["builder"], "closed", ()))
+                interval_ms = getattr(state["builder"], "interval_ms", 60_000)
                 timeframe_counts = {
-                    str(minutes): (
-                        raw_counts.get(str(minutes))
-                        if type(raw_counts.get(str(minutes))) is int
-                        and raw_counts.get(str(minutes)) >= 0 else 0
-                    )
-                    for minutes in TRADE_TIMEFRAMES_MINUTES
+                    str(minutes): 0 for minutes in TRADE_TIMEFRAMES_MINUTES
                 }
+                timeframe_counts["1"] = len(closed_rows)
+                if closed_rows:
+                    try:
+                        last_open_time = int(closed_rows[-1][0])
+                        if (isinstance(interval_ms, bool)
+                                or not isinstance(interval_ms, int)
+                                or interval_ms <= 0):
+                            raise ValueError("invalid candle interval")
+                        aggregated = aggregate_closed_timeframes(
+                            closed_rows, last_open_time + interval_ms
+                        )
+                        timeframe_counts["5"] = len(aggregated[5])
+                        timeframe_counts["15"] = len(aggregated[15])
+                    except (KeyError, TypeError, ValueError, OverflowError):
+                        # Bad provenance never increases readiness. The raw
+                        # one-minute count remains visible for diagnosis while
+                        # higher-timeframe counts fail closed at zero.
+                        timeframe_counts["5"] = 0
+                        timeframe_counts["15"] = 0
                 snapshot_fresh = bool(
                     snapshot is not None and age is not None
                     and 0 <= age <= self.max_snapshot_age
