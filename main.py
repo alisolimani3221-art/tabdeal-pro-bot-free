@@ -3798,8 +3798,8 @@ class FuturesAnalyzerApp(App):
             from jnius import autoclass
             build = autoclass("android.os.Build")
             if int(build.VERSION.SDK_INT) >= 33:
-                from android.permissions import Permission, request_permissions
-                request_permissions([Permission.POST_NOTIFICATIONS])
+                from android.permissions import request_permissions
+                request_permissions(["android.permission.POST_NOTIFICATIONS"])
         except Exception:
             # Notification permission denial must not crash app startup; Android
             # still exposes foreground-service state through system task controls.
