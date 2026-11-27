@@ -3709,11 +3709,60 @@ class FuturesAnalyzerApp(App):
         self._update_engine_health(durable_candle_count=count)
         return count
 
+    def _stop_background_market_service(self):
+        """Stop the sticky collector before the UI worker takes ownership."""
+        try:
+            from jnius import autoclass
+            service = autoclass("org.tabdeal.futuresanalyzer.ServiceMarketkeep")
+            activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            service.stop(activity)
+            self._background_service_active = False
+            return True
+        except Exception as exc:
+            self._background_service_error = (
+                "{}: {}".format(type(exc).__name__, str(exc)[:120])
+            )
+            return False
+
+    def _start_background_market_service(self):
+        """Start the Android foreground collector with only symbol and archive path."""
+        builder = getattr(self, "auto_candle_builder", None)
+        archive_path = getattr(self, "auto_candle_archive_path", None)
+        if builder is None or not archive_path:
+            self._background_service_error = "candle builder or archive path unavailable"
+            return False
+        argument = json.dumps({
+            "symbol": builder.symbol,
+            "archive_path": archive_path,
+        }, separators=(",", ":"))
+        try:
+            from jnius import autoclass
+            service = autoclass("org.tabdeal.futuresanalyzer.ServiceMarketkeep")
+            activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            service.start(
+                activity, "", "Futures Analyzer",
+                "ذخیره و دریافت کندل‌ها در پس‌زمینه", argument
+            )
+            self._background_service_active = True
+            self._background_service_error = None
+            return True
+        except Exception as exc:
+            self._background_service_active = False
+            self._background_service_error = (
+                "{}: {}".format(type(exc).__name__, str(exc)[:120])
+            )
+            return False
+
     def on_pause(self):
-        # Android sends on_pause when the user switches apps or the screen is
-        # backgrounded. Returning True lets Kivy resume this app instead of
-        # treating the pause as a permanent shutdown. Persist closed candles
-        # and paper state before Android potentially suspends the process.
+        # Move the public read-only feed to an Android foreground service before
+        # returning control to the OS. The service owns its own WebSocket and
+        # persists validated closed candles into the same app-private SQLite file.
+        worker = getattr(self, "auto_trader_thread", None)
+        worker_was_running = worker is not None and worker.is_alive()
+        worker_stopped = True
+        if worker_was_running:
+            worker_stopped = self._stop_auto_worker(timeout=4.0)
+        self._background_pause_stopped_worker = bool(worker_was_running and worker_stopped)
         try:
             self._flush_candle_archive()
         except Exception as exc:
@@ -3730,9 +3779,36 @@ class FuturesAnalyzerApp(App):
                     "ذخیرهٔ وضعیت موتور هنگام مکث ناموفق بود: "
                     + type(exc).__name__
                 )
+        if worker_was_running and worker_stopped:
+            if not self._start_background_market_service():
+                self.update_auto_status(
+                    "سرویس پس‌زمینه شروع نشد؛ اتصال پس از بازگشت برنامه دوباره برقرار می‌شود. علت: "
+                    + str(getattr(self, "_background_service_error", "unknown"))
+                )
+        elif worker_was_running:
+            self._background_pause_stopped_worker = False
+            self.update_auto_status(
+                "رشتهٔ بازار در مهلت تعیین‌شده متوقف نشد؛ برای جلوگیری از اتصال تکراری، سرویس دوم شروع نشد."
+            )
+        return True
+
+    def on_resume(self):
+        # Stop the background collector first, then let the foreground worker
+        # restore the newest contiguous archive and resume the paper-only engine.
+        if getattr(self, "_background_pause_stopped_worker", False):
+            self._stop_background_market_service()
+            self.auto_candle_builder = None
+            self._background_pause_stopped_worker = False
+            Clock.schedule_once(
+                lambda _dt: self.start_auto_paper_trader(), 0.5
+            )
         return True
 
     def on_start(self):
+        # A sticky service may have survived an OS-killed UI process. Stop it
+        # before the foreground worker is restored to avoid two feed owners.
+        self._stop_background_market_service()
+        self._background_pause_stopped_worker = False
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
         self.runtime_guard = AppRuntimeGuard(self.user_data_dir)
@@ -3767,6 +3843,7 @@ class FuturesAnalyzerApp(App):
         )
 
     def on_stop(self):
+        self._stop_background_market_service()
         poll_stop = getattr(self, "orderbook_poll_stop", None)
         if poll_stop is not None:
             poll_stop.set()
