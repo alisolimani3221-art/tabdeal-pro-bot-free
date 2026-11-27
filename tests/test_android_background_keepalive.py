@@ -19,7 +19,7 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         # process, so it protects the already-running Python worker.
         self.assertNotIn("android:process", manifest)
         self.assertIn("START_NOT_STICKY", java)
-        self.assertIn("FOREGROUND_SERVICE_TYPE_DATA_SYNC", java)
+        self.assertIn("FOREGROUND_SERVICE_TYPE_SPECIAL_USE", java)
         self.assertIn("PARTIAL_WAKE_LOCK", java)
         self.assertIn("wakeLock.release()", java)
 
@@ -42,7 +42,7 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
         for permission in (
             "INTERNET", "FOREGROUND_SERVICE",
-            "FOREGROUND_SERVICE_DATA_SYNC", "POST_NOTIFICATIONS", "WAKE_LOCK",
+            "FOREGROUND_SERVICE_SPECIAL_USE", "POST_NOTIFICATIONS", "WAKE_LOCK",
         ):
             with self.subTest(permission=permission):
                 self.assertIn(permission, spec)
