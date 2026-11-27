@@ -23,8 +23,9 @@ android.numeric_version = 157
 android.allow_backup = False
 android.release_artifact = apk
 
-p4a.branch = 6f3ae311e214b96ece0e31994b6f9d4f54c5045b
-services = Marketkeep:services/marketkeep.py:foreground:sticky:foregroundServiceType=dataSync
+p4a.branch = v2024.01.21
+android.add_src = android_src
+android.extra_manifest_application_arguments = android_manifest_application_arguments.xml
 android.accept_sdk_license = True
 
 [buildozer]
