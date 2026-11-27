@@ -3679,6 +3679,68 @@ class FuturesAnalyzerApp(App):
             label.base_direction = "ltr"
             label.text_language = "ar"
 
+    def _flush_candle_archive(self):
+        """Idempotently flush every already-closed in-memory candle to SQLite."""
+        builder = getattr(self, "auto_candle_builder", None)
+        archive_path = getattr(self, "auto_candle_archive_path", None)
+        if builder is None or not archive_path:
+            return 0
+        rows = list(getattr(builder, "closed", ()) or ())
+        if not rows:
+            return count_closed_candles(
+                archive_path, builder.symbol, builder.interval_ms
+            )
+        count = record_closed_candles(
+            archive_path, builder.symbol, rows,
+            interval_ms=builder.interval_ms,
+        )
+        # JSON remains a disposable compatibility cache; SQLite is committed
+        # first so a cache-write failure cannot lose the durable candle history.
+        cache_path = getattr(self, "auto_candle_cache_path", None)
+        if cache_path:
+            try:
+                save_candle_cache(cache_path, builder.symbol, rows)
+            except Exception:
+                pass
+        self._update_engine_health(durable_candle_count=count)
+        return count
+
+    def on_pause(self):
+        # Android sends on_pause when the user switches apps or the screen is
+        # backgrounded. Returning True lets Kivy resume this app instead of
+        # treating the pause as a permanent shutdown. Persist closed candles
+        # and paper state before Android potentially suspends the process.
+        try:
+            self._flush_candle_archive()
+        except Exception as exc:
+            self.update_auto_status(
+                "ذخیرهٔ آرشیو کندل هنگام رفتن به پس‌زمینه ناموفق بود: "
+                + type(exc).__name__
+            )
+        engine = getattr(self, "auto_engine", None)
+        if engine is not None:
+            try:
+                self._persist_paper_engine_state(engine)
+            except Exception as exc:
+                self.update_auto_status(
+                    "ذخیرهٔ وضعیت موتور هنگام مکث ناموفق بود: "
+                    + type(exc).__name__
+                )
+        return True
+
+    def on_resume(self):
+        # If Android reclaimed the worker while the UI was paused, restart the
+        # paper-only collector after the foreground UI is restored. The normal
+        # startup gates and reconnect continuity checks still apply.
+        worker = getattr(self, "auto_trader_thread", None)
+        stop_event = getattr(self, "auto_stop_event", None)
+        if (getattr(self, "runtime_lock_ready", False)
+                and (worker is None or not worker.is_alive()
+                     or (stop_event is not None and stop_event.is_set()))):
+            Clock.schedule_once(
+                lambda _dt: self.start_auto_paper_trader(), 0.5
+            )
+
     def on_start(self):
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
@@ -3729,6 +3791,14 @@ class FuturesAnalyzerApp(App):
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
+        if worker_stopped:
+            try:
+                self._flush_candle_archive()
+            except Exception as exc:
+                self.update_auto_status(
+                    "ذخیرهٔ نهایی آرشیو کندل ناموفق بود: "
+                    + type(exc).__name__
+                )
         guard = getattr(self, "runtime_guard", None)
         persistence_failed = False
         if worker_stopped:
