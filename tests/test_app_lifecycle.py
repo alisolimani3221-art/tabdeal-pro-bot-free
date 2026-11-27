@@ -301,7 +301,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {
                 "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
-            "atr14_by_timeframe": {"5": 1.6, "15": 2.4}},
+            "risk_range_by_timeframe": {"5": 1.6}},
         }])
         self.assertIsNotNone(engine.position)
 
@@ -454,7 +454,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {
                 "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
-            "atr14_by_timeframe": {"5": 1.6, "15": 2.4}},
+            "risk_range_by_timeframe": {"5": 1.6}},
         }])
         self.assertIsNotNone(engine.position)
         app.auto_engine = engine
