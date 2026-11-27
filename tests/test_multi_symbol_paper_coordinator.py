@@ -244,7 +244,24 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         self.assertFalse(status["multi_timeframe_ready"])
         self.assertFalse(status["multi_timeframe_agreement"])
         self.assertFalse(status["entry_ready"])
-        self.assertEqual(status["timeframe_closed_candles"]["15"], 12)
+        self.assertEqual(status["timeframe_closed_candles"], {"1": 1, "5": 0, "15": 0})
+
+    def test_status_reports_builder_progress_before_analysis_snapshot_exists(self):
+        coordinator = self.make_coordinator()
+        state = coordinator.states["BTC_USDT"]
+        state["last_trade_monotonic"] = 10
+        state["builder"].closed = [
+            [minute * 60_000, 100, 101, 99, 100.5, 1]
+            for minute in range(5, 30)
+        ]
+        # No technical snapshot exists yet: progress still reflects validated
+        # closed bars and exact complete 5m/15m aggregates.
+        status = coordinator.status(now=11)["BTC_USDT"]
+        self.assertFalse(status["multi_timeframe_ready"])
+        self.assertEqual(
+            status["timeframe_closed_candles"],
+            {"1": 25, "5": 5, "15": 1},
+        )
 
     def test_reconcile_tick_rejects_malformed_events_before_engine_mutation(self):
         coordinator = self.make_coordinator()
