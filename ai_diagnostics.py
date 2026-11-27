@@ -7,7 +7,7 @@ from multi_timeframe import (
     TRADE_TIMEFRAMES_MINUTES,
 )
 
-APP_VERSION = "1.56"
+APP_VERSION = "1.57"
 
 APP_DIAGNOSTIC_KEYS = (
     "website", "market_ping", "market_info", "depth_status", "depth_http",
