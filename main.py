@@ -2446,6 +2446,9 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
+        # Start the foreground service while the Activity is visibly active;
+        # Android 12+ restricts starting foreground services from background.
+        keepalive_started = self._start_background_market_service()
         retained_count = min(builder.status()["closed_candles"], 23)
         if retained_count >= 23:
             warmup_text = "تاریخچه معتبر: ۲۳ از ۲۳؛ تحلیل و ورود آزمایشی پس از تأیید اتصال مجاز است."
@@ -2464,6 +2467,11 @@ class FuturesAnalyzerApp(App):
             + warmup_text + "\n" + candle_cache_note
             + " هیچ سفارش واقعی ارسال نمی‌شود."
         ).format(self.capital_usdt)
+        if not keepalive_started:
+            status_text += (
+                "\\nسرویس نگهدارندهٔ پس‌زمینه فعال نشد: "
+                + str(getattr(self, "_background_service_error", "unknown"))
+            )
         self.update_auto_status(status_text)
 
     def _stop_auto_worker(self, timeout=3.0):
@@ -3781,9 +3789,9 @@ class FuturesAnalyzerApp(App):
         return True
 
     def on_resume(self):
-        # The same worker should still be alive. Only recover if Android or an
-        # external process kill actually ended it; never create duplicate sockets.
-        self._stop_background_market_service()
+        # Keep the foreground service active while monitoring is enabled.
+        # Recover only if Android actually ended the Python worker; never
+        # create duplicate sockets when the original worker is still alive.
         worker = getattr(self, "auto_trader_thread", None)
         if (worker is None or not worker.is_alive()) and getattr(self, "auto_engine", None) is not None:
             Clock.schedule_once(
