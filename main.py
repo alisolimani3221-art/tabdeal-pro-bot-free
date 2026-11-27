@@ -2234,11 +2234,14 @@ class FuturesAnalyzerApp(App):
                         paper_engine.rearm_after_operator_stop()
                     elif paper_engine.halt_reason == "DAILY_MAX_LOSS":
                         paper_engine.rearm_after_daily_reset()
+                        self._persist_paper_engine_state(paper_engine)
+                        self.auto_engine = paper_engine
+                        paper_rearmed = True
+                    elif paper_engine.halt_reason == "DATA_GAP":
+                        # Keep halted until fresh continuous multi-timeframe history is rebuilt.
+                        self.auto_engine = paper_engine
                     else:
                         raise RuntimeError("paper engine halt is not operator-rearmable")
-                    self._persist_paper_engine_state(paper_engine)
-                    self.auto_engine = paper_engine
-                    paper_rearmed = True
                 if not rearmed and not paper_rearmed:
                     raise RuntimeError("no eligible persisted halt remains to re-arm")
                 ensure_paper_runner_ready(guard, session)
@@ -2381,13 +2384,15 @@ class FuturesAnalyzerApp(App):
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
                     engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if engine.halted:
+                if engine.halted and engine.halt_reason != "DATA_GAP":
                     raise RuntimeError(
                         "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
                         "راه‌اندازی خودکار پس از توقف اضطراری یا سقف زیان مجاز نیست؛ "
                         "وضعیت باید آگاهانه بررسی شود."
                         .format(engine.halt_reason, engine.halt_detail or "جزئیات ثبت نشده")
                     )
+                if engine.halted and engine.halt_reason == "DATA_GAP" and engine.position is not None:
+                    raise RuntimeError("DATA_GAP recovery requires a flattened paper position")
             else:
                 engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
                                             max_leverage=3, max_loss_percent=3.0)
@@ -3234,6 +3239,25 @@ class FuturesAnalyzerApp(App):
                     try:
                         if self.auto_stop_event.is_set():
                             return
+                        # Recover DATA_GAP only after fresh continuous candles produce candidates.
+                        if engine.halted and engine.halt_reason == "DATA_GAP":
+                            if engine.position is not None or not builder.is_ready:
+                                if scan_stop.wait(0.25):
+                                    return
+                                continue
+                            engine.rearm_after_data_gap()
+                            self._persist_paper_engine_state(engine)
+                            self._update_engine_health(
+                                worker_phase="data_gap_recovered_waiting_for_scan",
+                                builder_ready=True,
+                                candle_count=int(builder.status().get("closed_candles", 0)),
+                            )
+                            Clock.schedule_once(
+                                lambda dt: self.update_auto_status(
+                                    "تاریخچهٔ پیوسته و تازه آماده شد؛ توقف ناشی از شکاف داده رفع شد. "
+                                    "موتور فقط در حالت آزمایشی ادامه می‌دهد."
+                                ), 0
+                            )
                         result = engine.process_scan(candidates)
                         self._persist_paper_engine_state(engine)
                         last_scan = time.monotonic()
