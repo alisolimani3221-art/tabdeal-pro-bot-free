@@ -2143,7 +2143,7 @@ class FuturesAnalyzerApp(App):
                                 "قفل زیان روزانه هنوز فعال است؛ بازآماده‌سازی فقط پس از شروع روز UTC بعدی ممکن است."
                             )
                             return
-                    elif paper_engine.halt_reason != "EMERGENCY_STOP":
+                    elif paper_engine.halt_reason not in ("EMERGENCY_STOP", "DATA_GAP"):
                         self.update_auto_status(
                             "بازآماده‌سازی رد شد؛ توقف سقف زیان تجمعی یا قفل ایمنی قابل‌بازیابی نیست."
                         )
