@@ -111,6 +111,39 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(len(builder.closed), 1)
         self.assertFalse(builder.is_ready)
 
+    def test_reconnect_after_finalized_candle_preserves_history_until_continuity_check(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 126):
+            builder.add_trade(self.trade(minute))
+        self.assertEqual(len(builder.closed), 24)
+        # Finalize the latest forming candle so the disconnect occurs between buckets.
+        finalized = builder.finalize_due(127 * 60_000 + 30_000)
+        self.assertTrue(finalized["finalized"])
+        self.assertIsNone(builder.current)
+        self.assertEqual(len(builder.closed), 25)
+
+        builder.reset_after_reconnect()
+        self.assertEqual(len(builder.closed), 25)
+        self.assertEqual(
+            builder.status()["last_reset_reason"],
+            "reconnect_waiting_for_adjacent_bucket",
+        )
+
+        # An adjacent live bucket keeps the validated closed history available
+        # while it forms; the forming candle itself is not included in analysis.
+        resumed = builder.add_trade(self.trade(126, second=20))
+        self.assertTrue(resumed["accepted"])
+        self.assertFalse(resumed["gap_detected"])
+        self.assertEqual(len(builder.closed), 25)
+        self.assertTrue(builder.is_ready)
+
+        # At rollover, the partially observed reconnect bucket is discarded and
+        # the old cache is cleared rather than joining across a missing minute.
+        rollover = builder.add_trade(self.trade(127, second=2))
+        self.assertTrue(rollover["gap_detected"])
+        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(builder.is_ready)
+
     def test_reconnect_with_no_closed_history_does_not_stick_warmup_gate(self):
         builder = TradeCandleBuilder("BTC_USDT")
         builder.add_trade(self.trade(100))
@@ -393,6 +426,16 @@ class TradeCandleBuilderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TradeCandleBuilder("BTC_USDT", max_candles=10)
 
+    def test_noncontiguous_sequence_ids_are_not_assumed_to_mean_lost_trades(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        first = builder.add_trade(self.trade(100, second=10, sequence=100))
+        later = builder.add_trade(self.trade(100, second=20, sequence=107))
+        self.assertTrue(first["accepted"])
+        self.assertTrue(later["accepted"])
+        self.assertFalse(later["gap_detected"])
+        self.assertEqual(builder.current["volume"], 4.0)
+        self.assertEqual(builder.last_sequence, 107)
+
     def test_older_sequence_is_distinguished_from_exact_duplicate(self):
         builder = TradeCandleBuilder("BTC_USDT")
         self.assertTrue(builder.add_trade(self.trade(100, second=10, sequence=12))["accepted"])
@@ -414,6 +457,24 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(status["rejection_reasons"], {
             "out_of_order": 1, "duplicate_sequence": 1
         })
+
+
+    def test_volume_overflow_resets_all_candle_history_and_fails_closed(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        builder.add_trade(self.trade(100, quantity=1e308))
+        self.assertIsNotNone(builder.current)
+        self.assertEqual(builder.current["volume"], 1e308)
+
+        result = builder.add_trade(self.trade(100, second=2, quantity=1e308))
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "volume_overflow")
+        self.assertIsNone(builder.current)
+        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(builder.is_ready)
+        status = builder.status()
+        self.assertEqual(status["gaps"], 1)
+        self.assertEqual(status["history_clear_count"], 1)
+        self.assertEqual(status["last_reset_reason"], "explicit_gap_reset")
 
 
 if __name__ == "__main__":

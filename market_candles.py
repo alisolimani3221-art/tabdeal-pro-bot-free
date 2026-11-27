@@ -140,6 +140,13 @@ class TradeCandleBuilder:
         elif bucket == self.current["open_time"]:
             if timestamp < self.current["last_timestamp"]:
                 return self._reject("out_of_order")
+            # A finite trade quantity can still overflow accumulated candle volume.
+            # Never retain or publish a non-finite OHLCV row: invalidate warm-up
+            # and force a fresh contiguous run instead of silently dropping data.
+            new_volume = self.current["volume"] + quantity
+            if not math.isfinite(new_volume):
+                self.reset_after_gap()
+                return self._reject("volume_overflow")
             self._update_candle(self.current, price, quantity, timestamp)
         else:
             previous_bucket = self.current["open_time"]
@@ -261,22 +268,39 @@ class TradeCandleBuilder:
         return len(self.closed)
 
     def reset_after_reconnect(self):
-        """Retain closed candles only when the stream resumes in the same minute."""
+        """Preserve closed history when reconnecting between candle buckets."""
         self.reconnect_count += 1
         self.last_reset_reason = "websocket_reconnect_pending_continuity_check"
-        self._resume_bucket = self.current["open_time"] if self.current is not None else None
-        self._resume_last_timestamp_ms = self.last_timestamp_ms
-        self._reconnect_warmup_pending = self._resume_bucket is not None
-        if self._resume_bucket is None:
-            if self.closed:
-                self.history_clear_count += 1
-            self.closed.clear()
-            self.last_reset_reason = "reconnect_without_forming_bucket"
+        if self.current is not None:
+            # An interrupted forming candle is partial. Retain closed rows only
+            # provisionally and verify the first resumed trade against its bucket.
+            self._resume_bucket = self.current["open_time"]
+            self._resume_last_timestamp_ms = self.last_timestamp_ms
+            self._reconnect_warmup_pending = True
+            self.discard_next_close = True
+            self._restored_partial_bucket = False
+        elif self.closed:
+            # The previous candle was already finalized before the disconnect.
+            # Anchor continuity to that closed candle instead of erasing all
+            # history merely because there was no forming candle at disconnect.
+            # The first live bucket may support analysis while forming, but is
+            # never promoted to a full candle; history is cleared at its close.
+            self._resume_bucket = self.closed[-1][0]
+            self._resume_last_timestamp_ms = self._resume_bucket + self.interval_ms - 1
+            self._reconnect_warmup_pending = False
+            self.discard_next_close = False
+            self._restored_partial_bucket = True
+            self.last_reset_reason = "reconnect_waiting_for_adjacent_bucket"
+        else:
+            self._resume_bucket = None
+            self._resume_last_timestamp_ms = None
+            self._reconnect_warmup_pending = False
+            self.discard_next_close = True
+            self._restored_partial_bucket = False
+            self.last_reset_reason = "reconnect_without_closed_history"
         self.current = None
         self.last_timestamp_ms = None
         self.last_sequence = None
-        self.discard_next_close = True
-        self._restored_partial_bucket = False
 
     def reset_after_gap(self):
         """Discard all history after a confirmed data gap."""

@@ -49,7 +49,8 @@ from risk_analysis import analyze_klines, calculate_position_risk, recommend_lev
 from market_format import format_market_value
 from market_candles import TradeCandleBuilder
 from candle_history import (load_candle_cache, save_candle_cache,
-                            validate_closed_candles, archive_candle_cache)
+                            validate_closed_candles, archive_candle_cache,
+                            load_archived_candle_history)
 from paper_trader import (PaperTradingEngine, diagnose_signal,
                           prepare_live_market_snapshot, paper_scan_due,
                           reconcile_paper_market_tick, PAPER_SCAN_INTERVAL_SECONDS,
@@ -60,7 +61,7 @@ from trade_stream_probe import (
 from openai_assistant import analyze_with_openai
 from ai_diagnostics import (build_ai_diagnostic_context,
                              build_engine_health_report_lines)
-from trade_stream_watchdog import TradeStreamWatchdog
+from trade_stream_watchdog import TradeStreamWatchdog, reconnect_backoff_seconds
 from app_runtime_guard import AppRuntimeGuard
 from trade_coordinator_session import TradeCoordinatorSession
 from paper_runner_gate import ensure_paper_runner_ready, PaperRunnerGateError
@@ -72,6 +73,7 @@ from multi_symbol_stream import (
     subscribe_broadcast_symbols,
 )
 from multi_symbol_paper_coordinator import MultiSymbolPaperCoordinator
+from multi_timeframe import analyze_multi_timeframe
 
 # Resolve the bundled font from both the app directory and Kivy resources.
 # Resolve bundled Arabic/Persian font robustly. Prefer Noto Sans Arabic, which
@@ -1239,18 +1241,18 @@ class FuturesAnalyzerApp(App):
         body.add_widget(key_input)
 
         chat_history = []
-        # Keep editable and displayed Persian as logical Unicode text.
-        # Kivy performs the RTL layout itself; pre-reordering here would
-        # reverse the greeting or user-entered text on Android.
+        # Kivy's native RTL pass produced reversed/misordered Persian on the
+        # actual Android device. Resolve shaping and bidi once for this display
+        # Label, then keep the widget LTR so Android/Kivy cannot reorder it again.
+        # Keep chat_history and API payloads in logical Unicode; transform only
+        # the presentation string assigned to this read-only result Label.
         greeting = "سلام! من دستیار هوشمند برنامه هستم. پیام خود را بنویسید."
         result = Label(
-            text=greeting,
+            text=assistant_rtl_text(greeting),
             font_name=FONT_NAME, font_size=sp(13), markup=False,
             color=(1, 1, 1, 1), size_hint_y=None, height=dp(110),
             halign="right", valign="top",
-            # Use the Persian language tag for Android/Kivy text shaping and
-            # bidi layout; keep the logical Unicode text untouched.
-            base_direction="rtl", text_language="fa",
+            base_direction="ltr", text_language="en",
         )
         result.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
         result.bind(texture_size=lambda widget, size: setattr(
@@ -1272,7 +1274,7 @@ class FuturesAnalyzerApp(App):
             # before sending it to the AI API.
             # Use the Android/Kivy Persian-language shaping path for Persian
             # input. The TextInput retains logical Unicode for the API request.
-            base_direction="rtl", text_language="fa", halign="right",
+            base_direction="rtl", text_language="ar", halign="right",
             padding=[dp(10), dp(10), dp(10), dp(10)],
             size_hint_y=None, height=dp(92))
         body.add_widget(prompt_input)
@@ -1295,7 +1297,7 @@ class FuturesAnalyzerApp(App):
             for item in chat_history:
                 label = "شما" if item["role"] == "user" else "Groq"
                 lines.append(label + ":\n" + item["content"])
-            result.text = "\n\n".join(lines)
+            result.text = assistant_rtl_text("\n\n".join(lines))
             Clock.schedule_once(lambda _dt: setattr(
                 result_scroll, "scroll_y", 0), 0)
 
@@ -1303,7 +1305,7 @@ class FuturesAnalyzerApp(App):
             api_key = key_input.text.strip()
             prompt = prompt_input.text.strip()
             if not api_key or not prompt:
-                result.text = "کلید Groq و پیام خود را وارد کنید."
+                result.text = assistant_rtl_text("کلید Groq و پیام خود را وارد کنید.")
                 return
 
             # This context is allow-listed; account data, balances, positions,
@@ -1333,7 +1335,7 @@ class FuturesAnalyzerApp(App):
                         prompt_input.text = ""
                         render_chat()
                     else:
-                        result.text = message
+                        result.text = assistant_rtl_text(message)
                     send_button.disabled = False
                     send_button.text = fa("ارسال به هوش مصنوعی")
                     prompt_input.disabled = False
@@ -1376,16 +1378,31 @@ class FuturesAnalyzerApp(App):
         else:
             signal = technical.get("signal", "NEUTRAL")
             price = float(technical["price"])
-            atr = float(technical["atr14"])
+            signal_atr = float(technical["atr14"])
+            timeframe = technical.get("timeframe_analysis")
+            atr_by_timeframe = (
+                timeframe.get("atr14_by_timeframe")
+                if isinstance(timeframe, dict) else None
+            )
+            risk_atr = None
+            try:
+                candidate_atr = float(
+                    atr_by_timeframe.get("5")
+                    if isinstance(atr_by_timeframe, dict) else None
+                )
+                if math.isfinite(candidate_atr) and candidate_atr > 0:
+                    risk_atr = candidate_atr
+            except (TypeError, ValueError, OverflowError):
+                risk_atr = None
             if signal == "BULLISH":
                 decision = "تمایل صعودی — بررسی فرصت خرید"
-                stop = price - 1.5 * atr
-                target = price + 3.0 * atr
+                stop = price - 1.5 * risk_atr if risk_atr is not None else None
+                target = price + 3.0 * risk_atr if risk_atr is not None else None
                 decision_color = (0.35, 0.9, 0.55, 1)
             elif signal == "BEARISH":
                 decision = "تمایل نزولی — بررسی فرصت فروش"
-                stop = price + 1.5 * atr
-                target = price - 3.0 * atr
+                stop = price + 1.5 * risk_atr if risk_atr is not None else None
+                target = price - 3.0 * risk_atr if risk_atr is not None else None
                 decision_color = (1, 0.55, 0.42, 1)
             else:
                 decision = "سیگنال روشن نیست — فعلاً صبر کن"
@@ -1405,14 +1422,20 @@ class FuturesAnalyzerApp(App):
             add_line("RSI 14: {:.1f}    SMA10: {}".format(
                 float(technical["rsi14"]), format_market_value(technical["sma10"])),
                 size=13, font=NUMERIC_FONT_NAME)
-            add_line("SMA20: {}    ATR14: {}".format(
-                format_market_value(technical["sma20"]), format_market_value(atr)), size=13, font=NUMERIC_FONT_NAME)
+            add_line("SMA20: {}    ATR یک‌دقیقه‌ای: {}".format(
+                format_market_value(technical["sma20"]),
+                format_market_value(signal_atr)), size=13, font=FONT_NAME)
+            if risk_atr is not None:
+                add_line("ATR مبنای ریسک (۵ دقیقه‌ای): {}".format(
+                    format_market_value(risk_atr)), size=13, font=FONT_NAME)
             if stop is not None and target is not None and stop > 0 and target > 0:
-                add_line("حد ضرر تخمینی: {}".format(format_market_value(stop)), font=FONT_NAME)
-                add_line("هدف سود تخمینی: {}".format(format_market_value(target)), font=FONT_NAME)
+                add_line("حد ضرر تخمینی بر پایه ATR پنج‌دقیقه‌ای: {}".format(
+                    format_market_value(stop)), font=FONT_NAME)
+                add_line("هدف سود تخمینی بر پایه ATR پنج‌دقیقه‌ای: {}".format(
+                    format_market_value(target)), font=FONT_NAME)
                 add_line("نسبت سود به زیان هدف: 2 به 1", size=14)
             else:
-                add_line("برای این وضعیت حد ضرر و هدف معامله پیشنهاد نمی‌شود.", size=13)
+                add_line("ATR پنج‌دقیقه‌ای معتبر نیست؛ حد ضرر و هدف تخمینی نمایش داده نمی‌شود.", size=13)
             add_line("این نتیجه فقط بر اساس کندل‌های بسته‌شده و شاخص‌های SMA، RSI و ATR است؛ تضمین سود نیست.",
                      size=12, height=dp(68), color=(1, 0.72, 0.35, 1))
 
@@ -2121,7 +2144,7 @@ class FuturesAnalyzerApp(App):
                                 "قفل زیان روزانه هنوز فعال است؛ بازآماده‌سازی فقط پس از شروع روز UTC بعدی ممکن است."
                             )
                             return
-                    elif paper_engine.halt_reason != "EMERGENCY_STOP":
+                    elif paper_engine.halt_reason not in ("EMERGENCY_STOP", "DATA_GAP"):
                         self.update_auto_status(
                             "بازآماده‌سازی رد شد؛ توقف سقف زیان تجمعی یا قفل ایمنی قابل‌بازیابی نیست."
                         )
@@ -2212,11 +2235,15 @@ class FuturesAnalyzerApp(App):
                         paper_engine.rearm_after_operator_stop()
                     elif paper_engine.halt_reason == "DAILY_MAX_LOSS":
                         paper_engine.rearm_after_daily_reset()
+                        self._persist_paper_engine_state(paper_engine)
+                        self.auto_engine = paper_engine
+                        paper_rearmed = True
+                    elif paper_engine.halt_reason == "DATA_GAP":
+                        # Keep halted until fresh continuous multi-timeframe history is rebuilt.
+                        self.auto_engine = paper_engine
+                        paper_rearmed = True
                     else:
                         raise RuntimeError("paper engine halt is not operator-rearmable")
-                    self._persist_paper_engine_state(paper_engine)
-                    self.auto_engine = paper_engine
-                    paper_rearmed = True
                 if not rearmed and not paper_rearmed:
                     raise RuntimeError("no eligible persisted halt remains to re-arm")
                 ensure_paper_runner_ready(guard, session)
@@ -2271,7 +2298,7 @@ class FuturesAnalyzerApp(App):
             "selected_symbol_trade_count": 0,
             "last_any_market_trade_at": None,
             "last_selected_symbol_trade_at": None,
-            "candle_count": 0, "builder_ready": False,
+            "candle_count": 0, "archived_display_candle_count": 0, "builder_ready": False,
             "reconnect_partial_buckets_discarded": 0,
             "reconnect_history_clear_count": 0,
             "reconnect_last_reset_reason": "startup",
@@ -2308,9 +2335,19 @@ class FuturesAnalyzerApp(App):
                 builder = previous_builder
                 builder.reset_after_reconnect()
             else:
-                builder = TradeCandleBuilder(symbol)
+                builder = TradeCandleBuilder(symbol, max_candles=2000)
             candle_cache_dir = os.path.join(self.user_data_dir, "candle-cache")
             candle_cache_path = os.path.join(candle_cache_dir, symbol + ".json")
+            # Archived runs remain available for historical display after restart,
+            # but are deliberately kept outside builder.closed and all signals.
+            archived_display_rows = load_archived_candle_history(
+                candle_cache_dir, symbol, int(time.time() * 1000),
+                interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
+            )
+            self.auto_candle_display_history = archived_display_rows
+            self._update_engine_health(
+                archived_display_candle_count=len(archived_display_rows)
+            )
             restored_candle_count = 0
             candle_cache_note = "هنوز تاریخچه کندل ذخیره‌شده‌ای وجود ندارد."
             if previous_builder is None or previous_builder.symbol != symbol:
@@ -2359,13 +2396,15 @@ class FuturesAnalyzerApp(App):
             if os.path.isfile(state_path):
                 with open(state_path, "r", encoding="utf-8") as state_file:
                     engine = PaperTradingEngine.restore_state(json.load(state_file))
-                if engine.halted:
+                if engine.halted and engine.halt_reason != "DATA_GAP":
                     raise RuntimeError(
                         "موتور قبلاً متوقف شده است؛ علت: {}؛ جزئیات: {}. "
                         "راه‌اندازی خودکار پس از توقف اضطراری یا سقف زیان مجاز نیست؛ "
                         "وضعیت باید آگاهانه بررسی شود."
                         .format(engine.halt_reason, engine.halt_detail or "جزئیات ثبت نشده")
                     )
+                if engine.halted and engine.halt_reason == "DATA_GAP" and engine.position is not None:
+                    raise RuntimeError("DATA_GAP recovery requires a flattened paper position")
             else:
                 engine = PaperTradingEngine(capital=self.capital_usdt, risk_percent=0.5,
                                             max_leverage=3, max_loss_percent=3.0)
@@ -2564,8 +2603,11 @@ class FuturesAnalyzerApp(App):
         try:
             coordinator = MultiSymbolPaperCoordinator(
                 subscription_symbols, analyze_klines, prepare_live_market_snapshot,
-                builder_factory=lambda market: builder if market == symbol else TradeCandleBuilder(market),
+                builder_factory=lambda market: builder if market == symbol else TradeCandleBuilder(market, max_candles=2000),
                 max_snapshot_age=30.0,
+                analyze_with_context=lambda candles, now_ms: analyze_multi_timeframe(
+                    candles, now_ms, analyze_klines
+                ),
             )
         except Exception as coordinator_exc:
             self.auto_stop_event.set()
@@ -2627,7 +2669,7 @@ class FuturesAnalyzerApp(App):
             self._update_engine_health(worker_phase="connecting",
                                        websocket_connected=False,
                                        retry_attempt=retry_attempt)
-            attempt_delay = min(15, 2 + retry_attempt * 2)
+            attempt_delay = reconnect_backoff_seconds(retry_attempt)
             Clock.schedule_once(
                 lambda dt, number=retry_attempt: self.update_auto_status(
                     "در حال تلاش برای اتصال به جریان معاملات؛ تلاش شماره {}. "
@@ -2750,7 +2792,6 @@ class FuturesAnalyzerApp(App):
                 # Only a fresh, fully validated broadcast trade refreshes liveness.
                 # Only the selected symbol may enter its candle builder.
                 stream_watchdog.mark_valid_trade()
-                retry_attempt = 0
                 # Accept only the exact symbols subscribed on this socket.
                 # Each market has its own candle builder and technical snapshot.
                 event_symbol = parsed.get("symbol")
@@ -2877,6 +2918,18 @@ class FuturesAnalyzerApp(App):
                         # the continuity gate still blocks use of stale rows.
                         pass
                     self.auto_candle_cache_last_open_time = None
+                    try:
+                        archived_display_rows = load_archived_candle_history(
+                            candle_cache_dir, symbol, int(time.time() * 1000),
+                            interval_ms=builder.interval_ms, limit=builder.closed.maxlen,
+                        )
+                        self.auto_candle_display_history = archived_display_rows
+                        self._update_engine_health(
+                            archived_display_candle_count=len(archived_display_rows)
+                        )
+                    except (OSError, ValueError, TypeError):
+                        # Display archive failures never affect live candle safety.
+                        pass
                 elif update.get("accepted") and builder.closed:
                     cached_open_time = builder.closed[-1][0]
                     if cached_open_time != getattr(self, "auto_candle_cache_last_open_time", None):
@@ -3209,6 +3262,25 @@ class FuturesAnalyzerApp(App):
                     try:
                         if self.auto_stop_event.is_set():
                             return
+                        # Recover DATA_GAP only after fresh continuous candles produce candidates.
+                        if engine.halted and engine.halt_reason == "DATA_GAP":
+                            if engine.position is not None or not builder.is_ready:
+                                if scan_stop.wait(0.25):
+                                    return
+                                continue
+                            engine.rearm_after_data_gap()
+                            self._persist_paper_engine_state(engine)
+                            self._update_engine_health(
+                                worker_phase="data_gap_recovered_waiting_for_scan",
+                                builder_ready=True,
+                                candle_count=int(builder.status().get("closed_candles", 0)),
+                            )
+                            Clock.schedule_once(
+                                lambda dt: self.update_auto_status(
+                                    "تاریخچهٔ پیوسته و تازه آماده شد؛ توقف ناشی از شکاف داده رفع شد. "
+                                    "موتور فقط در حالت آزمایشی ادامه می‌دهد."
+                                ), 0
+                            )
                         result = engine.process_scan(candidates)
                         self._persist_paper_engine_state(engine)
                         last_scan = time.monotonic()
@@ -3364,6 +3436,12 @@ class FuturesAnalyzerApp(App):
                 watchdog_stop.set()
                 watchdog_thread.join(timeout=1.0)
                 self.auto_ws = None
+            # Reset backoff only after a genuinely stable session. Resetting it
+            # on every single trade caused short-lived sockets to retry forever
+            # at the minimum delay, amplifying transient Android DNS failures.
+            opened_at = market_connection_state.get("opened_at")
+            if opened_at is not None and time.monotonic() - opened_at >= 60.0:
+                retry_attempt = 0
             if not self.auto_stop_event.is_set():
                 Clock.schedule_once(
                     lambda dt: self.update_auto_status(
@@ -3510,21 +3588,34 @@ class FuturesAnalyzerApp(App):
                         pnl_color = (1, 0.48, 0.42, 1)
                 except (TypeError, ValueError, OverflowError):
                     pass
+                duration_value = trade.get("duration_seconds")
+                try:
+                    duration_number = float(duration_value)
+                    duration_text = (
+                        "{:.1f} ثانیه".format(duration_number)
+                        if math.isfinite(duration_number) and duration_number >= 0
+                        else "نامشخص"
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    duration_text = "نامشخص (رکورد قدیمی)"
                 details = (
                     "معامله بسته‌شده {} | {} {}\n"
-                    "ورود: {} | خروج: {} | مقدار: {}\n"
-                    "حد ضرر: {} | حد سود: {} | اهرم: {}x\n"
+                    "ورود: {} | خروج اجراشده: {} | مقدار: {}\n"
+                    "قیمت برخورد: {} | حد ضرر: {} | حد سود: {}\n"
+                    "مدت نگهداری: {} | اهرم: {}x\n"
                     "ناخالص: {} | کارمزد ورود/خروج: {}/{}\n"
                     "سود/زیان خالص: {} USDT | علت خروج: {}"
                 ).format(
                     index, trade.get("symbol", "—"), side,
                     number(trade.get("entry")), number(trade.get("exit")),
-                    number(trade.get("quantity")), number(trade.get("stop")),
-                    number(trade.get("target")), number(trade.get("leverage")),
+                    number(trade.get("quantity")),
+                    number(trade.get("exit_trigger_price")),
+                    number(trade.get("stop")), number(trade.get("target")),
+                    duration_text, number(trade.get("leverage")),
                     number(trade.get("gross_pnl")), number(trade.get("fees_entry")),
                     number(trade.get("fees_exit")), pnl, trade.get("reason", "—")
                 )
-                add_row(details, dp(136), pnl_color)
+                add_row(details, dp(154), pnl_color)
             position = state.get("position")
             if isinstance(position, dict):
                 side = "خرید" if position.get("side") == "BULLISH" else "فروش"

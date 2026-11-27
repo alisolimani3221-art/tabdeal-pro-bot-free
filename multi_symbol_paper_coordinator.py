@@ -10,6 +10,8 @@ import threading
 import time
 
 from market_candles import TradeCandleBuilder
+from multi_timeframe import (TRADE_TIMEFRAMES_MINUTES,
+                             aggregate_closed_timeframes)
 
 
 _SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT")
@@ -17,7 +19,8 @@ _SYMBOL_RE = re.compile(r"[A-Z0-9]+_USDT")
 
 class MultiSymbolPaperCoordinator:
     def __init__(self, symbols, analyze, prepare_snapshot,
-                 builder_factory=TradeCandleBuilder, max_snapshot_age=30.0):
+                 builder_factory=TradeCandleBuilder, max_snapshot_age=30.0,
+                 analyze_with_context=None):
         if not isinstance(symbols, (list, tuple)) or not 1 <= len(symbols) <= 20:
             raise ValueError("symbols must contain 1-20 USDT futures markets")
         normalized = []
@@ -29,6 +32,8 @@ class MultiSymbolPaperCoordinator:
             normalized.append(symbol)
         if not callable(analyze) or not callable(prepare_snapshot):
             raise ValueError("analysis and snapshot functions must be callable")
+        if analyze_with_context is not None and not callable(analyze_with_context):
+            raise ValueError("contextual analyzer must be callable")
         if isinstance(max_snapshot_age, bool):
             raise ValueError("max_snapshot_age must be finite and positive")
         try:
@@ -39,6 +44,7 @@ class MultiSymbolPaperCoordinator:
             raise ValueError("max_snapshot_age must be between 1 and 120 seconds")
         self.symbols = tuple(normalized)
         self.analyze = analyze
+        self.analyze_with_context = analyze_with_context
         self.prepare_snapshot = prepare_snapshot
         self.max_snapshot_age = age
         self.lock = threading.RLock()
@@ -49,6 +55,7 @@ class MultiSymbolPaperCoordinator:
                 "last_trade_monotonic": None,
                 "last_price": None,
                 "latest_technical": None,
+                "last_analysis_signature": None,
                 "last_analysis_error": None,
                 "accepted_trades": 0,
                 "rejected_trades": 0,
@@ -122,24 +129,49 @@ class MultiSymbolPaperCoordinator:
                 "sequence": trade.get("sequence"),
             }
             if update.get("gap_detected"):
-                # No pre-gap technical snapshot may remain eligible for entry.
+                # No pre-gap technical snapshot or cached indicator signature
+                # may remain eligible after a continuity break.
                 state["latest_technical"] = None
+                state["last_analysis_signature"] = None
             if not state["builder"].is_ready:
                 return {"accepted": True, "symbol": symbol,
                         "ready": False, "gap_detected": bool(update.get("gap_detected"))}
             try:
-                technical = self.analyze(state["builder"].candles_for_analysis())
-                if not isinstance(technical, dict):
-                    raise ValueError("analysis result is not a dictionary")
-                technical = dict(technical)
+                candles = state["builder"].candles_for_analysis()
+                closed = state["builder"].closed
+                if not closed:
+                    raise ValueError("no closed candles available for technical snapshot")
+                # Indicators depend only on completed bars. Cache the expensive
+                # three-timeframe calculation until at least one new timeframe
+                # bar closes; still refresh the live mark on every accepted tick.
+                last_closed_open = int(closed[-1][0])
+                builder_interval_ms = getattr(state["builder"], "interval_ms", 60_000)
+                if (isinstance(builder_interval_ms, bool)
+                        or not isinstance(builder_interval_ms, int)
+                        or builder_interval_ms <= 0):
+                    raise ValueError("builder candle interval is invalid")
+                signature = tuple(
+                    (last_closed_open + builder_interval_ms)
+                    // (minutes * builder_interval_ms)
+                    for minutes in TRADE_TIMEFRAMES_MINUTES
+                )
+                if (state["latest_technical"] is not None
+                        and state["last_analysis_signature"] == signature):
+                    technical = dict(state["latest_technical"])
+                else:
+                    if self.analyze_with_context is not None:
+                        technical = self.analyze_with_context(candles, timestamp)
+                    else:
+                        technical = self.analyze(candles)
+                    if not isinstance(technical, dict):
+                        raise ValueError("analysis result is not a dictionary")
+                    technical = dict(technical)
+                    state["last_analysis_signature"] = signature
                 technical["symbol"] = symbol
                 technical = self.prepare_snapshot(technical, state["last_price"])
                 if not isinstance(technical, dict) or technical.get("symbol") != symbol:
                     raise ValueError("snapshot preparation changed or removed symbol identity")
-                closed = state["builder"].closed
-                if not closed:
-                    raise ValueError("no closed candles available for technical snapshot")
-                technical["candle_open_time"] = int(closed[-1][0])
+                technical["candle_open_time"] = last_closed_open
                 state["latest_technical"] = dict(technical)
                 state["last_analysis_error"] = None
             except Exception as exc:
@@ -251,6 +283,7 @@ class MultiSymbolPaperCoordinator:
                     # Old technical snapshots no longer describe a forming candle.
                     # A fresh symbol trade must rebuild them before scan eligibility.
                     state["latest_technical"] = None
+                    state["last_analysis_signature"] = None
                     state["pending_tick"] = None
         return results
 
@@ -262,6 +295,7 @@ class MultiSymbolPaperCoordinator:
                 state["last_trade_monotonic"] = None
                 state["last_price"] = None
                 state["latest_technical"] = None
+                state["last_analysis_signature"] = None
                 state["pending_tick"] = None
 
     def status(self, now=None):
@@ -278,13 +312,60 @@ class MultiSymbolPaperCoordinator:
                 builder_status = state["builder"].status()
                 received = state["last_trade_monotonic"]
                 age = None if received is None else current - received
+                snapshot = state["latest_technical"]
+                timeframe = (
+                    snapshot.get("timeframe_analysis")
+                    if isinstance(snapshot, dict) else None
+                )
+                timeframe = timeframe if isinstance(timeframe, dict) else {}
+                # Warm-up progress must come from the builder itself, not
+                # from latest_technical. The latter is intentionally absent
+                # until the one-minute builder is ready, so deriving progress
+                # from it made a partially warmed stream misleadingly report
+                # 0/23, 0/2 and 0/1.
+                closed_rows = list(getattr(state["builder"], "closed", ()))
+                interval_ms = getattr(state["builder"], "interval_ms", 60_000)
+                timeframe_counts = {
+                    str(minutes): 0 for minutes in TRADE_TIMEFRAMES_MINUTES
+                }
+                timeframe_counts["1"] = len(closed_rows)
+                if closed_rows:
+                    try:
+                        last_open_time = int(closed_rows[-1][0])
+                        if (isinstance(interval_ms, bool)
+                                or not isinstance(interval_ms, int)
+                                or interval_ms <= 0):
+                            raise ValueError("invalid candle interval")
+                        aggregated = aggregate_closed_timeframes(
+                            closed_rows, last_open_time + interval_ms
+                        )
+                        timeframe_counts["5"] = len(aggregated[5])
+                        timeframe_counts["15"] = len(aggregated[15])
+                    except (KeyError, TypeError, ValueError, OverflowError):
+                        # Bad provenance never increases readiness. The raw
+                        # one-minute count remains visible for diagnosis while
+                        # higher-timeframe counts fail closed at zero.
+                        timeframe_counts["5"] = 0
+                        timeframe_counts["15"] = 0
+                snapshot_fresh = bool(
+                    snapshot is not None and age is not None
+                    and 0 <= age <= self.max_snapshot_age
+                )
+                timeframe_ready = timeframe.get("ready") is True
+                timeframe_agreement = timeframe.get("agreement") is True
+                timeframe_entry_trigger = timeframe.get("entry_trigger") is True
                 result[symbol] = {
                     "accepted_trades": state["accepted_trades"],
                     "rejected_trades": state["rejected_trades"],
                     "last_trade_age_seconds": age,
-                    "snapshot_fresh": bool(
-                        state["latest_technical"] is not None
-                        and age is not None and 0 <= age <= self.max_snapshot_age
+                    "snapshot_fresh": snapshot_fresh,
+                    "multi_timeframe_ready": timeframe_ready,
+                    "multi_timeframe_agreement": timeframe_agreement,
+                    "one_minute_entry_trigger": timeframe_entry_trigger,
+                    "timeframe_closed_candles": timeframe_counts,
+                    "entry_ready": bool(
+                        snapshot_fresh and timeframe_ready and timeframe_agreement
+                        and timeframe_entry_trigger
                     ),
                     "last_analysis_error": state["last_analysis_error"],
                     "builder": builder_status,

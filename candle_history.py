@@ -164,3 +164,34 @@ def archive_candle_cache(path, reason, timestamp_ms):
     finally:
         os.close(dir_fd)
     return archive_path
+
+
+
+def load_archived_candle_history(directory, symbol, now_ms, interval_ms=60_000,
+                                 limit=2000):
+    """Load archived candles for display only; never restore them into an analyzer.
+
+    Archives can contain separated runs. Preserve valid rows across those gaps
+    for historical display, deduplicate by open time, and cap memory usage.
+    """
+    if not isinstance(directory, str) or not directory:
+        raise ValueError("archive directory must be a nonempty string")
+    if not isinstance(symbol, str) or not symbol.endswith("_USDT"):
+        raise ValueError("invalid futures symbol")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    if not os.path.isdir(directory):
+        return []
+    prefix = symbol + ".json.archive-"
+    merged = {}
+    for filename in sorted(os.listdir(directory)):
+        if not filename.startswith(prefix) or not filename.endswith(".json"):
+            continue
+        path = os.path.join(directory, filename)
+        try:
+            rows = load_candle_cache(path, symbol, now_ms, interval_ms, limit)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+        for row in rows:
+            merged[int(row[0])] = list(row)
+    return [merged[key] for key in sorted(merged)[-limit:]]

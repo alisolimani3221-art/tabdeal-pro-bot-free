@@ -32,10 +32,11 @@ class OpenAIAssistantUiTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
         })
 
-    def test_assistant_output_is_plain_text_and_uses_native_rtl(self):
+    def test_assistant_output_is_plain_text_and_uses_single_display_rtl_pass(self):
         self.assertIn("markup=False", self.method_source)
-        self.assertNotIn("assistant_rtl_text(", self.method_source)
-        self.assertIn('result.text = "\\n\\n".join(lines)', self.method_source)
+        self.assertIn('text=assistant_rtl_text(greeting),', self.method_source)
+        self.assertIn('result.text = assistant_rtl_text("\\n\\n".join(lines))', self.method_source)
+        self.assertIn("assistant_rtl_text(", self.method_source)
         self.assertIn("chat_history", self.method_source)
         self.assertIn("conversation_history=history_snapshot", self.method_source)
         self.assertIn('title=fa_plain("گفت‌وگو با هوش مصنوعی Groq")', self.method_source)
@@ -44,8 +45,8 @@ class OpenAIAssistantUiTests(unittest.TestCase):
 
     def test_persian_assistant_result_uses_rtl_alignment_and_scrollable_height(self):
         self.assertIn('halign="right"', self.method_source)
-        self.assertIn('base_direction="rtl", text_language="fa"', self.method_source)
-        self.assertIn('base_direction="rtl", text_language="fa", halign="right"', self.method_source)
+        self.assertIn('base_direction="ltr", text_language="en",', self.method_source)
+        self.assertIn('base_direction="rtl", text_language="ar", halign="right"', self.method_source)
         self.assertIn("result.bind(texture_size=", self.method_source)
         self.assertIn("result_scroll = ScrollView(", self.method_source)
         self.assertIn("result_scroll.add_widget(result)", self.method_source)
@@ -91,7 +92,7 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         self.assertEqual(len(inputs), 1)
         input_keywords = {item.arg: item.value for item in inputs[0].keywords}
         self.assertEqual(input_keywords["base_direction"].value, "rtl")
-        self.assertEqual(input_keywords["text_language"].value, "fa")
+        self.assertEqual(input_keywords["text_language"].value, "ar")
         self.assertEqual(input_keywords["halign"].value, "right")
 
         result_labels = [
@@ -103,13 +104,14 @@ class OpenAIAssistantUiTests(unittest.TestCase):
         ]
         self.assertEqual(len(result_labels), 1)
         result_keywords = {item.arg: item.value for item in result_labels[0].keywords}
-        self.assertEqual(result_keywords["base_direction"].value, "rtl")
-        self.assertEqual(result_keywords["text_language"].value, "fa")
-        self.assertIn('result.text = "\\n\\n".join(lines)', self.method_source)
+        self.assertEqual(result_keywords["base_direction"].value, "ltr")
+        self.assertEqual(result_keywords["text_language"].value, "en")
+        self.assertIn('result.text = assistant_rtl_text("\\n\\n".join(lines))', self.method_source)
         # fa() is valid for static Persian button labels; editable prompts and
         # assistant responses must remain logical Unicode text.
         self.assertNotIn("fa(prompt)", self.method_source)
         self.assertNotIn("fa(message)", self.method_source)
+        self.assertIn("text=assistant_rtl_text(greeting),", self.method_source)
 
 
 if __name__ == "__main__":

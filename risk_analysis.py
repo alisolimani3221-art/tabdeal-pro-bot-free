@@ -21,12 +21,16 @@ def _finite(value, name):
     return number
 
 
-def analyze_klines(candles):
+def analyze_klines(candles, interval_ms=CANDLE_INTERVAL_MS):
     """Calculate SMA10/SMA20, Wilder RSI14 and Wilder ATR14.
 
     The final candle is excluded because it may still be forming. Input uses
     Binance-compatible [open_time, open, high, low, close, volume, ...] rows.
+    interval_ms must match the exact timeframe spacing of the input rows.
     """
+    if (isinstance(interval_ms, bool) or not isinstance(interval_ms, int)
+            or interval_ms <= 0):
+        raise ValueError("interval_ms must be a positive integer")
     if not isinstance(candles, (list, tuple)):
         raise ValueError("candles must be a list")
     closed = list(candles[:-1])
@@ -57,9 +61,9 @@ def analyze_klines(candles):
 
     if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
         raise ValueError("candle timestamps must be strictly increasing")
-    if any(current - previous != CANDLE_INTERVAL_MS
+    if any(current - previous != interval_ms
            for previous, current in zip(timestamps, timestamps[1:])):
-        raise ValueError("one-minute candle history must be gap-free")
+        raise ValueError("candle history must be gap-free at the requested interval")
 
     sma10 = sum(closes[-10:]) / 10.0
     sma20 = sum(closes[-20:]) / 20.0

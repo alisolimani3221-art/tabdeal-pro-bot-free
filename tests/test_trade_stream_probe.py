@@ -249,15 +249,25 @@ class TradeStreamProbeTests(unittest.TestCase):
 
             def run_forever(self, **kwargs):
                 self.callbacks["on_open"](self)
-                message = json.dumps({
+                message_with_sequence = json.dumps({
                     "trade": {
                         "symbol": "BTC_USDT",
                         "price": "90000",
                         "quantity": "0.01",
                         "timestamp": time.time(),
+                        "sequence": 101,
                     }
                 })
-                self.callbacks["on_message"](self, message)
+                message_without_sequence = json.dumps({
+                    "trade": {
+                        "symbol": "BTC_USDT",
+                        "price": "90001",
+                        "quantity": "0.02",
+                        "timestamp": time.time(),
+                    }
+                })
+                self.callbacks["on_message"](self, message_with_sequence)
+                self.callbacks["on_message"](self, message_without_sequence)
 
         timeout_state = {"value": None}
         fake_module = types.SimpleNamespace(
@@ -273,9 +283,11 @@ class TradeStreamProbeTests(unittest.TestCase):
             )
 
         self.assertTrue(result["connected"])
-        self.assertEqual(result["valid_trades"], 1)
+        self.assertEqual(result["valid_trades"], 2)
+        self.assertEqual(result["sequence_present_trades"], 1)
+        self.assertEqual(result["sequence_missing_trades"], 1)
         self.assertEqual(observed["sent"], ["BTC_USDT"])
-        self.assertEqual(len(observed["trades"]), 1)
+        self.assertEqual(len(observed["trades"]), 2)
         self.assertIsNone(timeout_state["value"])
 
     def test_probe_rejects_malformed_symbol_and_timeout_before_network(self):
@@ -289,6 +301,46 @@ class TradeStreamProbeTests(unittest.TestCase):
             with self.subTest(timeout=timeout):
                 with self.assertRaises(ValueError):
                     probe_broadcast(timeout_seconds=timeout)
+        for max_messages in (True, 0, -1, 1.5, "100"):
+            with self.subTest(max_messages=max_messages):
+                with self.assertRaises(ValueError):
+                    probe_broadcast(max_messages=max_messages)
+
+
+    def test_soak_result_requires_full_observation_window(self):
+        from tools.probe_tabdeal_futures_soak import soak_result_is_complete
+
+        complete = {
+            "connected": True, "elapsed_seconds": 1800.0,
+            "valid_trades": 20, "messages": 25,
+            "last_diagnostic": "ok",
+        }
+        self.assertTrue(soak_result_is_complete(complete, 1800))
+        for elapsed in (0.0, 100.0, 1781.0, True, float("nan"), float("inf")):
+            with self.subTest(elapsed=elapsed):
+                result = dict(complete, elapsed_seconds=elapsed)
+                self.assertFalse(soak_result_is_complete(result, 1800))
+
+    def test_soak_result_rejects_disconnect_error_and_invalid_counts(self):
+        from tools.probe_tabdeal_futures_soak import soak_result_is_complete
+
+        base = {
+            "connected": True, "elapsed_seconds": 1800.0,
+            "valid_trades": 20, "messages": 25,
+            "last_diagnostic": "ok",
+        }
+        invalid = (
+            dict(base, connected=False),
+            dict(base, last_diagnostic="websocket_error:ConnectionError"),
+            dict(base, valid_trades=0),
+            dict(base, valid_trades=True),
+            dict(base, messages=1),
+            dict(base, messages=True),
+        )
+        for result in invalid:
+            with self.subTest(result=result):
+                self.assertFalse(soak_result_is_complete(result, 1800))
+        self.assertFalse(soak_result_is_complete(base, True))
 
 
 if __name__ == "__main__":

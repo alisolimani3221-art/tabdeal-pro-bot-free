@@ -135,16 +135,20 @@ class UiFontAssignmentTests(unittest.TestCase):
         self.assertIn("tar -tf /tmp/private.tar", workflow)
 
 
-    def test_chatgpt_popup_keeps_logical_persian_text_for_native_rtl(self):
+    def test_groq_dialog_shapes_display_labels_once_and_keeps_input_logical(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         start = source.index("    def open_openai_assistant(")
         end = source.index("    def open_smart_analysis(", start)
-        assistant = source[start:end]
-        self.assertIn('greeting = "سلام! من دستیار هوشمند برنامه هستم. پیام خود را بنویسید."', assistant)
-        self.assertIn("text=greeting", assistant)
-        self.assertEqual(assistant.count('base_direction="rtl", text_language="fa"'), 2)
-        self.assertIn('result.text = "\\n\\n".join(lines)', assistant)
-        self.assertNotIn("assistant_rtl_text(", assistant)
+        dialog = source[start:end]
+        # The read-only result Label uses one explicit shaping/bidi pass and
+        # LTR widget direction; stored prompts/history remain logical Unicode.
+        self.assertIn('text=assistant_rtl_text(greeting),', dialog)
+        self.assertIn('base_direction="ltr", text_language="en",', dialog)
+        self.assertIn('result.text = assistant_rtl_text("\\n\\n".join(lines))', dialog)
+        self.assertIn('result.text = assistant_rtl_text(message)', dialog)
+        self.assertIn('multiline=True, font_name=FONT_NAME', dialog)
+        self.assertIn('base_direction="rtl", text_language="ar", halign="right"', dialog)
+        self.assertIn('chat_history.append({"role": "user", "content": prompt})', dialog)
 
 
 if __name__ == "__main__":

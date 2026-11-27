@@ -154,6 +154,27 @@ class RiskAnalysisTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     analyze_klines(bad)
 
+    def test_analysis_supports_explicit_five_minute_interval(self):
+        rows = candles(24)
+        for index, row in enumerate(rows):
+            row[0] = index * 5 * 60_000
+        result = analyze_klines(rows, interval_ms=5 * 60_000)
+        self.assertEqual(result["closed_candles"], 23)
+        self.assertGreater(result["atr14"], 0)
+
+    def test_analysis_rejects_timeframe_spacing_mismatch(self):
+        rows = candles(24)
+        for index, row in enumerate(rows):
+            row[0] = index * 5 * 60_000
+        with self.assertRaisesRegex(ValueError, "requested interval"):
+            analyze_klines(rows)
+
+    def test_analysis_rejects_invalid_interval_argument(self):
+        for interval in (0, -60_000, True, 60_000.0, "300000"):
+            with self.subTest(interval=interval):
+                with self.assertRaisesRegex(ValueError, "interval_ms"):
+                    analyze_klines(candles(24), interval_ms=interval)
+
     def test_zero_atr_never_recommends_leverage(self):
         with self.assertRaises(ValueError):
             recommend_leverage({"signal": "BULLISH", "price": 100, "atr14": 0})

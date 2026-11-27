@@ -3,6 +3,13 @@ import math
 import time
 
 
+def reconnect_backoff_seconds(attempt):
+    """Bounded exponential delay for repeated transport/DNS reconnect failures."""
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        raise ValueError("attempt must be a positive integer")
+    return min(30, 2 ** min(attempt, 5))
+
+
 class TradeStreamWatchdog:
     """Monotonic, transport-independent watchdog for validated trade freshness."""
 

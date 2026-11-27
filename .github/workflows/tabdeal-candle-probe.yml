@@ -1,0 +1,32 @@
+name: Read-only Tabdeal candle endpoint probe
+
+on:
+  pull_request:
+    branches:
+      - fix/watermark-close-candles-20261126
+  push:
+    branches:
+      - fix/multitimeframe-risk-exit-20261126
+    paths:
+      - 'tools/probe_tabdeal_klines.py'
+      - '.github/workflows/tabdeal-candle-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install requests
+        run: python -m pip install requests
+      - name: Probe public futures candle route (read-only)
+        run: python tools/probe_tabdeal_klines.py

@@ -1,0 +1,37 @@
+name: Read-only Tabdeal Futures broadcast soak test
+
+on:
+  push:
+    branches:
+      - fix/multitimeframe-risk-exit-20261126
+    paths:
+      - 'trade_stream_probe.py'
+      - 'tools/probe_tabdeal_futures_soak.py'
+      - '.github/workflows/tabdeal-futures-soak.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-futures-soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      SOAK_SECONDS: '1800'
+      SOAK_MAX_MESSAGES: '100000'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only probe dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Observe public Futures broadcast for thirty minutes
+        run: python tools/probe_tabdeal_futures_soak.py

@@ -9,10 +9,22 @@ def setup(symbol="AAA_USDT", price=100.0, signal="BULLISH"):
     if signal == "BULLISH":
         return {"symbol": symbol, "price": price, "sma10": 99, "sma20": 98,
                 "rsi14": 56, "atr14": 0.8, "signal": signal,
-                "closed_candles": 23, "candle_open_time": 60_000}
+                "closed_candles": 23, "candle_open_time": 60_000,
+                "timeframe_analysis": {"ready": True, "agreement": True,
+                    "direction": "BULLISH", "entry_trigger": True,
+                    "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
+                    "closed_candles": {"1": 1439, "5": 288, "15": 96},
+                    "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
+                    "risk_range_by_timeframe": {"5": 0.8}}}
     return {"symbol": symbol, "price": price, "sma10": 101, "sma20": 102,
             "rsi14": 44, "atr14": 0.8, "signal": signal,
-            "closed_candles": 23, "candle_open_time": 60_000}
+            "closed_candles": 23, "candle_open_time": 60_000,
+            "timeframe_analysis": {"ready": True, "agreement": True,
+                "direction": "BEARISH", "entry_trigger": True,
+                "entry_trigger_direction": "BEARISH", "required_minutes": [1, 5, 15],
+                "closed_candles": {"1": 1439, "5": 288, "15": 96},
+                "signals": {"1": "BEARISH", "5": "BEARISH", "15": "BEARISH"},
+                "risk_range_by_timeframe": {"5": 0.8}}}
 
 
 class PaperTradeSummaryTests(unittest.TestCase):
@@ -88,6 +100,44 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(snapshot["candle_open_time"], original["candle_open_time"])
         self.assertEqual(original["candle_high"], 110.0)
 
+    def test_live_snapshot_preserves_closed_candle_price_for_signal_validation(self):
+        original = dict(setup(), price=100.5)
+        snapshot = prepare_live_market_snapshot(original, 98.5)
+        self.assertEqual(snapshot["signal_price"], 100.5)
+        self.assertEqual(snapshot["price"], 98.5)
+        self.assertIsNotNone(rank_signal(snapshot))
+
+    def test_live_price_cannot_create_a_signal_missing_from_closed_candle(self):
+        original = dict(setup(), price=98.5)
+        snapshot = prepare_live_market_snapshot(original, 100.5)
+        self.assertIsNone(rank_signal(snapshot))
+
+    def test_missing_five_minute_risk_range_blocks_entry(self):
+        candidate = setup()
+        candidate["timeframe_analysis"].pop("risk_range_by_timeframe")
+        self.assertIsNone(rank_signal(candidate))
+
+    def test_five_minute_recent_range_controls_protective_stop_distance(self):
+        candidate = setup()
+        candidate["timeframe_analysis"]["risk_range_by_timeframe"]["5"] = 2.0
+        engine = PaperTradingEngine()
+        result = engine.process_scan([candidate])
+        self.assertEqual(result["events"][0]["event"], "OPENED")
+        position = result["open_position"]
+        self.assertAlmostEqual(position["atr"], 2.0)
+        self.assertAlmostEqual(position["entry"] - position["stop"], 3.0)
+        self.assertAlmostEqual(position["target"] - position["entry"], 6.0)
+
+    def test_one_minute_neutral_label_does_not_override_five_and_fifteen_bias(self):
+        candidate = setup()
+        candidate["timeframe_analysis"]["signals"]["1"] = "NEUTRAL"
+        self.assertIsNotNone(rank_signal(candidate))
+
+    def test_diagnostics_describe_waiting_for_one_minute_trigger(self):
+        candidate = dict(setup(), signal="NEUTRAL")
+        candidate["timeframe_analysis"]["entry_trigger"] = False
+        self.assertIn("ماشهٔ ورود یک‌دقیقه‌ای", diagnose_signal(candidate))
+
     def test_live_snapshot_rejects_invalid_current_trade_price(self):
         for value in (None, True, 0, -1, float("nan"), float("inf"), "bad"):
             with self.subTest(live_price=value):
@@ -104,6 +154,38 @@ class PaperTraderTests(unittest.TestCase):
         for value in (None, 0, 22, 22.9, True, "23"):
             with self.subTest(closed_candles=value):
                 self.assertIsNone(rank_signal(dict(setup(), closed_candles=value)))
+
+    def test_rejects_missing_or_conflicting_multi_timeframe_confirmation(self):
+        base = setup()
+        for timeframe in (
+            None,
+            {"ready": False, "agreement": False, "direction": None, "signals": {}},
+            {"ready": True, "agreement": False, "direction": None,
+             "required_minutes": [1, 5, 15],
+             "closed_candles": {"1": 1439, "5": 288, "15": 96},
+             "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BEARISH"}},
+            {"ready": True, "agreement": True, "direction": "BULLISH",
+             "required_minutes": [1, 5, 15],
+             "closed_candles": {"1": 1439, "5": 2, "15": 0},
+             "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BULLISH"}},
+        ):
+            candidate = dict(base)
+            candidate["timeframe_analysis"] = timeframe
+            with self.subTest(timeframe=timeframe):
+                self.assertIsNone(rank_signal(candidate))
+
+    def test_diagnostics_explain_missing_or_conflicting_timeframes(self):
+        candidate = dict(setup(), timeframe_analysis={
+            "ready": False, "agreement": False, "direction": None, "signals": {}
+        })
+        self.assertIn("تاریخچه", diagnose_signal(candidate))
+        candidate["timeframe_analysis"] = {
+            "ready": True, "agreement": False, "direction": None,
+            "required_minutes": [1, 5, 15],
+            "closed_candles": {"1": 1439, "5": 288, "15": 96},
+            "signals": {"1": "BULLISH", "5": "BULLISH", "15": "BEARISH"},
+        }
+        self.assertIn("هم‌سو", diagnose_signal(candidate))
 
     def test_accepts_signal_with_minimum_closed_candle_provenance(self):
         self.assertIsNotNone(rank_signal(setup()))
@@ -130,6 +212,48 @@ class PaperTraderTests(unittest.TestCase):
                              result["open_position"]["leverage"], 2.0)
         self.assertLessEqual(result["open_position"]["risk_budget"], 0.04)
 
+    def test_tick_exit_records_trigger_price_fill_price_reason_and_duration(self):
+        engine = PaperTradingEngine(
+            capital=8, fee_rate=0.0005, slippage_rate=0.001
+        )
+        opened = engine.process_scan([setup()])
+        position = opened["open_position"]
+        self.assertTrue(position["entry_time_utc"].endswith("Z"))
+        trigger_price = position["stop"] - 0.1
+        closed = engine.process_tick("AAA_USDT", trigger_price)
+        trade = closed["trade"]
+        self.assertEqual(trade["reason"], "STOP_TICK")
+        self.assertAlmostEqual(trade["exit_trigger_price"], trigger_price)
+        self.assertAlmostEqual(
+            trade["exit"], trigger_price * (1 - engine.slippage_rate)
+        )
+        self.assertTrue(trade["closed_at_utc"].endswith("Z"))
+        self.assertIsNotNone(trade["duration_seconds"])
+        self.assertGreaterEqual(trade["duration_seconds"], 0)
+        self.assertAlmostEqual(
+            trade["entry"] - trade["stop"], 1.5 * trade["atr"]
+        )
+
+    def test_legacy_open_position_without_entry_timestamp_still_restores(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        state = engine.export_state()
+        state["position"].pop("entry_time_utc")
+        restored = PaperTradingEngine.restore_state(state)
+        self.assertIsNone(restored.position["entry_time_utc"])
+        closed = restored.process_tick(
+            "AAA_USDT", restored.position["stop"] - 0.1
+        )
+        self.assertIsNone(closed["trade"]["duration_seconds"])
+
+    def test_restore_rejects_invalid_entry_timestamp(self):
+        engine = PaperTradingEngine(capital=8)
+        engine.process_scan([setup()])
+        state = engine.export_state()
+        state["position"]["entry_time_utc"] = "2026-11-26T10:00:00"
+        with self.assertRaises(ValueError):
+            PaperTradingEngine.restore_state(state)
+
     def test_stop_closes_position_and_records_net_result(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
@@ -142,12 +266,15 @@ class PaperTraderTests(unittest.TestCase):
                                - engine.closed_trades[-1]["fees_entry"]
                                - engine.closed_trades[-1]["fees_exit"])
 
-    def test_target_closes_long_position(self):
+    def test_target_activates_long_trailing_protection_instead_of_closing(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
         result = engine.process_scan([dict(setup(price=103.0), signal="NEUTRAL")])
-        self.assertEqual(result["events"][0]["event"], "CLOSED")
-        self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
+        self.assertEqual(result["events"], [])
+        self.assertIsNotNone(engine.position)
+        self.assertTrue(engine.position["trailing_active"])
+        self.assertGreater(engine.position["stop"], engine.position["entry"])
+        self.assertGreater(engine.position["best_price"], engine.position["target"])
 
     def test_long_stop_triggers_on_intrabar_low_even_when_close_recovers(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
@@ -182,12 +309,16 @@ class PaperTraderTests(unittest.TestCase):
                                            signal="NEUTRAL")])
         self.assertEqual(result["events"][0]["trade"]["reason"], "STOP")
 
-    def test_target_closes_short_position(self):
+    def test_target_activates_short_trailing_protection_instead_of_closing(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup(signal="BEARISH")])
         result = engine.process_scan([dict(setup(price=97.0, signal="BEARISH"),
                                            signal="NEUTRAL")])
-        self.assertEqual(result["events"][0]["trade"]["reason"], "TARGET")
+        self.assertEqual(result["events"], [])
+        self.assertIsNotNone(engine.position)
+        self.assertTrue(engine.position["trailing_active"])
+        self.assertLess(engine.position["stop"], engine.position["entry"])
+        self.assertLess(engine.position["best_price"], engine.position["target"])
 
     def test_does_not_reopen_on_same_candle_after_stop_across_scans(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
@@ -661,6 +792,31 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(engine.halt_reason, "DAILY_MAX_LOSS")
         self.assertIn("daily", engine.halt_detail.lower())
 
+    def test_data_gap_rearm_requires_flat_position_and_preserves_risk_limits(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        engine.halt_for_data_gap("AAA_USDT", 99.5)
+        self.assertTrue(engine.halted)
+        self.assertEqual(engine.halt_reason, "DATA_GAP")
+        self.assertIsNone(engine.position)
+        result = engine.rearm_after_data_gap()
+        self.assertTrue(result["rearmed"])
+        self.assertEqual(result["recovery"], "fresh_continuous_market_history")
+        self.assertFalse(engine.halted)
+        self.assertIsNone(engine.halt_reason)
+        self.assertEqual(len(engine.closed_trades), 1)
+
+    def test_data_gap_rearm_rejects_other_halts_and_open_positions(self):
+        engine = PaperTradingEngine(capital=8)
+        with self.assertRaises(RuntimeError):
+            engine.rearm_after_data_gap()
+        engine.process_scan([setup()])
+        engine.halt_for_data_gap("AAA_USDT", 99.5)
+        # Simulate corrupted/recovered state that still carries an open position.
+        engine.position = {"symbol": "AAA_USDT"}
+        with self.assertRaises(RuntimeError):
+            engine.rearm_after_data_gap()
+        self.assertTrue(engine.halted)
     def test_data_gap_flattens_and_latches_open_long_and_short_positions(self):
         for signal in ("BULLISH", "BEARISH"):
             with self.subTest(signal=signal):
@@ -708,14 +864,46 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(event["trade"]["reason"], "STOP_TICK")
         self.assertGreaterEqual(event["trade"]["exit"], short_position["stop"])
 
-    def test_tick_level_target_closes_position_without_reopening(self):
+    def test_tick_target_activates_trailing_and_later_retracement_closes(self):
         engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
         engine.process_scan([setup()])
         position = dict(engine.position)
         event = engine.process_tick("AAA_USDT", position["target"] + 0.1)
-        self.assertEqual(event["trade"]["reason"], "TARGET_TICK")
+        self.assertIsNone(event)
+        self.assertIsNotNone(engine.position)
+        self.assertTrue(engine.position["trailing_active"])
+        first_stop = engine.position["stop"]
+        self.assertGreater(first_stop, position["entry"])
+        self.assertIsNone(engine.process_tick("AAA_USDT", position["target"] + 1.0))
+        self.assertGreaterEqual(engine.position["stop"], first_stop)
+        closed = engine.process_tick("AAA_USDT", engine.position["stop"] - 0.01)
+        self.assertEqual(closed["trade"]["reason"], "TRAILING_STOP_TICK")
         self.assertIsNone(engine.position)
-        self.assertIsNone(engine.process_tick("AAA_USDT", 100.0))
+
+    def test_trailing_state_survives_restart_without_losing_protection(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        position = dict(engine.position)
+        engine.process_tick("AAA_USDT", position["target"] + 0.2)
+        saved = engine.export_state()
+        restored = PaperTradingEngine.restore_state(saved)
+        self.assertTrue(restored.position["trailing_active"])
+        self.assertEqual(restored.position["best_price"],
+                         engine.position["best_price"])
+        self.assertEqual(restored.position["stop"], engine.position["stop"])
+        closed = restored.process_tick(
+            "AAA_USDT", restored.position["stop"] - 0.01
+        )
+        self.assertEqual(closed["trade"]["reason"], "TRAILING_STOP_TICK")
+
+    def test_target_does_not_claim_profit_before_fees_are_covered(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.05, slippage_rate=0)
+        engine.process_scan([setup()])
+        position = dict(engine.position)
+        event = engine.process_tick("AAA_USDT", position["target"] + 0.1)
+        self.assertIsNone(event)
+        self.assertFalse(engine.position["trailing_active"])
+        self.assertEqual(engine.position["stop"], position["stop"])
 
     def test_tick_reconciliation_ignores_other_symbols_and_bad_prices(self):
         engine = PaperTradingEngine(capital=8)

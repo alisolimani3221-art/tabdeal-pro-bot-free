@@ -4,6 +4,8 @@ import re
 import threading
 from datetime import date, datetime, timezone
 
+from multi_timeframe import TRADE_TIMEFRAMES_MINUTES
+
 
 PAPER_SCAN_INTERVAL_SECONDS = 5.0
 
@@ -52,6 +54,28 @@ def _positive(value, name):
     if not math.isfinite(number) or number <= 0:
         raise ValueError("{} must be positive and finite".format(name))
     return number
+
+
+def _utc_timestamp():
+    """Return a compact, timezone-aware UTC timestamp for paper-trade auditing."""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _parse_utc_timestamp(value, name):
+    """Validate an optional persisted UTC timestamp without accepting naive times."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or len(value) > 40:
+        raise ValueError("{} is invalid".format(name))
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError("{} is invalid".format(name))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("{} must include a timezone".format(name))
+    return parsed.astimezone(timezone.utc)
 
 
 
@@ -129,6 +153,10 @@ def prepare_live_market_snapshot(technical, live_price):
         raise ValueError("technical snapshot must be a dictionary")
     price = _positive(live_price, "live price")
     snapshot = dict(technical)
+    # Preserve the closed-candle close used by indicators and entry validation.
+    # The live trade price is kept separately for execution and position marking.
+    signal_price = technical.get("signal_price", technical.get("price"))
+    snapshot["signal_price"] = _positive(signal_price, "closed-candle signal price")
     snapshot["price"] = price
     snapshot["candle_open"] = price
     snapshot["candle_high"] = price
@@ -149,6 +177,28 @@ def rank_signal(technical):
     closed_candles = technical.get("closed_candles")
     if type(closed_candles) is not int or closed_candles < 23:
         return None
+    timeframe = technical.get("timeframe_analysis")
+    if (not isinstance(timeframe, dict)
+            or timeframe.get("ready") is not True
+            or timeframe.get("agreement") is not True
+            or timeframe.get("direction") != signal
+            or timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES)):
+        return None
+    timeframe_counts = timeframe.get("closed_candles")
+    minimum_counts = {"1": 23, "5": 2, "15": 1}
+    if (not isinstance(timeframe_counts, dict)
+            or any(type(timeframe_counts.get(key)) is not int
+                   or timeframe_counts.get(key) < minimum
+                   for key, minimum in minimum_counts.items())):
+        return None
+    timeframe_signals = timeframe.get("signals")
+    if (not isinstance(timeframe_signals, dict)
+            or timeframe_signals.get("5") != signal
+            or timeframe_signals.get("15") != signal
+            or timeframe.get("entry_trigger") is not True
+            or timeframe.get("entry_trigger_direction") != signal
+            or timeframe_signals.get("1") not in ("BULLISH", "BEARISH", "NEUTRAL")):
+        return None
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
@@ -159,22 +209,30 @@ def rank_signal(technical):
         return None
     try:
         price = _positive(technical["price"], "price")
+        signal_price = _positive(technical.get("signal_price", technical["price"]),
+                                 "closed-candle signal price")
         sma10 = _positive(technical["sma10"], "sma10")
         sma20 = _positive(technical["sma20"], "sma20")
         if isinstance(technical["rsi14"], bool):
             return None
         rsi = float(technical["rsi14"])
-        atr = _positive(technical["atr14"], "atr14")
+        signal_atr = _positive(technical["atr14"], "1m atr14")
+        risk_ranges = timeframe.get("risk_range_by_timeframe")
+        if not isinstance(risk_ranges, dict):
+            return None
+        risk_range = _positive(risk_ranges.get("5"), "5m recent true range")
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(rsi) or not 0 <= rsi <= 100:
         return None
-    volatility_pct = atr / price * 100.0
+    volatility_pct = signal_atr / price * 100.0
     if not math.isfinite(volatility_pct) or volatility_pct > 2.0:
         return None
-    if signal == "BULLISH" and not (price > sma10 > sma20 and 50 <= rsi < 68):
+    # Higher timeframes determine direction. The 1m candle is only an
+    # entry trigger: close beyond SMA10 plus non-extreme RSI confirmation.
+    if signal == "BULLISH" and not (signal_price > sma10 and 50 < rsi < 70):
         return None
-    if signal == "BEARISH" and not (price < sma10 < sma20 and 32 < rsi <= 50):
+    if signal == "BEARISH" and not (signal_price < sma10 and 30 < rsi < 50):
         return None
     trend_strength = abs(sma10 - sma20) / price * 100.0
     momentum_strength = abs(rsi - 50.0) / 18.0
@@ -182,7 +240,7 @@ def rank_signal(technical):
     if not math.isfinite(score):
         return None
     return {"symbol": normalized_symbol, "side": signal,
-            "price": price, "atr": atr, "rsi": rsi,
+            "price": price, "risk_range": risk_range, "signal_atr": signal_atr, "rsi": rsi,
             "candle_open_time": candle_open_time,
             "volatility_pct": volatility_pct, "score": score}
 
@@ -193,12 +251,49 @@ def diagnose_signal(technical):
         return "داده تحلیل نامعتبر است"
     signal = technical.get("signal")
     if signal == "NEUTRAL":
-        return "سیگنال خنثی است؛ روند و مومنتوم هم‌جهت نیستند"
+        timeframe = technical.get("timeframe_analysis")
+        if not isinstance(timeframe, dict) or timeframe.get("ready") is not True:
+            return "تاریخچهٔ کامل ۱، ۵ و ۱۵ دقیقه آماده نیست؛ ورود مسدود است"
+        if timeframe.get("agreement") is not True:
+            return "جهت روند ۵ و ۱۵ دقیقه هم‌سو نیست؛ ورود مسدود است"
+        if timeframe.get("entry_trigger") is not True:
+            return "روند ۵ و ۱۵ دقیقه هم‌جهت است؛ منتظر ماشهٔ ورود یک‌دقیقه‌ای هستیم"
+        return "سیگنال خنثی است؛ شرایط ورود هنوز کامل نیست"
     if signal not in ("BULLISH", "BEARISH"):
         return "جهت سیگنال قابل‌شناسایی نیست"
     count = technical.get("closed_candles")
     if type(count) is not int or count < 23:
         return "داده کافی نیست: حداقل ۲۳ کندل بسته‌شده لازم است"
+    timeframe = technical.get("timeframe_analysis")
+    if (not isinstance(timeframe, dict) or timeframe.get("ready") is not True):
+        return "تاریخچهٔ کامل ۱، ۵ و ۱۵ دقیقه آماده نیست؛ ورود مسدود است"
+    if timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES):
+        return "فهرست تایم‌فریم‌های لازم معتبر نیست؛ ورود مسدود است"
+    timeframe_counts = timeframe.get("closed_candles")
+    if (not isinstance(timeframe_counts, dict)
+            or any(type(timeframe_counts.get(key)) is not int
+                   or timeframe_counts.get(key) < minimum
+                   for key, minimum in {"1": 23, "5": 2, "15": 1}.items())):
+        return "حداقل کندل بستهٔ لازم: یک‌دقیقه ۲۳، پنج‌دقیقه ۲ و پانزده‌دقیقه ۱؛ ورود مسدود است"
+    if (timeframe.get("agreement") is not True
+            or timeframe.get("direction") != signal):
+        return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
+    timeframe_signals = timeframe.get("signals")
+    if (not isinstance(timeframe_signals, dict)
+            or timeframe_signals.get("5") != signal
+            or timeframe_signals.get("15") != signal):
+        return "جهت روند ۵ و ۱۵ دقیقه هم‌سو نیست؛ ورود مسدود است"
+    if (timeframe.get("entry_trigger") is not True
+            or timeframe.get("entry_trigger_direction") != signal):
+        return "روند ۵ و ۱۵ دقیقه تأیید شده، اما ماشهٔ ورود یک‌دقیقه‌ای هنوز فعال نیست"
+    if timeframe_signals.get("1") not in ("BULLISH", "BEARISH", "NEUTRAL"):
+        return "وضعیت دادهٔ یک‌دقیقه‌ای معتبر نیست؛ ورود مسدود است"
+    risk_ranges = timeframe.get("risk_range_by_timeframe")
+    try:
+        _positive(risk_ranges.get("5") if isinstance(risk_ranges, dict) else None,
+                  "5m recent true range")
+    except (TypeError, ValueError, OverflowError):
+        return "دامنهٔ نوسان دو کندل اخیر پنج‌دقیقه‌ای برای حد ضرر معتبر نیست؛ ورود مسدود است"
     candle_open_time = technical.get("candle_open_time")
     if (isinstance(candle_open_time, bool) or
             not isinstance(candle_open_time, int) or candle_open_time <= 0):
@@ -207,7 +302,8 @@ def diagnose_signal(technical):
     if not re.fullmatch(r"[A-Z0-9]+_?USDT", symbol):
         return "نماد معاملاتی نامعتبر است"
     try:
-        price = _positive(technical["price"], "price")
+        price = _positive(technical.get("signal_price", technical["price"]),
+                             "closed-candle signal price")
         sma10 = _positive(technical["sma10"], "sma10")
         sma20 = _positive(technical["sma20"], "sma20")
         rsi = float(technical["rsi14"])
@@ -220,15 +316,15 @@ def diagnose_signal(technical):
     if not math.isfinite(volatility) or volatility > 2.0:
         return "نوسان بیش از حد مجاز ۲٪ است"
     if signal == "BULLISH":
-        if not price > sma10 > sma20:
-            return "ورود خرید رد شد: قیمت باید بالاتر از SMA10 و SMA10 بالاتر از SMA20 باشد"
-        if not 50 <= rsi < 68:
-            return "ورود خرید رد شد: RSI باید از ۵۰ تا کمتر از ۶۸ باشد"
+        if not price > sma10:
+            return "ورود خرید رد شد: بسته‌شدن کندل یک‌دقیقه‌ای باید بالاتر از SMA10 باشد"
+        if not 50 < rsi < 70:
+            return "ورود خرید رد شد: RSI باید بیشتر از ۵۰ و کمتر از ۷۰ باشد"
     else:
-        if not price < sma10 < sma20:
-            return "ورود فروش رد شد: قیمت باید پایین‌تر از SMA10 و SMA10 پایین‌تر از SMA20 باشد"
-        if not 32 < rsi <= 50:
-            return "ورود فروش رد شد: RSI باید بیشتر از ۳۲ و حداکثر ۵۰ باشد"
+        if not price < sma10:
+            return "ورود فروش رد شد: بسته‌شدن کندل یک‌دقیقه‌ای باید پایین‌تر از SMA10 باشد"
+        if not 30 < rsi < 50:
+            return "ورود فروش رد شد: RSI باید بیشتر از ۳۰ و کمتر از ۵۰ باشد"
     return "شرایط سیگنال تأیید شده؛ ورود آزمایشی مجاز است"
 
 
@@ -431,14 +527,36 @@ class PaperTradingEngine:
                 "quantity", "notional", "leverage", "risk_budget",
                 "risk_limit", "fees_entry", "score",
             }
-            if not isinstance(position, dict) or set(position) != required:
+            trailing_fields = {"atr", "trailing_active", "best_price"}
+            audit_fields = {"entry_time_utc"}
+            accepted_shapes = (
+                required,
+                required | trailing_fields,
+                required | audit_fields,
+                required | trailing_fields | audit_fields,
+            )
+            if not isinstance(position, dict) or set(position) not in accepted_shapes:
                 raise ValueError("paper-engine position is malformed")
+            position = dict(position)
+            if not trailing_fields.issubset(position):
+                position.update({
+                    "atr": abs(position["target"] - position["entry"]) / 3.0,
+                    "trailing_active": False,
+                    "best_price": position["last_price"],
+                })
+            position.setdefault("entry_time_utc", None)
+            _parse_utc_timestamp(
+                position["entry_time_utc"], "position entry timestamp"
+            )
+            if type(position["trailing_active"]) is not bool:
+                raise ValueError("paper-engine trailing state is invalid")
             if (not isinstance(position["symbol"], str)
                     or not re.fullmatch(r"[A-Z0-9]+_?USDT", position["symbol"])
                     or position["side"] not in ("BULLISH", "BEARISH")):
                 raise ValueError("paper-engine position identity is invalid")
             for name in ("entry", "last_price", "stop", "target", "quantity",
-                         "notional", "risk_budget", "risk_limit", "fees_entry"):
+                         "notional", "risk_budget", "risk_limit", "fees_entry",
+                         "atr", "best_price"):
                 finite(position[name], "position " + name,
                        allow_zero=(name in ("risk_budget", "risk_limit", "fees_entry")))
             finite(position["score"], "position score", allow_negative=True)
@@ -446,10 +564,23 @@ class PaperTradingEngine:
             if type(leverage) is not int or not 1 <= leverage <= engine.max_leverage:
                 raise ValueError("paper-engine position leverage is invalid")
             if position["side"] == "BULLISH":
-                if not position["stop"] < position["entry"] < position["target"]:
-                    raise ValueError("paper-engine long protection is invalid")
-            elif not position["target"] < position["entry"] < position["stop"]:
-                raise ValueError("paper-engine short protection is invalid")
+                if position["trailing_active"]:
+                    valid_protection = (
+                        position["entry"] < position["stop"] < position["best_price"]
+                        and position["target"] < position["best_price"]
+                    )
+                else:
+                    valid_protection = position["stop"] < position["entry"] < position["target"]
+            else:
+                if position["trailing_active"]:
+                    valid_protection = (
+                        position["best_price"] < position["stop"] < position["entry"]
+                        and position["best_price"] < position["target"]
+                    )
+                else:
+                    valid_protection = position["target"] < position["entry"] < position["stop"]
+            if not valid_protection:
+                raise ValueError("paper-engine position protection is invalid")
             # Cross-check persisted accounting fields instead of trusting
             # individually finite numbers that may describe an impossible position.
             expected_notional = position["entry"] * position["quantity"]
@@ -527,18 +658,38 @@ class PaperTradingEngine:
 
     def _close(self, price, reason):
         p = self.position
-        exit_price = price * (1 - self.slippage_rate if p["side"] == "BULLISH"
-                              else 1 + self.slippage_rate)
+        exit_trigger_price = _positive(price, "exit trigger price")
+        exit_price = exit_trigger_price * (
+            1 - self.slippage_rate if p["side"] == "BULLISH"
+            else 1 + self.slippage_rate
+        )
         gross = ((exit_price - p["entry"]) * p["quantity"] *
                  (1 if p["side"] == "BULLISH" else -1))
         exit_fee = exit_price * p["quantity"] * self.fee_rate
         net = gross - exit_fee
         self.cash += net
+        closed_at = _utc_timestamp()
+        opened_at = _parse_utc_timestamp(
+            p.get("entry_time_utc"), "position entry timestamp"
+        )
+        closed_at_parsed = _parse_utc_timestamp(closed_at, "trade close timestamp")
+        duration = (
+            (closed_at_parsed - opened_at).total_seconds()
+            if opened_at is not None else None
+        )
+        if duration is not None and duration < 0:
+            duration = None
         trade = dict(p)
-        trade.update({"exit": exit_price, "gross_pnl": gross,
-                      "fees_exit": exit_fee,
-                      "net_pnl": gross - p["fees_entry"] - exit_fee,
-                      "reason": reason})
+        trade.update({
+            "exit": exit_price,
+            "exit_trigger_price": exit_trigger_price,
+            "closed_at_utc": closed_at,
+            "duration_seconds": duration,
+            "gross_pnl": gross,
+            "fees_exit": exit_fee,
+            "net_pnl": gross - p["fees_entry"] - exit_fee,
+            "reason": reason,
+        })
         self.closed_trades.append(trade)
         self.position = None
         return {"event": "CLOSED", "trade": trade}
@@ -573,6 +724,29 @@ class PaperTradingEngine:
             return {"halted": False, "rearmed": True,
                     "live_order_submitted": False}
 
+    def rearm_after_data_gap(self):
+        """Re-arm a DATA_GAP halt only after fresh continuous history is rebuilt."""
+        with self._lock:
+            if not self.halted or self.halt_reason != "DATA_GAP":
+                raise RuntimeError("only a DATA_GAP halt can use market-history recovery")
+            if self.position is not None:
+                raise RuntimeError("open paper position must be closed before data-gap recovery")
+            self._refresh_daily_period()
+            if self.cash <= self.daily_loss_floor:
+                self.halt_reason = "DAILY_MAX_LOSS"
+                self.halt_detail = "UTC daily paper loss limit remains active"
+                raise RuntimeError("maximum UTC daily paper loss limit remains active")
+            loss_floor = self.initial_capital * (1.0 - self.max_loss_percent / 100.0)
+            if self.cash <= loss_floor:
+                self.halt_reason = "MAX_LOSS"
+                self.halt_detail = "cumulative paper loss limit remains active"
+                raise RuntimeError("maximum cumulative paper loss limit remains active")
+            self.halted = False
+            self.halt_reason = None
+            self.halt_detail = None
+            return {"halted": False, "rearmed": True,
+                    "recovery": "fresh_continuous_market_history",
+                    "live_order_submitted": False}
     def daily_reset_available(self, now=None):
         """Return whether a daily-loss halt may be re-armed on a later UTC day."""
         with self._lock:
@@ -654,6 +828,45 @@ class PaperTradingEngine:
                 "equity": self.equity,
             }
 
+    def _activate_trailing(self, position, favourable_price):
+        """Activate trailing only after costs can be covered at the protected floor."""
+        entry = position["entry"]
+        quantity = position["quantity"]
+        if position["side"] == "BULLISH":
+            floor = (entry + position["fees_entry"] / quantity) / (
+                (1.0 - self.slippage_rate) * (1.0 - self.fee_rate)
+            )
+            if favourable_price <= floor:
+                return False
+        else:
+            ceiling = (entry - position["fees_entry"] / quantity) / (
+                (1.0 + self.slippage_rate) * (1.0 + self.fee_rate)
+            )
+            if favourable_price >= ceiling:
+                return False
+        position["trailing_active"] = True
+        position["best_price"] = favourable_price
+        self._ratchet_trailing_stop(position)
+        return True
+
+    def _ratchet_trailing_stop(self, position):
+        """Move protection only in the profitable direction; never loosen it."""
+        entry = position["entry"]
+        quantity = position["quantity"]
+        atr = position["atr"]
+        if position["side"] == "BULLISH":
+            floor = (entry + position["fees_entry"] / quantity) / (
+                (1.0 - self.slippage_rate) * (1.0 - self.fee_rate)
+            )
+            position["stop"] = max(position["stop"], floor,
+                                   position["best_price"] - atr)
+        else:
+            ceiling = (entry - position["fees_entry"] / quantity) / (
+                (1.0 + self.slippage_rate) * (1.0 + self.fee_rate)
+            )
+            position["stop"] = min(position["stop"], ceiling,
+                                   position["best_price"] + atr)
+
     def process_tick(self, symbol, price, now=None):
         """Reconcile an open paper position and both loss limits on every valid tick."""
         with self._lock:
@@ -667,14 +880,22 @@ class PaperTradingEngine:
             event = None
             if p["side"] == "BULLISH":
                 if latest <= p["stop"]:
-                    event = self._close(min(p["stop"], latest), "STOP_TICK")
+                    event = self._close(min(p["stop"], latest),
+                                        "TRAILING_STOP_TICK" if p.get("trailing_active") else "STOP_TICK")
+                elif p.get("trailing_active"):
+                    p["best_price"] = max(p["best_price"], latest)
+                    self._ratchet_trailing_stop(p)
                 elif latest >= p["target"]:
-                    event = self._close(p["target"], "TARGET_TICK")
+                    self._activate_trailing(p, latest)
             else:
                 if latest >= p["stop"]:
-                    event = self._close(max(p["stop"], latest), "STOP_TICK")
+                    event = self._close(max(p["stop"], latest),
+                                        "TRAILING_STOP_TICK" if p.get("trailing_active") else "STOP_TICK")
+                elif p.get("trailing_active"):
+                    p["best_price"] = min(p["best_price"], latest)
+                    self._ratchet_trailing_stop(p)
                 elif latest <= p["target"]:
-                    event = self._close(p["target"], "TARGET_TICK")
+                    self._activate_trailing(p, latest)
 
             self._refresh_daily_period(now)
             cumulative_floor = self.initial_capital * (
@@ -748,16 +969,29 @@ class PaperTradingEngine:
                 hit_stop = bar_low <= p["stop"]
                 hit_target = bar_high >= p["target"]
                 stop_fill = min(p["stop"], bar_open)
+                favourable = bar_high
             else:
                 hit_stop = bar_high >= p["stop"]
                 hit_target = bar_low <= p["target"]
                 stop_fill = max(p["stop"], bar_open)
+                favourable = bar_low
             if hit_stop:
-                events.append(self._close(stop_fill, "STOP"))
+                events.append(self._close(
+                    stop_fill,
+                    "TRAILING_STOP" if p.get("trailing_active") else "STOP",
+                ))
                 closed_this_scan = True
-            elif hit_target:
-                events.append(self._close(p["target"], "TARGET"))
-                closed_this_scan = True
+            elif not p.get("trailing_active") and hit_target:
+                # Activate protection only; never assume an intrabar path
+                # that would allow a newly-created trailing stop to fill.
+                self._activate_trailing(p, favourable)
+            elif p.get("trailing_active"):
+                # Apply the old stop to this bar, then ratchet for the next.
+                p["best_price"] = (
+                    max(p["best_price"], favourable) if p["side"] == "BULLISH"
+                    else min(p["best_price"], favourable)
+                )
+                self._ratchet_trailing_stop(p)
 
         # Refresh the UTC day only after marking any open position at the
         # latest validated candle price, so midnight rollover starts from a
@@ -798,7 +1032,7 @@ class PaperTradingEngine:
                         "halted": self.halted, "halt_reason": self.halt_reason}
             entry = choice["price"] * (1 + self.slippage_rate if choice["side"] == "BULLISH"
                                        else 1 - self.slippage_rate)
-            stop_distance = 1.5 * choice["atr"]
+            stop_distance = 1.5 * choice["risk_range"]
             risk_cash = self.cash * self.risk_percent / 100.0
             # Size for the full estimated stop loss, including entry/exit
             # slippage and both-side fees, rather than price distance alone.
@@ -821,7 +1055,7 @@ class PaperTradingEngine:
                 notional = quantity * entry
             if quantity > 0 and notional > 0 and notional / leverage <= self.cash:
                 stop = entry - stop_distance if choice["side"] == "BULLISH" else entry + stop_distance
-                target = entry + 3 * choice["atr"] if choice["side"] == "BULLISH" else entry - 3 * choice["atr"]
+                target = entry + 3 * choice["risk_range"] if choice["side"] == "BULLISH" else entry - 3 * choice["risk_range"]
                 fee = notional * self.fee_rate
                 if fee < self.cash and notional / leverage <= self.cash - fee:
                     self.cash -= fee
@@ -833,6 +1067,9 @@ class PaperTradingEngine:
                         "risk_budget": quantity * risk_per_unit,
                         "risk_limit": risk_cash, "fees_entry": fee,
                         "score": choice["score"],
+                        "atr": choice["risk_range"], "trailing_active": False,
+                        "best_price": choice["price"],
+                        "entry_time_utc": _utc_timestamp(),
                     }
                     self.last_entry_candle = {
                         "symbol": choice["symbol"],

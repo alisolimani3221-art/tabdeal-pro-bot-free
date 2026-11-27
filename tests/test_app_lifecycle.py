@@ -295,6 +295,13 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "symbol": "AAA_USDT", "price": 100, "sma10": 99, "sma20": 98,
             "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
             "closed_candles": 23, "candle_open_time": 60_000,
+            "timeframe_analysis": {"ready": True, "agreement": True,
+            "direction": "BULLISH", "entry_trigger": True,
+            "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
+            "closed_candles": {"1": 1439, "5": 288, "15": 96},
+            "signals": {
+                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
+            "risk_range_by_timeframe": {"5": 1.6}},
         }])
         self.assertIsNotNone(engine.position)
 
@@ -441,6 +448,13 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "symbol": "AAA_USDT", "price": 100, "sma10": 99, "sma20": 98,
             "rsi14": 56, "atr14": 0.8, "signal": "BULLISH",
             "closed_candles": 23, "candle_open_time": 60_000,
+            "timeframe_analysis": {"ready": True, "agreement": True,
+            "direction": "BULLISH", "entry_trigger": True,
+            "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
+            "closed_candles": {"1": 1439, "5": 288, "15": 96},
+            "signals": {
+                "1": "BULLISH", "5": "BULLISH", "15": "BULLISH"},
+            "risk_range_by_timeframe": {"5": 1.6}},
         }])
         self.assertIsNotNone(engine.position)
         app.auto_engine = engine

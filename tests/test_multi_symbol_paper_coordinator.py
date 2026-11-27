@@ -86,6 +86,37 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         self.assertEqual(coordinator.states["BTC_USDT"]["latest_technical"]["price"], 10)
         self.assertEqual(coordinator.states["ETH_USDT"]["latest_technical"]["price"], 20)
 
+    def test_contextual_analyzer_receives_exchange_event_timestamp(self):
+        received = []
+        def contextual(candles, now_ms):
+            received.append(now_ms)
+            return {"signal": "NEUTRAL", "price": 10}
+        coordinator = MultiSymbolPaperCoordinator(
+            ("BTC_USDT",), analyze, prepare, builder_factory=FakeBuilder,
+            analyze_with_context=contextual,
+        )
+        coordinator.states["BTC_USDT"]["builder"].is_ready = True
+        coordinator.on_trade(self.trade("BTC_USDT", timestamp_ms=180_000),
+                             received_at=10)
+        self.assertEqual(received, [180_000])
+
+    def test_contextual_analysis_is_cached_until_a_new_closed_bar(self):
+        calls = []
+        def contextual(candles, now_ms):
+            calls.append(now_ms)
+            return {"signal": "NEUTRAL", "price": 10}
+        coordinator = MultiSymbolPaperCoordinator(
+            ("BTC_USDT",), analyze, prepare, builder_factory=FakeBuilder,
+            analyze_with_context=contextual,
+        )
+        coordinator.states["BTC_USDT"]["builder"].is_ready = True
+        coordinator.on_trade(self.trade("BTC_USDT", timestamp_ms=180_000),
+                             received_at=10)
+        coordinator.on_trade(self.trade("BTC_USDT", price=11, timestamp_ms=181_000),
+                             received_at=11)
+        self.assertEqual(calls, [180_000])
+        self.assertEqual(coordinator.candidate_snapshots(now=12)[0]["price"], 11)
+
     def test_invalid_price_does_not_mutate_candle_builder(self):
         coordinator = self.make_coordinator()
         result = coordinator.on_trade(
@@ -198,6 +229,39 @@ class MultiSymbolPaperCoordinatorTests(unittest.TestCase):
         coordinator.states["BTC_USDT"]["builder"].is_ready = True
         coordinator.on_trade(self.trade("BTC_USDT"), received_at=20)
         self.assertFalse(coordinator.status(now=10)["BTC_USDT"]["snapshot_fresh"])
+
+    def test_status_exposes_timeframe_warmup_and_entry_readiness(self):
+        coordinator = self.make_coordinator()
+        state = coordinator.states["BTC_USDT"]
+        state["last_trade_monotonic"] = 10
+        state["latest_technical"] = {
+            "timeframe_analysis": {
+                "ready": False, "agreement": False, "entry_trigger": False,
+                "closed_candles": {"1": 500, "5": 200, "15": 12},
+            }
+        }
+        status = coordinator.status(now=11)["BTC_USDT"]
+        self.assertFalse(status["multi_timeframe_ready"])
+        self.assertFalse(status["multi_timeframe_agreement"])
+        self.assertFalse(status["entry_ready"])
+        self.assertEqual(status["timeframe_closed_candles"], {"1": 1, "5": 0, "15": 0})
+
+    def test_status_reports_builder_progress_before_analysis_snapshot_exists(self):
+        coordinator = self.make_coordinator()
+        state = coordinator.states["BTC_USDT"]
+        state["last_trade_monotonic"] = 10
+        state["builder"].closed = [
+            [minute * 60_000, 100, 101, 99, 100.5, 1]
+            for minute in range(5, 30)
+        ]
+        # No technical snapshot exists yet: progress still reflects validated
+        # closed bars and exact complete 5m/15m aggregates.
+        status = coordinator.status(now=11)["BTC_USDT"]
+        self.assertFalse(status["multi_timeframe_ready"])
+        self.assertEqual(
+            status["timeframe_closed_candles"],
+            {"1": 25, "5": 5, "15": 1},
+        )
 
     def test_reconcile_tick_rejects_malformed_events_before_engine_mutation(self):
         coordinator = self.make_coordinator()

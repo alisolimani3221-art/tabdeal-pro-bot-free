@@ -1,0 +1,34 @@
+name: Read-only Tabdeal futures market-history discovery
+
+on:
+  push:
+    branches:
+      - fix/multitimeframe-risk-exit-20261126
+    paths:
+      - 'tools/probe_tabdeal_futures_history.py'
+      - '.github/workflows/tabdeal-futures-history-probe.yml'
+  pull_request:
+    branches:
+      - fix/watermark-close-candles-20261126
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-futures-history-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Probe possible public futures history routes (GET only)
+        run: python tools/probe_tabdeal_futures_history.py
