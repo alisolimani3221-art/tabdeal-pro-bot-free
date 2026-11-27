@@ -3872,7 +3872,8 @@ class FuturesAnalyzerApp(App):
         keep_monitoring = (
             market_worker is not None
             and market_worker.is_alive()
-            and (stop_event is None or not stop_event.is_set())
+            and stop_event is not None
+            and not stop_event.is_set()
         )
         if keep_monitoring:
             try:
