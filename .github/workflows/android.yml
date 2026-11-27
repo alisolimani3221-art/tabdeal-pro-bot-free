@@ -1,5 +1,5 @@
 name: Tabdeal Futures CI and signed APK build (v1.57)
-# v1.56: enforce app/diagnostics/APK/workflow version parity; validate candle continuity and reconnect diagnostics. Paper-only; live orders disabled.
+# v1.57: validate Android same-process foreground keepalive and preserve the existing paper-only market worker. Live orders remain disabled.
 
 on:
   workflow_dispatch:
