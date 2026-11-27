@@ -46,7 +46,9 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
     def test_closing_ui_keeps_active_market_worker_and_foreground_service(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         stop_start = source.index("    def on_stop(self):")
-        stop_end = source.index("\n    def ", stop_start + 10)
+        stop_end = source.find("\n\nif __name__ == \"__main__\":", stop_start)
+        if stop_end < 0:
+            stop_end = len(source)
         stop = source[stop_start:stop_end]
         preserve = stop[:stop.index("        self._stop_background_market_service()")]
 
