@@ -14,7 +14,7 @@ requirements = python3,kivy,requests,websocket-client==1.8.0,certifi,arabic-resh
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET
+android.permissions = INTERNET, FOREGROUND_SERVICE, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS, WAKE_LOCK
 
 android.api = 35
 android.minapi = 23
@@ -23,7 +23,8 @@ android.numeric_version = 156
 android.allow_backup = False
 android.release_artifact = apk
 
-p4a.branch = v2024.01.21
+p4a.branch = 6f3ae311e214b96ece0e31994b6f9d4f54c5045b
+services = Marketkeep:services/marketkeep.py:foreground:sticky:foregroundServiceType=dataSync
 android.accept_sdk_license = True
 
 [buildozer]
