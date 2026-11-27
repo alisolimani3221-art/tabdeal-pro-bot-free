@@ -792,6 +792,31 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(engine.halt_reason, "DAILY_MAX_LOSS")
         self.assertIn("daily", engine.halt_detail.lower())
 
+    def test_data_gap_rearm_requires_flat_position_and_preserves_risk_limits(self):
+        engine = PaperTradingEngine(capital=8, fee_rate=0.0005, slippage_rate=0)
+        engine.process_scan([setup()])
+        engine.halt_for_data_gap("AAA_USDT", 99.5)
+        self.assertTrue(engine.halted)
+        self.assertEqual(engine.halt_reason, "DATA_GAP")
+        self.assertIsNone(engine.position)
+        result = engine.rearm_after_data_gap()
+        self.assertTrue(result["rearmed"])
+        self.assertEqual(result["recovery"], "fresh_continuous_market_history")
+        self.assertFalse(engine.halted)
+        self.assertIsNone(engine.halt_reason)
+        self.assertEqual(len(engine.closed_trades), 1)
+
+    def test_data_gap_rearm_rejects_other_halts_and_open_positions(self):
+        engine = PaperTradingEngine(capital=8)
+        with self.assertRaises(RuntimeError):
+            engine.rearm_after_data_gap()
+        engine.process_scan([setup()])
+        engine.halt_for_data_gap("AAA_USDT", 99.5)
+        # Simulate corrupted/recovered state that still carries an open position.
+        engine.position = dict(setup_position := engine.position)
+        with self.assertRaises(RuntimeError):
+            engine.rearm_after_data_gap()
+        self.assertTrue(engine.halted)
     def test_data_gap_flattens_and_latches_open_long_and_short_positions(self):
         for signal in ("BULLISH", "BEARISH"):
             with self.subTest(signal=signal):
