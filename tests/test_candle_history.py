@@ -5,7 +5,7 @@ import unittest
 
 from candle_history import (
     validate_closed_candles, save_candle_cache, load_candle_cache,
-    archive_candle_cache, warm_symbols,
+    archive_candle_cache, warm_symbols, load_archived_candle_history,
 )
 
 
