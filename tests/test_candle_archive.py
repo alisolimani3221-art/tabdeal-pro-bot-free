@@ -2,7 +2,8 @@ import os
 import tempfile
 import unittest
 
-from candle_archive import (record_closed_candles, count_closed_candles,\n                            load_latest_contiguous_candles)
+from candle_archive import (record_closed_candles, count_closed_candles,
+                            load_latest_contiguous_candles)
 
 
 class DurableCandleArchiveTests(unittest.TestCase):
