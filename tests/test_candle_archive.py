@@ -43,7 +43,7 @@ class DurableCandleArchiveTests(unittest.TestCase):
             rows = self.rows(1, 4) + self.rows(8, 3)
             record_closed_candles(path, "BTC_USDT", rows)
             # Current in-progress minute must not be restored as a closed candle.
-            current = self.rows(11, 1)
+            current = self.rows(12, 1)
             record_closed_candles(path, "BTC_USDT", current)
             loaded = load_latest_contiguous_candles(
                 path, "BTC_USDT", now_ms=12 * 60_000 + 1000, limit=20
