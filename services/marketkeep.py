@@ -73,6 +73,7 @@ def run_collector(config, stop_event=None, websocket_module=None):
 
     while not stop_event.is_set():
         state = {"last_valid": None, "opened_at": None, "ws": None}
+        connection_done = threading.Event()
 
         def on_open(ws):
             state["ws"] = ws
@@ -106,7 +107,7 @@ def run_collector(config, stop_event=None, websocket_module=None):
         state["ws"] = app
 
         def watchdog():
-            while not stop_event.wait(5.0):
+            while not stop_event.is_set() and not connection_done.wait(5.0):
                 last_valid = state["last_valid"]
                 if (last_valid is not None
                         and time.monotonic() - last_valid >= SILENCE_TIMEOUT_SECONDS):
@@ -128,6 +129,7 @@ def run_collector(config, stop_event=None, websocket_module=None):
                 type(exc).__name__, str(exc)[:120]
             ))
         finally:
+            connection_done.set()
             try:
                 _persist(builder, archive_path)
             except Exception as exc:
