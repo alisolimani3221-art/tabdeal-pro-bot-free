@@ -64,7 +64,7 @@ public final class MarketKeepService extends Service {
             builder = new Notification.Builder(this);
         }
         return builder
-            .setSmallIcon(getApplicationInfo().icon)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("Futures Analyzer")
             .setContentText("Market data monitor is active in the background")
             .setCategory(Notification.CATEGORY_SERVICE)
@@ -74,7 +74,7 @@ public final class MarketKeepService extends Service {
 
     private void startForegroundCompat() {
         Notification notification = buildNotification();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= 34) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
