@@ -6,7 +6,14 @@ import time
 class TradeStreamWatchdog:
     """Monotonic, transport-independent watchdog for validated trade freshness."""
 
-    def __init__(self, silence_timeout=45.0, clock=None):
+    def reconnect_backoff_seconds(attempt):
+    """Bounded exponential delay for repeated transport/DNS reconnect failures."""
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        raise ValueError("attempt must be a positive integer")
+    return min(30, 2 ** min(attempt, 5))
+
+
+def __init__(self, silence_timeout=45.0, clock=None):
         if isinstance(silence_timeout, bool):
             raise ValueError("silence_timeout must be positive and finite")
         try:
