@@ -46,6 +46,7 @@ on:
       - fix/watermark-close-candles-20261126
       - fix/multitimeframe-risk-exit-20261126
       - fix/preserve-closed-candles-on-reconnect-20261127
+      - fix/android-foreground-market-service-v156-20261127
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'
@@ -68,6 +69,8 @@ on:
       - 'candle_archive.py'
       - 'multi_symbol_paper_coordinator.py'
       - 'buildozer.spec'
+      - 'android_src/**'
+      - 'android_manifest_application_arguments.xml'
       - 'multi_bot.py'
       - 'orderbook.py'
       - 'orderbook_poller.py'
