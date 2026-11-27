@@ -23,9 +23,9 @@ android.numeric_version = 157
 android.allow_backup = False
 android.release_artifact = apk
 
-p4a.branch = v2024.01.21
+p4a.branch = 32994bea648eddf6808477ac91cd74632287a7fe
 android.add_src = android_src
-android.extra_manifest_application_arguments = android_manifest_application_arguments.xml
+p4a.extra_args = --extra-manifest-application-xml "<service android:name=\"org.tabdeal.futuresanalyzer.MarketKeepService\" android:exported=\"false\" android:foregroundServiceType=\"specialUse\"><property android:name=\"android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE\" android:value=\"Continuous user-requested read-only futures market monitoring while the app is backgrounded\" /></service>"
 android.accept_sdk_license = True
 
 [buildozer]
