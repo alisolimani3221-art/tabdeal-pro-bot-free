@@ -85,7 +85,7 @@ No collector service is deployed by this design document, no unverified endpoint
 ## Follow-up evidence (2026-11-27)
 
 The corrected thirty-minute read-only soak completed the full requested window:
-- Run: https://github.com/alisolimani-art/tabdeal-pro-bot-free/actions/runs/45853208250
+- Run: https://github.com/alisolimani3221-art/tabdeal-pro-bot-free/actions/runs/45853208250
 - Observed duration: 1,800.17 seconds of 1,800 requested
 - Fresh valid BTC Futures trades: 1,423 from 1,710 total messages
 - All 1,423 accepted trades carried a sequence field in this sample
