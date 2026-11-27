@@ -1,6 +1,6 @@
 import unittest
 
-from trade_stream_watchdog import TradeStreamWatchdog
+from trade_stream_watchdog import TradeStreamWatchdog, reconnect_backoff_seconds
 
 
 class FakeClock:
@@ -15,6 +15,16 @@ class FakeClock:
 
 
 class TradeStreamWatchdogTests(unittest.TestCase):
+    def test_reconnect_backoff_grows_and_is_bounded(self):
+        self.assertEqual([reconnect_backoff_seconds(n) for n in range(1, 7)],
+                         [2, 4, 8, 16, 30, 30])
+
+    def test_reconnect_backoff_rejects_invalid_attempts(self):
+        for value in (True, 0, -1, 1.5, "2"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    reconnect_backoff_seconds(value)
+
     def test_unconnected_socket_is_not_mistaken_for_silent_connected_stream(self):
         clock = FakeClock()
         watchdog = TradeStreamWatchdog(clock=clock)
