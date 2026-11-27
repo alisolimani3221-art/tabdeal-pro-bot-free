@@ -3728,19 +3728,6 @@ class FuturesAnalyzerApp(App):
                 )
         return True
 
-    def on_resume(self):
-        # If Android reclaimed the worker while the UI was paused, restart the
-        # paper-only collector after the foreground UI is restored. The normal
-        # startup gates and reconnect continuity checks still apply.
-        worker = getattr(self, "auto_trader_thread", None)
-        stop_event = getattr(self, "auto_stop_event", None)
-        if (getattr(self, "runtime_lock_ready", False)
-                and (worker is None or not worker.is_alive()
-                     or (stop_event is not None and stop_event.is_set()))):
-            Clock.schedule_once(
-                lambda _dt: self.start_auto_paper_trader(), 0.5
-            )
-
     def on_start(self):
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
