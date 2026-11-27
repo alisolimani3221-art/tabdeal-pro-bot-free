@@ -18,7 +18,7 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         # No android:process override: the native service shares the Kivy app
         # process, so it protects the already-running Python worker.
         self.assertNotIn("android:process", manifest)
-        self.assertIn("START_STICKY", java)
+        self.assertIn("START_NOT_STICKY", java)
         self.assertIn("FOREGROUND_SERVICE_TYPE_DATA_SYNC", java)
         self.assertIn("PARTIAL_WAKE_LOCK", java)
         self.assertIn("wakeLock.release()", java)
