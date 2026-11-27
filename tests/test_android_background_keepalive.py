@@ -15,7 +15,8 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         java = (ROOT / "android_src/org/tabdeal/futuresanalyzer/MarketKeepService.java").read_text(encoding="utf-8")
 
         self.assertIn("android.add_src = android_src", spec)
-        self.assertIn("p4a.branch = 32994bea648eddf6808477ac91cd74632287a7fe", spec)
+        self.assertIn("p4a.branch = develop", spec)
+        self.assertIn("p4a.commit = 32994bea648eddf6808477ac91cd74632287a7fe", spec)
         self.assertIn("--extra-manifest-application-xml", spec)
         self.assertNotIn("android.extra_manifest_application_arguments =", spec)
         self.assertIn("org.tabdeal.futuresanalyzer.MarketKeepService", spec)
