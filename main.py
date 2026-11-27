@@ -2240,6 +2240,7 @@ class FuturesAnalyzerApp(App):
                     elif paper_engine.halt_reason == "DATA_GAP":
                         # Keep halted until fresh continuous multi-timeframe history is rebuilt.
                         self.auto_engine = paper_engine
+                        paper_rearmed = True
                     else:
                         raise RuntimeError("paper engine halt is not operator-rearmable")
                 if not rearmed and not paper_rearmed:
