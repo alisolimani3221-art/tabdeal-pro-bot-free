@@ -11,6 +11,9 @@ from collections import deque
 
 MIN_MONITOR_CANDLES = 5
 MIN_ANALYSIS_CANDLES = 23
+# A brief reconnect gap may retain older closed bars, but only after one full
+# post-reconnect candle closes. Larger gaps still force a complete warm-up.
+MAX_RETAINED_RECONNECT_MISSING_MINUTES = 2
 
 
 class TradeCandleBuilder:
@@ -43,6 +46,7 @@ class TradeCandleBuilder:
         # A restored cache may support analysis while the first live bucket
         # is forming, but that bucket itself is incomplete and must be dropped.
         self._restored_partial_bucket = False
+        self._preserve_history_after_partial = False
 
     @staticmethod
     def _positive(value, name):
@@ -92,6 +96,7 @@ class TradeCandleBuilder:
 
         bucket = timestamp - (timestamp % self.interval_ms)
         gap_detected = False
+        resume_gap_handled = False
         if self._resume_bucket is not None:
             # A reconnect may replay an older event from the same minute.
             # Do not let it rewind the stream or trigger a paper exit at an
@@ -102,38 +107,60 @@ class TradeCandleBuilder:
                 # distinguished from a new trade in the same millisecond.
                 # Reject it conservatively so reconnect replay cannot double-count.
                 return self._reject("out_of_order")
-            # A reconnect that resumes in the same minute or the immediately
-            # following minute is not a missing-candle gap. The interrupted
-            # forming candle is discarded, but older fully closed candles remain
-            # valid. Only one or more completely skipped minute buckets invalidate
-            # the retained indicator history.
-            if bucket > self._resume_bucket + self.interval_ms:
-                self.closed.clear()
-                self.history_clear_count += 1
-                self.last_reset_reason = "confirmed_reconnect_gap"
-                self.gaps += 1
+            # Keep a short reconnect discontinuity explicit rather than
+            # throwing away an otherwise useful indicator window. The first
+            # resumed bucket is partial and is dropped; analysis stays blocked
+            # until one complete post-reconnect candle has closed. At most two
+            # missing minute bars are tolerated; larger gaps fail closed.
+            reference_bucket = self.closed[-1][0] if self.closed else self._resume_bucket
+            missing_minutes = max(
+                0, (bucket - reference_bucket) // self.interval_ms - 1
+            )
+            if missing_minutes > 0:
                 gap_detected = True
-                self._reconnect_warmup_pending = False
-                self._restored_partial_bucket = False
-                self.discard_next_close = True
+                self.gaps += 1
+                if missing_minutes <= MAX_RETAINED_RECONNECT_MISSING_MINUTES and self.closed:
+                    self.last_reset_reason = "short_reconnect_gap_retained"
+                    self._preserve_history_after_partial = True
+                    self._restored_partial_bucket = True
+                    self.discard_next_close = False
+                    self._reconnect_warmup_pending = True
+                else:
+                    self.closed.clear()
+                    self.history_clear_count += 1
+                    self.last_reset_reason = "confirmed_reconnect_gap"
+                    self._reconnect_warmup_pending = False
+                    self._restored_partial_bucket = False
+                    self._preserve_history_after_partial = False
+                    self.discard_next_close = True
             else:
-                # Continuity is confirmed, but readiness stays blocked until
-                # one complete post-reconnect candle has actually closed.
-                pass
+                # The resumed bucket is incomplete even when no whole minute
+                # was missed. Drop it at rollover, retain closed bars, and wait
+                # for the next fully observed minute before enabling analysis.
+                if self.closed:
+                    self._preserve_history_after_partial = True
+                    self._restored_partial_bucket = True
+                    self.discard_next_close = False
+                    self._reconnect_warmup_pending = True
             self._resume_bucket = None
             self._resume_last_timestamp_ms = None
+            resume_gap_handled = True
         if self.current is None:
             if self.closed:
                 last_closed_bucket = self.closed[-1][0]
                 if bucket <= last_closed_bucket:
                     return self._reject("late_after_finalization")
                 if bucket != last_closed_bucket + self.interval_ms:
-                    self.closed.clear()
-                    self.history_clear_count += 1
-                    self.gaps += 1
-                    self.last_reset_reason = "timestamp_gap_after_finalization"
-                    self.discard_next_close = True
-                    gap_detected = True
+                    if not resume_gap_handled:
+                        self.closed.clear()
+                        self.history_clear_count += 1
+                        self.gaps += 1
+                        self.last_reset_reason = "timestamp_gap_after_finalization"
+                        self.discard_next_close = True
+                        self._reconnect_warmup_pending = False
+                        self._restored_partial_bucket = False
+                        self._preserve_history_after_partial = False
+                        gap_detected = True
             self.current = self._new_candle(bucket, price, quantity, timestamp)
         elif bucket < self.current["open_time"]:
             return self._reject("out_of_order")
@@ -157,17 +184,27 @@ class TradeCandleBuilder:
                 # break, so invalidate/archive the cache at this boundary.
                 self._restored_partial_bucket = False
                 self.partial_buckets_discarded += 1
-                if self.closed:
-                    self.closed.clear()
-                    self.history_clear_count += 1
-                    self.gaps += 1
-                    gap_detected = True
-                    self.last_reset_reason = "history_cleared_after_restored_partial_bucket"
-                self._reconnect_warmup_pending = False
+                if self._preserve_history_after_partial:
+                    # The interrupted reconnect bucket is intentionally omitted.
+                    # A short, explicitly recorded time gap is allowed in the
+                    # 1m indicator window; higher timeframes still use only
+                    # complete epoch-aligned buckets.
+                    self._preserve_history_after_partial = False
+                    self.last_reset_reason = "reconnect_partial_bucket_discarded_history_retained"
+                    # Keep the recovery gate closed until the next full bucket
+                    # has itself closed and been appended.
+                    self._reconnect_warmup_pending = True
+                else:
+                    if self.closed:
+                        self.closed.clear()
+                        self.history_clear_count += 1
+                        self.gaps += 1
+                        gap_detected = True
+                        self.last_reset_reason = "history_cleared_after_restored_partial_bucket"
+                    self._reconnect_warmup_pending = False
             elif not self.discard_next_close:
                 self.closed.append(self._as_row(self.current))
-                # A reconnect is not warm again until one complete post-reconnect
-                # candle has actually been closed and retained.
+                # One complete post-reconnect candle has now been retained.
                 self._reconnect_warmup_pending = False
             else:
                 self.discard_next_close = False
@@ -279,6 +316,7 @@ class TradeCandleBuilder:
             self._reconnect_warmup_pending = True
             self.discard_next_close = True
             self._restored_partial_bucket = False
+            self._preserve_history_after_partial = True
         elif self.closed:
             # The previous candle was already finalized before the disconnect.
             # Anchor continuity to that closed candle instead of erasing all
@@ -287,9 +325,10 @@ class TradeCandleBuilder:
             # never promoted to a full candle; history is cleared at its close.
             self._resume_bucket = self.closed[-1][0]
             self._resume_last_timestamp_ms = self._resume_bucket + self.interval_ms - 1
-            self._reconnect_warmup_pending = False
+            self._reconnect_warmup_pending = True
             self.discard_next_close = False
             self._restored_partial_bucket = True
+            self._preserve_history_after_partial = True
             self.last_reset_reason = "reconnect_waiting_for_adjacent_bucket"
         else:
             self._resume_bucket = None
@@ -297,6 +336,7 @@ class TradeCandleBuilder:
             self._reconnect_warmup_pending = False
             self.discard_next_close = True
             self._restored_partial_bucket = False
+            self._preserve_history_after_partial = False
             self.last_reset_reason = "reconnect_without_closed_history"
         self.current = None
         self.last_timestamp_ms = None
@@ -316,6 +356,7 @@ class TradeCandleBuilder:
         self.last_reset_reason = "explicit_gap_reset"
         self.discard_next_close = True
         self._restored_partial_bucket = False
+        self._preserve_history_after_partial = False
 
     @staticmethod
     def _new_candle(bucket, price, quantity, timestamp):
