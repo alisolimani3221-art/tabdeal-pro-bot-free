@@ -26,6 +26,7 @@ on:
       - fix/orderbook-symbol-canonicalization-20261126
       - fix/persist-and-resume-candle-history-20261126
       - fix/preserve-closed-candles-on-reconnect-20261127
+      - fix/android-foreground-market-service-v156-20261127
   push:
     branches:
       - release/v1.49
