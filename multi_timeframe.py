@@ -43,8 +43,10 @@ def aggregate_closed_timeframes(candles, now_ms):
             raise ValueError("OHLC prices must be positive and volume nonnegative")
         if h < low or not low <= o <= h or not low <= close <= h:
             raise ValueError("inconsistent one-minute OHLC range")
-        if previous is not None and ts - previous != MINUTE_MS:
-            raise ValueError("one-minute history contains a gap or duplicate")
+        if previous is not None and ts <= previous:
+            raise ValueError("one-minute history contains a duplicate or out-of-order row")
+        # Missing minute rows are not fabricated. Higher-timeframe aggregation
+        # below emits only buckets containing every real constituent minute.
         previous = ts
         rows.append((ts, o, h, low, close, volume))
 
