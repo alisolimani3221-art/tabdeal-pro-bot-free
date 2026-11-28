@@ -67,10 +67,14 @@ def analyze_klines(candles, interval_ms=CANDLE_INTERVAL_MS, max_missing_interval
 
     if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
         raise ValueError("candle timestamps must be strictly increasing")
+    deltas = [current - previous for previous, current in zip(timestamps, timestamps[1:])]
+    # A uniformly spaced series at another timeframe is a caller/configuration
+    # error, not a reconnect gap. Detect it before applying bounded-gap tolerance.
+    if deltas and all(delta == deltas[0] for delta in deltas) and deltas[0] != interval_ms:
+        raise ValueError("candle spacing does not match the requested interval")
     missing_intervals = 0
     gap_count = 0
-    for previous, current in zip(timestamps, timestamps[1:]):
-        delta = current - previous
+    for delta in deltas:
         if delta % interval_ms:
             raise ValueError("candle history spacing is not aligned to the requested interval")
         missing = delta // interval_ms - 1
