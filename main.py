@@ -1588,6 +1588,10 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def show_result(self, results):
+        automatic_market_check = bool(
+            getattr(self, "_automatic_market_check_active", False)
+        )
+        self._automatic_market_check_active = False
         self.check_in_progress = False
         self.last_diagnostic_results = dict(results)
         # Preserve a compact snapshot for the read-only AI assistant. This is
@@ -1746,9 +1750,14 @@ class FuturesAnalyzerApp(App):
         popup = Popup(title=fa_plain(popup_title), title_font=FONT_NAME, content=body,
                       size_hint=(0.94, 0.78), auto_dismiss=False)
         close_button.bind(on_press=popup.dismiss)
-        popup.open()
+        if not automatic_market_check:
+            popup.open()
         if market_ok and book_ok and results.get("symbol_verified"):
             self._start_order_book_polling()
+        elif automatic_market_check:
+            # Retry transient network/TLS failures quietly. A user should not
+            # have to tap the connection button after every app relaunch.
+            self._schedule_automatic_market_check(delay=12.0, force=True)
 
 
     def open_diagnostics(self, instance):
@@ -3805,6 +3814,7 @@ class FuturesAnalyzerApp(App):
         def run_check(_dt):
             self._automatic_market_check_pending = False
             if not getattr(self, "check_in_progress", False):
+                self._automatic_market_check_active = True
                 self.show_status(getattr(self, "check_button", None))
 
         Clock.schedule_once(run_check, max(0.1, float(delay)))
