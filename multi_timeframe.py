@@ -139,6 +139,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         # 15m may satisfy warm-up with one closed bar, but its direction
         # remains NEUTRAL until three closed bars form a usable structure.
         if len(rows) < 3:
+            signals[str(minutes)] = "NEUTRAL"
             continue
         selected = rows[-3:]
         # Trend follows the sequence of closed prices, not candle body color.
