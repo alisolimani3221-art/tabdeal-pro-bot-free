@@ -86,3 +86,33 @@ Use this ledger and prior verified results as the baseline. Do not repeat passed
 - Hardening: use PyJNIus-supported `bytearray` for Java `byte[]` parameters; add a non-secret secure-credential decryptability status to on-device diagnostics; strictly validate account/position response shapes and finite numeric fields; preserve exact decimal position amounts.
 - Still requires physical-device confirmation: save a read-only API key, close/reopen the app, confirm diagnostics reports successful encrypted credential recovery, then read wallet/positions. No API key or secret has been collected in chat.
 - Live order placement remains disabled. Do not enable it based on paper-trading or public-market tests.
+
+## v1.57 device diagnostic — 2026-11-28 09:06 Asia/Tehran
+
+User-provided diagnostic from the installed Android/Kivy app:
+- Persian and Latin fonts load successfully; RTL libraries and shaping are OK.
+- Selected market BTC_USDT. Order book is healthy: 66 successful automatic snapshots, 5 bid rows, 5 ask rows, no polling error; website, market ping, market info, depth status and depth HTTP all report 200; JSON depth parser reports 5 bids / 5 asks.
+- Secure API credentials decrypt successfully.
+- WebSocket and Python market worker report alive. 2,515 messages received; 2,411 valid all-market trades; 852 valid selected-symbol trades; 94 durable archived candles.
+- Only 0/23 contiguous 1-minute candles are currently eligible for analysis; 5m/15m history is not ready; candle builder is not ready. Four reconnects and four partial-candle discards occurred. Last reset reason: first_partial_bucket_discarded. Duplicate sequence rejections: 8; out-of-order: 1.
+- Paper engine remains safely halted with DATA_GAP, no open position, 7 closed paper trades. Do not re-arm or enable live orders until continuity and all safety gates are verified.
+- Latest transport error: WebSocketAddressException [Errno 7] No address associated with hostname. REST order-book success does not prove DNS/WebSocket transport stability.
+
+### Interpretation and verified capability boundary
+- The candle builder intentionally discards a candle that was only partially observed across a disconnect. It then clears the active contiguous indicator window rather than fabricating OHLCV or bridging a missing minute. Repeated reconnects therefore explain the 0/23 warm-up state; this is a safety fail-closed behavior, not evidence that the durable SQLite archive has been deleted.
+- CI probe in workflow run 46101691858 tested https://api1.tabdeal.org/r/fapi/v1/klines for BTC_USDT and BTCUSDT; both returned HTTP 404. No validated public Futures kline history endpoint is available in the tested API surface. Do not invent a backfill route or rebuild missing candles from order-book midpoint.
+- Primary near-term reliability fix is to keep the existing same-process market worker alive in Android background, reducing avoidable app lifecycle interruptions. DNS/network reconnect failures still need resilient retry and on-device verification.
+
+### Android foreground-service SDK lookup fix
+- On branch `fix/android-foreground-market-service-v156-20261127`, `main.py` now obtains the nested SDK version class using PyJNIus name `android.os.Build$VERSION` instead of looking for `VERSION` on the outer `android.os.Build` class. This directly targets the user's reported `AttributeError: type object 'android.os.Build' has no attribute 'VERSION'`.
+- Added a regression assertion in `tests/test_android_background_keepalive.py`.
+- Commits: `8506eddbe4fe6a77800788f8c9da5fdff633c5a0` (code), `16169dbec5ba42fcb91fd81af573ebe4edddb567` (test).
+- Workflow run 46112999348 was triggered for the updated branch and was still in progress at ledger update time. Do not call the SDK fix or new APK verified until its tests/build/signature checks pass and the user confirms device behavior.
+- PR #93 remains open; same-process native foreground service and background lifecycle changes are awaiting the new CI run and actual Galaxy A22 verification.
+
+### Next steps
+1. Complete run 46112999348 and inspect every CI/build/signing step.
+2. If CI succeeds, distribute only the newly built signed APK from that run and verify its package/version/signature.
+3. On-device: start paper monitor, background the app, wait several minutes, return, and confirm service status, socket uptime, reconnect count, and candles do not reset merely because the UI was backgrounded.
+4. Continue diagnosing DNS/WebSocket transport failures separately. Do not claim 1m/5m/15m readiness until a real continuous validated history is observed.
+5. Preserve paper-only mode; no live exchange orders.
