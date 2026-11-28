@@ -3756,8 +3756,8 @@ class FuturesAnalyzerApp(App):
         """Promote the existing app process while its market worker is backgrounded."""
         try:
             activity, intent = self._market_keep_service_intent()
-            build = __import__("jnius").autoclass("android.os.Build")
-            if int(build.VERSION.SDK_INT) >= 26:
+            build_version = __import__("jnius").autoclass("android.os.Build$VERSION")
+            if int(build_version.SDK_INT) >= 26:
                 activity.startForegroundService(intent)
             else:
                 activity.startService(intent)
