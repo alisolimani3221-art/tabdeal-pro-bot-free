@@ -142,14 +142,15 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(status["signals"]["5"], "BULLISH")
         self.assertEqual(status["signals"]["15"], "BULLISH")
 
-    def test_single_red_five_minute_body_does_not_override_rising_close_structure(self):
+    def test_red_higher_timeframe_bodies_do_not_override_rising_close_structure(self):
         rows = minute_rows(23 * 60)
         # Flip the final complete 5m bucket's body direction without breaking OHLC.
         # Make the final 5m candle red by raising its open, while its close
         # remains above the previous 5m close: rising structure, red body.
-        rows[-5][1] += 0.15
-        rows[-5][2] = max(rows[-5][1], rows[-5][4]) + 0.2
-        rows[-5][3] = min(rows[-5][1], rows[-5][4]) - 0.2
+        for index in (-15, -5):
+            rows[index][1] += 0.15
+            rows[index][2] = max(rows[index][1], rows[index][4]) + 0.2
+            rows[index][3] = min(rows[index][1], rows[index][4]) - 0.2
         def stub_analyzer(candles, interval_ms=60_000):
             return {"signal": "BULLISH", "price": 100.5,
                     "closed_candles": len(candles) - 1,
