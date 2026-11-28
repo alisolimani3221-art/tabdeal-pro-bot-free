@@ -252,7 +252,7 @@ class AIDiagnosticContextTests(unittest.TestCase):
         rendered = "\\n".join(build_engine_health_report_lines(app))
         self.assertIn("تاریخچه سه تایم‌فریم آماده: False", rendered)
         self.assertIn("هم‌جهتی روند ۵/۱۵ دقیقه: False", rendered)
-        self.assertIn("1m: 1439/23 | 5m: 288/2 | 15m: 12/1", rendered)
+        self.assertIn("1m: 1439/23 | 5m: 288/3 | 15m: 12/3", rendered)
 
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()
