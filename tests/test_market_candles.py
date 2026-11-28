@@ -131,7 +131,7 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertTrue(resumed["accepted"])
         self.assertFalse(resumed["gap_detected"])
         self.assertEqual(len(builder.closed), 25)
-        self.assertTrue(builder.is_ready)
+        self.assertFalse(builder.is_ready)
 
         # The reconnect bucket is partial and is dropped, but the old closed
         # history is retained. Analysis resumes after the next full minute closes.
