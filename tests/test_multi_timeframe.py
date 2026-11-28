@@ -47,7 +47,7 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         rows = minute_rows(60)
         gapped = rows[:10] + rows[11:]
         result = aggregate_closed_timeframes(gapped, 60 * 60_000)
-        self.assertEqual(len(result[5]), 10)
+        self.assertEqual(len(result[5]), 11)
         self.assertEqual(len(result[15]), 3)
         with self.assertRaisesRegex(ValueError, "duplicate or out-of-order"):
             aggregate_closed_timeframes(rows[:10] + [rows[9]] + rows[10:], 60 * 60_000)
