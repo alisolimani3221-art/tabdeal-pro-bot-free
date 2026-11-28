@@ -128,6 +128,14 @@ class PaperTraderTests(unittest.TestCase):
         self.assertAlmostEqual(position["entry"] - position["stop"], 3.0)
         self.assertAlmostEqual(position["target"] - position["entry"], 6.0)
 
+    def test_early_five_minute_bias_is_allowed_while_fifteen_minute_warms_up(self):
+        candidate = setup()
+        timeframe = candidate["timeframe_analysis"]
+        timeframe["closed_candles"]["15"] = 1
+        timeframe["signals"]["15"] = "NEUTRAL"
+        timeframe["15m_confirmation_ready"] = False
+        self.assertIsNotNone(rank_signal(candidate))
+
     def test_one_minute_neutral_label_does_not_override_five_and_fifteen_bias(self):
         candidate = setup()
         candidate["timeframe_analysis"]["signals"]["1"] = "NEUTRAL"
