@@ -217,6 +217,8 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         "direction": bias,
         "entry_trigger": entry_trigger,
         "15m_confirmation_ready": fifteen_minute_confirmed,
+        "one_minute_gap_count": int(one_minute.get("gap_count", 0) or 0),
+        "one_minute_missing_intervals": int(one_minute.get("missing_intervals", 0) or 0),
         "entry_trigger_direction": entry_direction,
         "required_minutes": list(TRADE_TIMEFRAMES_MINUTES),
         "closed_candles": counts,
