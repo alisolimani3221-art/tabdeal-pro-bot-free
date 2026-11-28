@@ -52,6 +52,26 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate or out-of-order"):
             aggregate_closed_timeframes(rows[:10] + [rows[9]] + rows[10:], 60 * 60_000)
 
+    def test_mtf_keeps_complete_bars_and_reports_one_bounded_minute_gap(self):
+        rows = minute_rows(24 * 60)
+        gapped = rows[:600] + rows[601:]
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 100.5,
+                    "closed_candles": len(candles) - 1,
+                    "sma10": 100.0, "sma20": 99.0,
+                    "rsi14": 56.0, "atr14": 0.5,
+                    "gap_count": 1, "missing_intervals": 1}
+        result = analyze_multi_timeframe(
+            gapped, now_ms=24 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        status = result["timeframe_analysis"]
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["agreement"])
+        self.assertEqual(status["one_minute_gap_count"], 1)
+        self.assertEqual(status["one_minute_missing_intervals"], 1)
+        self.assertEqual(status["closed_candles"]["5"], 287)
+        self.assertEqual(status["closed_candles"]["15"], 95)
+
     def test_invalid_ohlcv_and_server_clock_are_rejected(self):
         rows = minute_rows(60)
         broken = [list(row) for row in rows]
