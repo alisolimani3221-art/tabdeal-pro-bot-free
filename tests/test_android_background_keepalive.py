@@ -13,6 +13,7 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
         manifest = (ROOT / "android_manifest_application_arguments.xml").read_text(encoding="utf-8")
         java = (ROOT / "android_src/org/tabdeal/futuresanalyzer/MarketKeepService.java").read_text(encoding="utf-8")
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         self.assertIn("android.add_src = android_src", spec)
         self.assertIn("p4a.branch = develop", spec)
