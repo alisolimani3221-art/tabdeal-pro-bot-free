@@ -143,6 +143,26 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(status["signals"]["5"], "BULLISH")
         self.assertEqual(status["signals"]["15"], "BULLISH")
 
+    def test_one_closed_fifteen_minute_bar_allows_early_five_minute_bias(self):
+        rows = minute_rows(24)
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 100.5,
+                    "closed_candles": len(candles) - 1,
+                    "sma10": 100.0, "rsi14": 56.0, "atr14": 0.5}
+        result = analyze_multi_timeframe(
+            rows, now_ms=24 * 60_000, analyzer=stub_analyzer
+        )
+        status = result["timeframe_analysis"]
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["agreement"])
+        self.assertFalse(status["15m_confirmation_ready"])
+        self.assertEqual(status["closed_candles"]["1"], 23)
+        self.assertEqual(status["closed_candles"]["5"], 4)
+        self.assertEqual(status["closed_candles"]["15"], 1)
+        self.assertEqual(status["signals"]["5"], "BULLISH")
+        self.assertEqual(status["signals"]["15"], "NEUTRAL")
+        self.assertEqual(result["signal"], "BULLISH")
+
     def test_red_higher_timeframe_bodies_do_not_override_rising_close_structure(self):
         rows = minute_rows(23 * 60)
         # Flip the final complete 5m bucket's body direction without breaking OHLC.
