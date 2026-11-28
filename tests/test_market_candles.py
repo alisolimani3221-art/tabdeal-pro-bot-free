@@ -83,33 +83,29 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), 0)
 
-    def test_short_reconnect_discards_old_history_with_partial_candle(self):
+    def test_short_reconnect_retains_history_but_waits_for_one_full_new_candle(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
         self.assertTrue(builder.is_ready)
         forming_minute = builder.current["open_time"] // 60_000
+        original_closed = len(builder.closed)
 
         builder.reset_after_reconnect()
-        self.assertGreater(len(builder.closed), 0)
-        self.assertIsNone(builder.current)
-        self.assertFalse(builder.is_ready)
-
         resumed = builder.add_trade(self.trade(forming_minute, second=20))
         self.assertTrue(resumed["accepted"])
         self.assertFalse(resumed["gap_detected"])
         self.assertFalse(builder.is_ready)
 
-        # When the partially observed bucket is discarded, old closed candles
-        # must also be cleared: otherwise the next accepted candle skips a minute.
-        partial_close = builder.add_trade(self.trade(forming_minute + 1))
-        self.assertFalse(partial_close["ready"])
+        # The interrupted minute is discarded, but verified older closed bars
+        # remain. The engine stays gated until a fully observed minute closes.
+        builder.add_trade(self.trade(forming_minute + 1))
+        self.assertEqual(len(builder.closed), original_closed)
         self.assertFalse(builder.is_ready)
-        self.assertEqual(len(builder.closed), 0)
-
         builder.add_trade(self.trade(forming_minute + 2))
-        self.assertEqual(len(builder.closed), 1)
-        self.assertFalse(builder.is_ready)
+        self.assertEqual(len(builder.closed), original_closed + 1)
+        self.assertTrue(builder.is_ready)
+        self.assertEqual(builder.status()["history_clear_count"], 0)
 
     def test_reconnect_after_finalized_candle_preserves_history_until_continuity_check(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -137,12 +133,15 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(len(builder.closed), 25)
         self.assertTrue(builder.is_ready)
 
-        # At rollover, the partially observed reconnect bucket is discarded and
-        # the old cache is cleared rather than joining across a missing minute.
+        # The reconnect bucket is partial and is dropped, but the old closed
+        # history is retained. Analysis resumes after the next full minute closes.
         rollover = builder.add_trade(self.trade(127, second=2))
-        self.assertTrue(rollover["gap_detected"])
-        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(rollover["gap_detected"])
+        self.assertEqual(len(builder.closed), 25)
         self.assertFalse(builder.is_ready)
+        builder.add_trade(self.trade(128, second=2))
+        self.assertEqual(len(builder.closed), 26)
+        self.assertTrue(builder.is_ready)
 
     def test_reconnect_with_no_closed_history_does_not_stick_warmup_gate(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -179,8 +178,8 @@ class TradeCandleBuilderTests(unittest.TestCase):
         builder.add_trade(self.trade(103))
         status = builder.status()
         self.assertEqual(status["partial_buckets_discarded"], 2)
-        self.assertEqual(status["history_clear_count"], 1)
-        self.assertEqual(status["last_reset_reason"], "history_cleared_after_partial_bucket")
+        self.assertEqual(status["history_clear_count"], 0)
+        self.assertEqual(status["last_reset_reason"], "reconnect_partial_bucket_discarded_history_retained")
 
     def test_reconnect_rejects_replayed_older_tick_before_resuming_same_minute(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -240,16 +239,16 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(result["gap_detected"])
         self.assertFalse(builder.is_ready)
 
-        # Discarding the partial reconnect bucket also invalidates the retained
-        # history, so no analysis can bridge over that missing minute.
+        # Discard the partial reconnect bucket, then wait for one fully observed
+        # post-reconnect candle before analysis becomes ready.
         builder.add_trade(self.trade(125))
-        self.assertEqual(len(builder.closed), 0)
+        self.assertEqual(len(builder.closed), 23)
         self.assertFalse(builder.is_ready)
         builder.add_trade(self.trade(126))
-        self.assertEqual(len(builder.closed), 1)
-        self.assertFalse(builder.is_ready)
+        self.assertEqual(len(builder.closed), 24)
+        self.assertTrue(builder.is_ready)
 
-    def test_reconnect_with_missing_full_minute_invalidates_retained_history(self):
+    def test_reconnect_with_one_missing_minute_retains_history_after_full_bar(self):
         builder = TradeCandleBuilder("BTC_USDT")
         for minute in range(100, 125):
             builder.add_trade(self.trade(minute))
@@ -259,8 +258,27 @@ class TradeCandleBuilderTests(unittest.TestCase):
         result = builder.add_trade(self.trade(126))
         self.assertTrue(result["accepted"])
         self.assertTrue(result["gap_detected"])
+        self.assertEqual(len(builder.closed), 23)
+        self.assertFalse(builder.is_ready)
+        # 126 was only partially observed; 127 is the first full new minute.
+        builder.add_trade(self.trade(127))
+        self.assertEqual(len(builder.closed), 23)
+        self.assertFalse(builder.is_ready)
+        builder.add_trade(self.trade(128))
+        self.assertEqual(len(builder.closed), 24)
+        self.assertTrue(builder.is_ready)
+        self.assertEqual(builder.status()["history_clear_count"], 0)
+
+    def test_long_reconnect_gap_still_clears_history(self):
+        builder = TradeCandleBuilder("BTC_USDT")
+        for minute in range(100, 125):
+            builder.add_trade(self.trade(minute))
+        builder.reset_after_reconnect()
+        result = builder.add_trade(self.trade(128))
+        self.assertTrue(result["gap_detected"])
         self.assertEqual(len(builder.closed), 0)
         self.assertFalse(builder.is_ready)
+        self.assertEqual(builder.status()["history_clear_count"], 1)
 
     def test_hard_gap_reset_discards_all_warmup_data(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -291,14 +309,16 @@ class TradeCandleBuilderTests(unittest.TestCase):
         technical = analyze_klines(builder.candles_for_analysis())
         self.assertEqual(technical["closed_candles"], 23)
 
-        # At the next minute boundary, bucket 123 is known to be partial:
-        # discard it and invalidate the old cache instead of storing it as a
-        # complete candle. The caller archives the cache on gap_detected.
+        # At rollover the partial bucket is dropped, then the next full candle
+        # is retained. The restored closed cache is not needlessly discarded.
         rollover = builder.add_trade(self.trade(124, second=2))
-        self.assertTrue(rollover["gap_detected"])
-        self.assertEqual(len(builder.closed), 0)
+        self.assertFalse(rollover["gap_detected"])
+        self.assertEqual(len(builder.closed), 23)
         self.assertFalse(builder.is_ready)
-        self.assertEqual(builder.status()["history_clear_count"], 1)
+        builder.add_trade(self.trade(125, second=2))
+        self.assertEqual(len(builder.closed), 24)
+        self.assertTrue(builder.is_ready)
+        self.assertEqual(builder.status()["history_clear_count"], 0)
 
     def test_restores_a_single_closed_candle_and_discards_first_partial_bucket(self):
         builder = TradeCandleBuilder("BTC_USDT")
@@ -309,16 +329,19 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertFalse(first["gap_detected"])
         self.assertEqual(len(builder.closed), 1)
         rollover = builder.add_trade(self.trade(102, second=2))
-        self.assertTrue(rollover["gap_detected"])
-        self.assertEqual(len(builder.closed), 0)
-        self.assertEqual(builder.status()["history_clear_count"], 1)
+        self.assertFalse(rollover["gap_detected"])
+        self.assertEqual(len(builder.closed), 1)
+        self.assertEqual(builder.status()["history_clear_count"], 0)
+        builder.add_trade(self.trade(103, second=2))
+        self.assertEqual(len(builder.closed), 2)
+        self.assertEqual(builder.status()["history_clear_count"], 0)
         # Minute 102 has been observed continuously from its start boundary;
         # it can close as the first complete post-startup candle.
         builder.add_trade(self.trade(103, second=2))
         self.assertEqual(len(builder.closed), 1)
         self.assertEqual(builder.closed[0][0], 102 * 60_000)
 
-    def test_restored_cache_is_discarded_when_live_stream_has_gap(self):
+    def test_restored_cache_survives_one_missing_minute_but_waits_for_full_bar(self):
         builder = TradeCandleBuilder("BTC_USDT")
         rows = [[minute * 60_000, 100, 102, 99, 101, 4]
                 for minute in range(100, 123)]
@@ -326,8 +349,14 @@ class TradeCandleBuilderTests(unittest.TestCase):
         result = builder.add_trade(self.trade(124, second=2))
         self.assertTrue(result["accepted"])
         self.assertTrue(result["gap_detected"])
-        self.assertEqual(len(builder.closed), 0)
+        self.assertEqual(len(builder.closed), 23)
         self.assertFalse(builder.is_ready)
+        builder.add_trade(self.trade(125))
+        self.assertEqual(len(builder.closed), 23)
+        self.assertFalse(builder.is_ready)
+        builder.add_trade(self.trade(126))
+        self.assertEqual(len(builder.closed), 24)
+        self.assertTrue(builder.is_ready)
 
     def test_restore_rejects_short_or_discontinuous_cache(self):
         builder = TradeCandleBuilder("BTC_USDT")
