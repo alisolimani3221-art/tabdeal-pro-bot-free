@@ -135,7 +135,12 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         required = required_counts[str(minutes)]
         if len(rows) < required:
             continue
-        selected = rows[-required:]
+        # Readiness and trend confirmation have different thresholds:
+        # 15m may satisfy warm-up with one closed bar, but its direction
+        # remains NEUTRAL until three closed bars form a usable structure.
+        if len(rows) < 3:
+            continue
+        selected = rows[-3:]
         # Trend follows the sequence of closed prices, not candle body color.
         # A red 15m body may still sit inside a rising 15m price structure.
         signals[str(minutes)] = _trend_direction(selected)
