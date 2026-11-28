@@ -8,7 +8,7 @@ import math
 
 MINUTE_MS = 60_000
 TRADE_TIMEFRAMES_MINUTES = (1, 5, 15)
-MIN_CLOSED_CANDLES_BY_TIMEFRAME = {"1": 23, "5": 3, "15": 3}
+MIN_CLOSED_CANDLES_BY_TIMEFRAME = {"1": 23, "5": 3, "15": 1}
 AGGREGATED_TIMEFRAMES_MINUTES = (5, 15)
 
 
@@ -169,9 +169,17 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
                 for minutes in AGGREGATED_TIMEFRAMES_MINUTES)
     )
     bias_directions = [signals.get("5"), signals.get("15")]
+    fifteen_minute_confirmed = counts.get("15", 0) >= 3
+    # 5m provides the early directional bias after three closed bars. Until
+    # three complete 15m bars exist, 15m is warming up and must not impose a
+    # 45-minute startup delay. Once mature, 15m becomes a strict veto/confirm:
+    # an opposing or neutral 15m structure blocks the setup.
     bias_agreement = bool(
         ready and bias_directions[0] in ("BULLISH", "BEARISH")
-        and bias_directions[1] == bias_directions[0]
+        and (
+            not fifteen_minute_confirmed
+            or bias_directions[1] == bias_directions[0]
+        )
     )
     bias = bias_directions[0] if bias_agreement else None
 
@@ -200,6 +208,7 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         "agreement": bias_agreement,
         "direction": bias,
         "entry_trigger": entry_trigger,
+        "15m_confirmation_ready": fifteen_minute_confirmed,
         "entry_trigger_direction": entry_direction,
         "required_minutes": list(TRADE_TIMEFRAMES_MINUTES),
         "closed_candles": counts,
