@@ -307,6 +307,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "closed_candles": 23, "candle_open_time": 60_000,
             "timeframe_analysis": {"ready": True, "agreement": True,
             "direction": "BULLISH", "entry_trigger": True,
+            "15m_confirmation_ready": True,
             "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {
@@ -460,6 +461,7 @@ class AppLifecycleIntegrationTests(unittest.TestCase):
             "closed_candles": 23, "candle_open_time": 60_000,
             "timeframe_analysis": {"ready": True, "agreement": True,
             "direction": "BULLISH", "entry_trigger": True,
+            "15m_confirmation_ready": True,
             "entry_trigger_direction": "BULLISH", "required_minutes": [1, 5, 15],
             "closed_candles": {"1": 1439, "5": 288, "15": 96},
             "signals": {

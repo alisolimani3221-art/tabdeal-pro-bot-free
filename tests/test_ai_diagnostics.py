@@ -8,7 +8,7 @@ from ai_diagnostics import APP_VERSION, build_ai_diagnostic_context
 class AIDiagnosticContextTests(unittest.TestCase):
     def test_context_reports_current_app_version(self):
         context = build_ai_diagnostic_context(SimpleNamespace())
-        self.assertEqual(APP_VERSION, "1.57")
+        self.assertEqual(APP_VERSION, "1.58")
         self.assertEqual(context["app_version"], APP_VERSION)
 
     def test_context_is_allow_listed_and_excludes_account_data(self):
@@ -252,7 +252,7 @@ class AIDiagnosticContextTests(unittest.TestCase):
         rendered = "\\n".join(build_engine_health_report_lines(app))
         self.assertIn("تاریخچه سه تایم‌فریم آماده: False", rendered)
         self.assertIn("هم‌جهتی روند ۵/۱۵ دقیقه: False", rendered)
-        self.assertIn("1m: 1439/23 | 5m: 288/2 | 15m: 12/1", rendered)
+        self.assertIn("1m: 1439/23 | 5m: 288/3 | 15m: 12/1", rendered)
 
     def test_dead_worker_is_reported_even_if_socket_flag_is_true(self):
         worker = Mock()

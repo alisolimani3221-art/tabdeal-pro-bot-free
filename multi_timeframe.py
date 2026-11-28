@@ -8,7 +8,7 @@ import math
 
 MINUTE_MS = 60_000
 TRADE_TIMEFRAMES_MINUTES = (1, 5, 15)
-MIN_CLOSED_CANDLES_BY_TIMEFRAME = {"1": 23, "5": 2, "15": 1}
+MIN_CLOSED_CANDLES_BY_TIMEFRAME = {"1": 23, "5": 3, "15": 1}
 AGGREGATED_TIMEFRAMES_MINUTES = (5, 15)
 
 
@@ -43,8 +43,10 @@ def aggregate_closed_timeframes(candles, now_ms):
             raise ValueError("OHLC prices must be positive and volume nonnegative")
         if h < low or not low <= o <= h or not low <= close <= h:
             raise ValueError("inconsistent one-minute OHLC range")
-        if previous is not None and ts - previous != MINUTE_MS:
-            raise ValueError("one-minute history contains a gap or duplicate")
+        if previous is not None and ts <= previous:
+            raise ValueError("one-minute history contains a duplicate or out-of-order row")
+        # Missing minute rows are not fabricated. Higher-timeframe aggregation
+        # below emits only buckets containing every real constituent minute.
         previous = ts
         rows.append((ts, o, h, low, close, volume))
 
@@ -77,17 +79,34 @@ def aggregate_closed_timeframes(candles, now_ms):
     return result
 
 
-def _candle_direction(row):
-    """Return a closed candle's body direction; flat candles cannot confirm bias."""
-    if row[4] > row[1]:
+def _trend_direction(rows):
+    """Infer trend from three closed-bar closes, not the latest candle color.
+
+    A latest red body can still belong to a rising sequence, and vice versa.
+    A net move plus a confirming latest close avoids treating one
+    counter-trend candle body as a full reversal.
+    """
+    if not isinstance(rows, (list, tuple)) or len(rows) < 3:
+        return "NEUTRAL"
+    closes = []
+    for row in rows[-3:]:
+        try:
+            value = float(row[4])
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return "NEUTRAL"
+        if not math.isfinite(value) or value <= 0:
+            return "NEUTRAL"
+        closes.append(value)
+    first, middle, last = closes
+    if last > first and last >= middle:
         return "BULLISH"
-    if row[4] < row[1]:
+    if last < first and last <= middle:
         return "BEARISH"
     return "NEUTRAL"
 
 
 def analyze_multi_timeframe(candles, now_ms, analyzer):
-    """Use short higher-timeframe candle-body confirmation, not under-sampled indicators."""
+    """Use multi-bar higher-timeframe close structure, not candle body color."""
     if not callable(analyzer):
         raise ValueError("analyzer must be callable")
     if not isinstance(candles, (list, tuple)):
@@ -118,19 +137,21 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         required = required_counts[str(minutes)]
         if len(rows) < required:
             continue
-        selected = rows[-required:]
-        directions = [_candle_direction(row) for row in selected]
-        # Two consecutive 5m candle bodies must agree. A single completed
-        # 15m candle is only a directional confirmation, never an indicator.
-        if all(direction == directions[0] for direction in directions) and directions[0] != "NEUTRAL":
-            signals[str(minutes)] = directions[0]
-        else:
+        # Readiness and trend confirmation have different thresholds:
+        # 15m may satisfy warm-up with one closed bar, but its direction
+        # remains NEUTRAL until three closed bars form a usable structure.
+        if len(rows) < 3:
             signals[str(minutes)] = "NEUTRAL"
+            continue
+        selected = rows[-3:]
+        # Trend follows the sequence of closed prices, not candle body color.
+        # A red 15m body may still sit inside a rising 15m price structure.
+        signals[str(minutes)] = _trend_direction(selected)
         closes[str(minutes)] = int(rows[-1][0])
 
-    # With only two 5m bars an ATR(14) is not statistically available.
-    # Use the largest true range of the two completed bars as a clearly
-    # labelled conservative stop-distance proxy instead.
+    # A full 5m ATR(14) is not available from the warm-up window.
+    # Use the largest true range of the two latest completed bars as a
+    # conservative stop-distance proxy instead.
     five_rows = aggregated[5]
     if len(five_rows) >= 2:
         recent = five_rows[-2:]
@@ -156,9 +177,17 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
                 for minutes in AGGREGATED_TIMEFRAMES_MINUTES)
     )
     bias_directions = [signals.get("5"), signals.get("15")]
+    fifteen_minute_confirmed = counts.get("15", 0) >= 3
+    # 5m provides the early directional bias after three closed bars. Until
+    # three complete 15m bars exist, 15m is warming up and must not impose a
+    # 45-minute startup delay. Once mature, 15m becomes a strict veto/confirm:
+    # an opposing or neutral 15m structure blocks the setup.
     bias_agreement = bool(
         ready and bias_directions[0] in ("BULLISH", "BEARISH")
-        and bias_directions[1] == bias_directions[0]
+        and (
+            not fifteen_minute_confirmed
+            or bias_directions[1] == bias_directions[0]
+        )
     )
     bias = bias_directions[0] if bias_agreement else None
 
@@ -187,6 +216,9 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         "agreement": bias_agreement,
         "direction": bias,
         "entry_trigger": entry_trigger,
+        "15m_confirmation_ready": fifteen_minute_confirmed,
+        "one_minute_gap_count": int(one_minute.get("gap_count", 0) or 0),
+        "one_minute_missing_intervals": int(one_minute.get("missing_intervals", 0) or 0),
         "entry_trigger_direction": entry_direction,
         "required_minutes": list(TRADE_TIMEFRAMES_MINUTES),
         "closed_candles": counts,

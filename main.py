@@ -10,7 +10,7 @@ import certifi
 from android_tls import (mount_tabdeal_tls_compat,
                          tabdeal_websocket_ssl_options)
 
-APP_VERSION = "1.57"
+APP_VERSION = "1.59"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -2645,7 +2645,8 @@ class FuturesAnalyzerApp(App):
                 builder_factory=lambda market: builder if market == symbol else TradeCandleBuilder(market, max_candles=2000),
                 max_snapshot_age=30.0,
                 analyze_with_context=lambda candles, now_ms: analyze_multi_timeframe(
-                    candles, now_ms, analyze_klines
+                    candles, now_ms,
+                    lambda rows: analyze_klines(rows, max_missing_intervals=3),
                 ),
             )
         except Exception as coordinator_exc:

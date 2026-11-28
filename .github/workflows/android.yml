@@ -1,4 +1,4 @@
-name: Tabdeal Futures CI and signed APK build (v1.57)
+name: Tabdeal Futures CI and signed APK build (v1.58)
 # v1.57: validate Android same-process foreground keepalive and preserve the existing paper-only market worker. Live orders remain disabled.
 
 on:
@@ -48,6 +48,7 @@ on:
       - fix/multitimeframe-risk-exit-20261126
       - fix/preserve-closed-candles-on-reconnect-20261127
       - fix/android-foreground-market-service-v156-20261127
+      - feature/smart-mtf-trend-analysis-v157-20261128
       # Isolated v1.53 staged-warmup regression verification branch.
     paths:
       - 'main.py'

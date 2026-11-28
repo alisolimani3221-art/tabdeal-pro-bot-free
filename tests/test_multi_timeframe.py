@@ -1,3 +1,4 @@
+# CI trigger: smart MTF regression suite
 import unittest
 
 from multi_timeframe import (
@@ -42,12 +43,34 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(len(result[5]), 11)
         self.assertEqual(result[5][0][0], 5 * 60_000)
 
-    def test_missing_or_duplicate_minute_fails_closed(self):
+    def test_gap_skips_incomplete_higher_timeframe_buckets_but_duplicates_fail(self):
         rows = minute_rows(60)
-        with self.assertRaisesRegex(ValueError, "gap or duplicate"):
-            aggregate_closed_timeframes(rows[:10] + rows[11:], 60 * 60_000)
-        with self.assertRaisesRegex(ValueError, "gap or duplicate"):
+        gapped = rows[:10] + rows[11:]
+        result = aggregate_closed_timeframes(gapped, 60 * 60_000)
+        self.assertEqual(len(result[5]), 11)
+        self.assertEqual(len(result[15]), 3)
+        with self.assertRaisesRegex(ValueError, "duplicate or out-of-order"):
             aggregate_closed_timeframes(rows[:10] + [rows[9]] + rows[10:], 60 * 60_000)
+
+    def test_mtf_keeps_complete_bars_and_reports_one_bounded_minute_gap(self):
+        rows = minute_rows(24 * 60)
+        gapped = rows[:600] + rows[601:]
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 100.5,
+                    "closed_candles": len(candles) - 1,
+                    "sma10": 100.0, "sma20": 99.0,
+                    "rsi14": 56.0, "atr14": 0.5,
+                    "gap_count": 1, "missing_intervals": 1}
+        result = analyze_multi_timeframe(
+            gapped, now_ms=24 * 60 * 60_000, analyzer=stub_analyzer
+        )
+        status = result["timeframe_analysis"]
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["agreement"])
+        self.assertEqual(status["one_minute_gap_count"], 1)
+        self.assertEqual(status["one_minute_missing_intervals"], 1)
+        self.assertEqual(status["closed_candles"]["5"], 287)
+        self.assertEqual(status["closed_candles"]["15"], 95)
 
     def test_invalid_ohlcv_and_server_clock_are_rejected(self):
         rows = minute_rows(60)
@@ -125,7 +148,7 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(result["timeframe_analysis"]["direction"], "BULLISH")
         self.assertEqual(result["signal"], "NEUTRAL")
 
-    def test_one_fifteen_minute_candle_and_two_five_minute_candles_are_enough(self):
+    def test_three_closed_bars_per_higher_timeframe_are_enough(self):
         rows = minute_rows(23 * 60)
         def stub_analyzer(candles, interval_ms=60_000):
             return {"signal": "BULLISH", "price": 100.5,
@@ -142,14 +165,35 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(status["signals"]["5"], "BULLISH")
         self.assertEqual(status["signals"]["15"], "BULLISH")
 
-    def test_mixed_last_two_five_minute_candles_block_higher_timeframe_bias(self):
+    def test_one_closed_fifteen_minute_bar_allows_early_five_minute_bias(self):
+        rows = minute_rows(24)
+        def stub_analyzer(candles, interval_ms=60_000):
+            return {"signal": "BULLISH", "price": 100.5,
+                    "closed_candles": len(candles) - 1,
+                    "sma10": 100.0, "rsi14": 56.0, "atr14": 0.5}
+        result = analyze_multi_timeframe(
+            rows, now_ms=24 * 60_000, analyzer=stub_analyzer
+        )
+        status = result["timeframe_analysis"]
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["agreement"])
+        self.assertFalse(status["15m_confirmation_ready"])
+        self.assertEqual(status["closed_candles"]["1"], 23)
+        self.assertEqual(status["closed_candles"]["5"], 4)
+        self.assertEqual(status["closed_candles"]["15"], 1)
+        self.assertEqual(status["signals"]["5"], "BULLISH")
+        self.assertEqual(status["signals"]["15"], "NEUTRAL")
+        self.assertEqual(result["signal"], "BULLISH")
+
+    def test_red_higher_timeframe_bodies_do_not_override_rising_close_structure(self):
         rows = minute_rows(23 * 60)
         # Flip the final complete 5m bucket's body direction without breaking OHLC.
-        for index in range(len(rows) - 5, len(rows)):
-            row = rows[index]
-            row[4] = row[1] - 0.05
-            row[2] = max(row[1], row[4]) + 0.2
-            row[3] = min(row[1], row[4]) - 0.2
+        # Make the final 5m candle red by raising its open, while its close
+        # remains above the previous 5m close: rising structure, red body.
+        for index in (-15, -5):
+            rows[index][1] += 0.15
+            rows[index][2] = max(rows[index][1], rows[index][4]) + 0.2
+            rows[index][3] = min(rows[index][1], rows[index][4]) - 0.2
         def stub_analyzer(candles, interval_ms=60_000):
             return {"signal": "BULLISH", "price": 100.5,
                     "closed_candles": len(candles) - 1,
@@ -157,9 +201,10 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         result = analyze_multi_timeframe(
             rows, now_ms=23 * 60 * 60_000, analyzer=stub_analyzer
         )
-        self.assertFalse(result["timeframe_analysis"]["agreement"])
-        self.assertEqual(result["timeframe_analysis"]["signals"]["5"], "NEUTRAL")
-        self.assertEqual(result["signal"], "NEUTRAL")
+        self.assertTrue(result["timeframe_analysis"]["agreement"])
+        self.assertEqual(result["timeframe_analysis"]["signals"]["5"], "BULLISH")
+        self.assertEqual(result["timeframe_analysis"]["signals"]["15"], "BULLISH")
+        self.assertEqual(result["signal"], "BULLISH")
 
     def test_missing_closed_fifteen_minute_bucket_blocks_agreement(self):
         rows = minute_rows(14)
