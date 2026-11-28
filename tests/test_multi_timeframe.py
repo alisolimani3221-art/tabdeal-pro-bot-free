@@ -125,7 +125,7 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(result["timeframe_analysis"]["direction"], "BULLISH")
         self.assertEqual(result["signal"], "NEUTRAL")
 
-    def test_one_fifteen_minute_candle_and_two_five_minute_candles_are_enough(self):
+    def test_three_closed_bars_per_higher_timeframe_are_enough(self):
         rows = minute_rows(23 * 60)
         def stub_analyzer(candles, interval_ms=60_000):
             return {"signal": "BULLISH", "price": 100.5,
@@ -142,14 +142,14 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(status["signals"]["5"], "BULLISH")
         self.assertEqual(status["signals"]["15"], "BULLISH")
 
-    def test_mixed_last_two_five_minute_candles_block_higher_timeframe_bias(self):
+    def test_single_red_five_minute_body_does_not_override_rising_close_structure(self):
         rows = minute_rows(23 * 60)
         # Flip the final complete 5m bucket's body direction without breaking OHLC.
-        for index in range(len(rows) - 5, len(rows)):
-            row = rows[index]
-            row[4] = row[1] - 0.05
-            row[2] = max(row[1], row[4]) + 0.2
-            row[3] = min(row[1], row[4]) - 0.2
+        # Make the final 5m candle red by raising its open, while its close
+        # remains above the previous 5m close: rising structure, red body.
+        rows[-5][1] += 0.15
+        rows[-5][2] = max(rows[-5][1], rows[-5][4]) + 0.2
+        rows[-5][3] = min(rows[-5][1], rows[-5][4]) - 0.2
         def stub_analyzer(candles, interval_ms=60_000):
             return {"signal": "BULLISH", "price": 100.5,
                     "closed_candles": len(candles) - 1,
@@ -157,9 +157,10 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         result = analyze_multi_timeframe(
             rows, now_ms=23 * 60 * 60_000, analyzer=stub_analyzer
         )
-        self.assertFalse(result["timeframe_analysis"]["agreement"])
-        self.assertEqual(result["timeframe_analysis"]["signals"]["5"], "NEUTRAL")
-        self.assertEqual(result["signal"], "NEUTRAL")
+        self.assertTrue(result["timeframe_analysis"]["agreement"])
+        self.assertEqual(result["timeframe_analysis"]["signals"]["5"], "BULLISH")
+        self.assertEqual(result["timeframe_analysis"]["signals"]["15"], "BULLISH")
+        self.assertEqual(result["signal"], "BULLISH")
 
     def test_missing_closed_fifteen_minute_bucket_blocks_agreement(self):
         rows = minute_rows(14)
