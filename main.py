@@ -2645,7 +2645,8 @@ class FuturesAnalyzerApp(App):
                 builder_factory=lambda market: builder if market == symbol else TradeCandleBuilder(market, max_candles=2000),
                 max_snapshot_age=30.0,
                 analyze_with_context=lambda candles, now_ms: analyze_multi_timeframe(
-                    candles, now_ms, analyze_klines
+                    candles, now_ms,
+                    lambda rows: analyze_klines(rows, max_missing_intervals=2),
                 ),
             )
         except Exception as coordinator_exc:
