@@ -185,7 +185,7 @@ def rank_signal(technical):
             or timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES)):
         return None
     timeframe_counts = timeframe.get("closed_candles")
-    minimum_counts = {"1": 23, "5": 2, "15": 1}
+    minimum_counts = {"1": 23, "5": 3, "15": 3}
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(key)) is not int
                    or timeframe_counts.get(key) < minimum
@@ -273,8 +273,8 @@ def diagnose_signal(technical):
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(key)) is not int
                    or timeframe_counts.get(key) < minimum
-                   for key, minimum in {"1": 23, "5": 2, "15": 1}.items())):
-        return "حداقل کندل بستهٔ لازم: یک‌دقیقه ۲۳، پنج‌دقیقه ۲ و پانزده‌دقیقه ۱؛ ورود مسدود است"
+                   for key, minimum in {"1": 23, "5": 3, "15": 3}.items())):
+        return "حداقل کندل بستهٔ لازم: یک‌دقیقه ۲۳، پنج‌دقیقه ۳ و پانزده‌دقیقه ۳؛ ورود مسدود است"
     if (timeframe.get("agreement") is not True
             or timeframe.get("direction") != signal):
         return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
