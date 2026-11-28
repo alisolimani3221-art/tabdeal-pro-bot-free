@@ -10,7 +10,7 @@ import certifi
 from android_tls import (mount_tabdeal_tls_compat,
                          tabdeal_websocket_ssl_options)
 
-APP_VERSION = "1.56"
+APP_VERSION = "1.57"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
@@ -833,9 +833,11 @@ class FuturesAnalyzerApp(App):
         self._schedule_order_book_poll(0)
 
     def _start_order_book_polling(self):
-        """Start one foreground-only Kivy timer; network reads run off the UI thread."""
+        """Start or resume one foreground-only Kivy timer."""
+        # on_stop cancels the old timer and signals in-flight reads. A later
+        # Activity resume must clear that stop flag before polling can restart.
+        self.orderbook_poll_stop.clear()
         if self.orderbook_poll_event is None:
-            self.orderbook_poll_stop.clear()
             self.orderbook_poll_event = Clock.schedule_interval(
                 self._schedule_order_book_poll, 2.0
             )
@@ -1586,6 +1588,10 @@ class FuturesAnalyzerApp(App):
         popup.open()
 
     def show_result(self, results):
+        automatic_market_check = bool(
+            getattr(self, "_automatic_market_check_active", False)
+        )
+        self._automatic_market_check_active = False
         self.check_in_progress = False
         self.last_diagnostic_results = dict(results)
         # Preserve a compact snapshot for the read-only AI assistant. This is
@@ -1600,6 +1606,7 @@ class FuturesAnalyzerApp(App):
             ) if key in results
         }
         self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.last_diagnostic_monotonic = time.monotonic()
         self.check_button.disabled = False
         self.symbol_spinner.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
@@ -1743,9 +1750,14 @@ class FuturesAnalyzerApp(App):
         popup = Popup(title=fa_plain(popup_title), title_font=FONT_NAME, content=body,
                       size_hint=(0.94, 0.78), auto_dismiss=False)
         close_button.bind(on_press=popup.dismiss)
-        popup.open()
+        if not automatic_market_check:
+            popup.open()
         if market_ok and book_ok and results.get("symbol_verified"):
             self._start_order_book_polling()
+        elif automatic_market_check:
+            # Retry transient network/TLS failures quietly. A user should not
+            # have to tap the connection button after every app relaunch.
+            self._schedule_automatic_market_check(delay=12.0, force=True)
 
 
     def open_diagnostics(self, instance):
@@ -2446,6 +2458,9 @@ class FuturesAnalyzerApp(App):
             daemon=True,
         )
         self.auto_trader_thread.start()
+        # Start the foreground service while the Activity is visibly active;
+        # Android 12+ restricts starting foreground services from background.
+        keepalive_started = self._start_background_market_service()
         retained_count = min(builder.status()["closed_candles"], 23)
         if retained_count >= 23:
             warmup_text = "تاریخچه معتبر: ۲۳ از ۲۳؛ تحلیل و ورود آزمایشی پس از تأیید اتصال مجاز است."
@@ -2464,6 +2479,11 @@ class FuturesAnalyzerApp(App):
             + warmup_text + "\n" + candle_cache_note
             + " هیچ سفارش واقعی ارسال نمی‌شود."
         ).format(self.capital_usdt)
+        if not keepalive_started:
+            status_text += (
+                "\nسرویس نگهدارندهٔ پس‌زمینه فعال نشد: "
+                + str(getattr(self, "_background_service_error", "unknown"))
+            )
         self.update_auto_status(status_text)
 
     def _stop_auto_worker(self, timeout=3.0):
@@ -2539,6 +2559,7 @@ class FuturesAnalyzerApp(App):
             )
         if not worker_stopped:
             message += " خروج رشته پس‌زمینه هنوز کامل نشده؛ موتور قفل و متوقف باقی می‌ماند."
+        self._stop_background_market_service()
         self.update_auto_status(message)
 
     def _update_engine_health(self, **values):
@@ -3709,11 +3730,51 @@ class FuturesAnalyzerApp(App):
         self._update_engine_health(durable_candle_count=count)
         return count
 
+    def _market_keep_service_intent(self):
+        """Build the native same-process Android keepalive service intent."""
+        from jnius import autoclass
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        service_class = autoclass("org.tabdeal.futuresanalyzer.MarketKeepService")
+        intent_class = autoclass("android.content.Intent")
+        return activity, intent_class(activity, service_class)
+
+    def _stop_background_market_service(self):
+        """Stop the native foreground keepalive after the UI returns."""
+        try:
+            activity, intent = self._market_keep_service_intent()
+            activity.stopService(intent)
+            self._background_service_active = False
+            self._background_service_error = None
+            return True
+        except Exception as exc:
+            self._background_service_error = (
+                "{}: {}".format(type(exc).__name__, str(exc)[:120])
+            )
+            return False
+
+    def _start_background_market_service(self):
+        """Promote the existing app process while its market worker is backgrounded."""
+        try:
+            activity, intent = self._market_keep_service_intent()
+            build_version = __import__("jnius").autoclass("android.os.Build$VERSION")
+            if int(build_version.SDK_INT) >= 26:
+                activity.startForegroundService(intent)
+            else:
+                activity.startService(intent)
+            self._background_service_active = True
+            self._background_service_error = None
+            return True
+        except Exception as exc:
+            self._background_service_active = False
+            self._background_service_error = (
+                "{}: {}".format(type(exc).__name__, str(exc)[:120])
+            )
+            return False
+
     def on_pause(self):
-        # Android sends on_pause when the user switches apps or the screen is
-        # backgrounded. Returning True lets Kivy resume this app instead of
-        # treating the pause as a permanent shutdown. Persist closed candles
-        # and paper state before Android potentially suspends the process.
+        # Keep the existing market worker in this process. The native Android
+        # foreground service raises process priority and holds a partial wake
+        # lock; it does not start a second Python interpreter or WebSocket.
         try:
             self._flush_candle_archive()
         except Exception as exc:
@@ -3730,9 +3791,70 @@ class FuturesAnalyzerApp(App):
                     "ذخیرهٔ وضعیت موتور هنگام مکث ناموفق بود: "
                     + type(exc).__name__
                 )
+        worker = getattr(self, "auto_trader_thread", None)
+        if worker is not None and worker.is_alive():
+            if not self._start_background_market_service():
+                self.update_auto_status(
+                    "سرویس نگهدارندهٔ پس‌زمینه شروع نشد؛ رشتهٔ بازار همچنان عادی اجرا می‌شود. علت: "
+                    + str(getattr(self, "_background_service_error", "unknown"))
+                )
         return True
 
+    def _schedule_automatic_market_check(self, delay=0.8, force=False):
+        """Refresh public market connectivity after launch/resume without user taps."""
+        if getattr(self, "check_in_progress", False):
+            return
+        if getattr(self, "_automatic_market_check_pending", False):
+            return
+        last_check = getattr(self, "last_diagnostic_monotonic", None)
+        if not force and last_check is not None and time.monotonic() - last_check < 30.0:
+            return
+        self._automatic_market_check_pending = True
+
+        def run_check(_dt):
+            self._automatic_market_check_pending = False
+            if not getattr(self, "check_in_progress", False):
+                self._automatic_market_check_active = True
+                self.show_status(getattr(self, "check_button", None))
+
+        Clock.schedule_once(run_check, max(0.1, float(delay)))
+
+    def on_resume(self):
+        # Resume the order-book timer after returning from Android background.
+        # The stream worker itself is restarted only if Android ended it.
+        resume_orderbook = getattr(self, "_start_order_book_polling_if_verified", None)
+        if callable(resume_orderbook):
+            resume_orderbook()
+        worker = getattr(self, "auto_trader_thread", None)
+        if (worker is None or not worker.is_alive()) and getattr(self, "auto_engine", None) is not None:
+            Clock.schedule_once(
+                lambda _dt: self.start_auto_paper_trader(), 0.5
+            )
+        self._schedule_automatic_market_check(delay=0.8, force=False)
+        return True
+
+    def _start_order_book_polling_if_verified(self):
+        """Resume polling only when the selected symbol was already verified."""
+        if getattr(self, "verified_market_symbols", None):
+            self._start_order_book_polling()
+
     def on_start(self):
+        # Stop a stale keepalive only when this process has no live market worker.
+        # If the Activity is recreated while the same-process worker is alive,
+        # keep its foreground service and avoid dropping the CPU lock.
+        existing_worker = getattr(self, "auto_trader_thread", None)
+        if existing_worker is None or not existing_worker.is_alive():
+            self._stop_background_market_service()
+        try:
+            from jnius import autoclass
+            build = autoclass("android.os.Build")
+            if int(build.VERSION.SDK_INT) >= 33:
+                from android.permissions import request_permissions
+                request_permissions(["android.permission.POST_NOTIFICATIONS"])
+        except Exception:
+            # Notification permission denial must not crash app startup; Android
+            # still exposes foreground-service state through system task controls.
+            pass
         # Kivy user_data_dir is the app-private writable storage on Android.
         # If flock or this filesystem is unavailable, keep the paper runner disabled.
         self.runtime_guard = AppRuntimeGuard(self.user_data_dir)
@@ -3765,8 +3887,18 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(
             lambda _dt: self.start_auto_paper_trader(), 0.5
         )
+        # The main screen must restore its public market connection and order
+        # book automatically on every fresh app launch; do not require the
+        # operator to tap "بررسی اتصال" again.
+        auto_check = getattr(self, "_schedule_automatic_market_check", None)
+        if callable(auto_check):
+            auto_check(delay=1.2, force=True)
 
     def on_stop(self):
+        # on_stop can run when the Activity closes even though the user only
+        # wants the UI gone. If paper monitoring is still active, keep the
+        # existing Python worker and native foreground service alive. The
+        # explicit Stop button remains responsible for halting both.
         poll_stop = getattr(self, "orderbook_poll_stop", None)
         if poll_stop is not None:
             poll_stop.set()
@@ -3776,9 +3908,44 @@ class FuturesAnalyzerApp(App):
                 poll_event.cancel()
             except Exception:
                 pass
+            self.orderbook_poll_event = None
         poll_thread = getattr(self, "orderbook_poll_thread", None)
         if poll_thread is not None and poll_thread.is_alive():
             poll_thread.join(timeout=1.0)
+
+        market_worker = getattr(self, "auto_trader_thread", None)
+        stop_event = getattr(self, "auto_stop_event", None)
+        keep_monitoring = (
+            market_worker is not None
+            and market_worker.is_alive()
+            and stop_event is not None
+            and not stop_event.is_set()
+        )
+        if keep_monitoring:
+            try:
+                self._flush_candle_archive()
+            except Exception as exc:
+                self.update_auto_status(
+                    "ذخیرهٔ آرشیو کندل هنگام بستن صفحه ناموفق بود: "
+                    + type(exc).__name__
+                )
+            engine = getattr(self, "auto_engine", None)
+            if engine is not None:
+                try:
+                    self._persist_paper_engine_state(engine)
+                except Exception as exc:
+                    self.update_auto_status(
+                        "ذخیرهٔ وضعیت موتور هنگام بستن صفحه ناموفق بود: "
+                        + type(exc).__name__
+                    )
+            if not self._start_background_market_service():
+                self.update_auto_status(
+                    "سرویس پس‌زمینه هنگام بستن صفحه شروع نشد: "
+                    + str(getattr(self, "_background_service_error", "unknown"))
+                )
+            return
+
+        self._stop_background_market_service()
         worker_stopped = True
         if hasattr(self, "auto_stop_event"):
             worker_stopped = self._stop_auto_worker(timeout=3.0)
