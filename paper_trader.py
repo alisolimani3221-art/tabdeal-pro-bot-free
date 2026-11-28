@@ -259,7 +259,9 @@ def diagnose_signal(technical):
         if timeframe.get("agreement") is not True:
             return "جهت روند ۵ و ۱۵ دقیقه هم‌سو نیست؛ ورود مسدود است"
         if timeframe.get("entry_trigger") is not True:
-            return "روند ۵ و ۱۵ دقیقه هم‌جهت است؛ منتظر ماشهٔ ورود یک‌دقیقه‌ای هستیم"
+            if timeframe.get("15m_confirmation_ready") is True:
+                return "روند ۵ و ۱۵ دقیقه هم‌جهت است؛ منتظر ماشهٔ ورود یک‌دقیقه‌ای هستیم"
+            return "جهت ۵ دقیقه مشخص است؛ تأیید ۱۵ دقیقه هنوز در حال تکمیل است و منتظر ماشهٔ ورود یک‌دقیقه‌ای هستیم"
         return "سیگنال خنثی است؛ شرایط ورود هنوز کامل نیست"
     if signal not in ("BULLISH", "BEARISH"):
         return "جهت سیگنال قابل‌شناسایی نیست"
