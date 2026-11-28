@@ -8,7 +8,7 @@ import math
 
 MINUTE_MS = 60_000
 TRADE_TIMEFRAMES_MINUTES = (1, 5, 15)
-MIN_CLOSED_CANDLES_BY_TIMEFRAME = {"1": 23, "5": 2, "15": 1}
+MIN_CLOSED_CANDLES_BY_TIMEFRAME = {"1": 23, "5": 3, "15": 3}
 AGGREGATED_TIMEFRAMES_MINUTES = (5, 15)
 
 
@@ -77,11 +77,28 @@ def aggregate_closed_timeframes(candles, now_ms):
     return result
 
 
-def _candle_direction(row):
-    """Return a closed candle's body direction; flat candles cannot confirm bias."""
-    if row[4] > row[1]:
+def _trend_direction(rows):
+    """Infer trend from three closed-bar closes, not the latest candle color.
+
+    A latest red body can still belong to a rising sequence, and vice versa.
+    A net move plus a confirming latest close avoids treating one
+    counter-trend candle body as a full reversal.
+    """
+    if not isinstance(rows, (list, tuple)) or len(rows) < 3:
+        return "NEUTRAL"
+    closes = []
+    for row in rows[-3:]:
+        try:
+            value = float(row[4])
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return "NEUTRAL"
+        if not math.isfinite(value) or value <= 0:
+            return "NEUTRAL"
+        closes.append(value)
+    first, middle, last = closes
+    if last > first and last >= middle:
         return "BULLISH"
-    if row[4] < row[1]:
+    if last < first and last <= middle:
         return "BEARISH"
     return "NEUTRAL"
 
@@ -119,13 +136,9 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         if len(rows) < required:
             continue
         selected = rows[-required:]
-        directions = [_candle_direction(row) for row in selected]
-        # Two consecutive 5m candle bodies must agree. A single completed
-        # 15m candle is only a directional confirmation, never an indicator.
-        if all(direction == directions[0] for direction in directions) and directions[0] != "NEUTRAL":
-            signals[str(minutes)] = directions[0]
-        else:
-            signals[str(minutes)] = "NEUTRAL"
+        # Trend follows the sequence of closed prices, not candle body color.
+        # A red 15m body may still sit inside a rising 15m price structure.
+        signals[str(minutes)] = _trend_direction(selected)
         closes[str(minutes)] = int(rows[-1][0])
 
     # With only two 5m bars an ATR(14) is not statistically available.
