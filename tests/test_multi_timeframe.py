@@ -1,3 +1,4 @@
+# CI trigger: smart MTF regression suite
 import unittest
 
 from multi_timeframe import (
