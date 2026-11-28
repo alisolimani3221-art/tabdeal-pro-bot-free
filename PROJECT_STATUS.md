@@ -116,3 +116,9 @@ User-provided diagnostic from the installed Android/Kivy app:
 3. On-device: start paper monitor, background the app, wait several minutes, return, and confirm service status, socket uptime, reconnect count, and candles do not reset merely because the UI was backgrounded.
 4. Continue diagnosing DNS/WebSocket transport failures separately. Do not claim 1m/5m/15m readiness until a real continuous validated history is observed.
 5. Preserve paper-only mode; no live exchange orders.
+
+## CI follow-up — 2026-11-28
+
+- First CI attempt after the Android SDK lookup fix (run 46113061524) failed in the newly added regression test only: `test_native_service_is_declared_in_same_app_process` referenced local variable `source` without defining it. The other 548 tests in that run passed.
+- Corrected the test by explicitly loading repository `main.py` into `source`; commit `eb1232e6be2b1eaec61a3a289d45173b48f58edc`.
+- New workflow run 46113388605 was queued/in progress at the time of this update. Await full regression, live API probes, release signing, APK build, and artifact verification before treating this branch as releasable.
