@@ -31,6 +31,8 @@ class AndroidBackgroundKeepaliveTests(unittest.TestCase):
         self.assertIn("FOREGROUND_SERVICE_TYPE_SPECIAL_USE", java)
         self.assertIn("PARTIAL_WAKE_LOCK", java)
         self.assertIn("wakeLock.release()", java)
+        self.assertIn('autoclass("android.os.Build$VERSION")', source)
+        self.assertNotIn('autoclass("android.os.Build")', source[source.index("    def _start_background_market_service"):source.index("    def on_pause")])
 
     def test_p4a_application_xml_argument_is_valid_child_element(self):
         spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
