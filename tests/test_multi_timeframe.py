@@ -43,11 +43,13 @@ class ClosedTimeframeAggregationTests(unittest.TestCase):
         self.assertEqual(len(result[5]), 11)
         self.assertEqual(result[5][0][0], 5 * 60_000)
 
-    def test_missing_or_duplicate_minute_fails_closed(self):
+    def test_gap_skips_incomplete_higher_timeframe_buckets_but_duplicates_fail(self):
         rows = minute_rows(60)
-        with self.assertRaisesRegex(ValueError, "gap or duplicate"):
-            aggregate_closed_timeframes(rows[:10] + rows[11:], 60 * 60_000)
-        with self.assertRaisesRegex(ValueError, "gap or duplicate"):
+        gapped = rows[:10] + rows[11:]
+        result = aggregate_closed_timeframes(gapped, 60 * 60_000)
+        self.assertEqual(len(result[5]), 10)
+        self.assertEqual(len(result[15]), 3)
+        with self.assertRaisesRegex(ValueError, "duplicate or out-of-order"):
             aggregate_closed_timeframes(rows[:10] + [rows[9]] + rows[10:], 60 * 60_000)
 
     def test_invalid_ohlcv_and_server_clock_are_rejected(self):
