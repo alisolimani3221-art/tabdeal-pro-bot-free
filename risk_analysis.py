@@ -21,16 +21,22 @@ def _finite(value, name):
     return number
 
 
-def analyze_klines(candles, interval_ms=CANDLE_INTERVAL_MS):
+def analyze_klines(candles, interval_ms=CANDLE_INTERVAL_MS, max_missing_intervals=0):
     """Calculate SMA10/SMA20, Wilder RSI14 and Wilder ATR14.
 
     The final candle is excluded because it may still be forming. Input uses
     Binance-compatible [open_time, open, high, low, close, volume, ...] rows.
     interval_ms must match the exact timeframe spacing of the input rows.
+    max_missing_intervals optionally permits one small, explicitly bounded gap;
+    all other spacing errors remain rejected.
     """
     if (isinstance(interval_ms, bool) or not isinstance(interval_ms, int)
             or interval_ms <= 0):
         raise ValueError("interval_ms must be a positive integer")
+    if (isinstance(max_missing_intervals, bool)
+            or not isinstance(max_missing_intervals, int)
+            or not 0 <= max_missing_intervals <= 2):
+        raise ValueError("max_missing_intervals must be an integer from 0 to 2")
     if not isinstance(candles, (list, tuple)):
         raise ValueError("candles must be a list")
     closed = list(candles[:-1])
@@ -61,9 +67,18 @@ def analyze_klines(candles, interval_ms=CANDLE_INTERVAL_MS):
 
     if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
         raise ValueError("candle timestamps must be strictly increasing")
-    if any(current - previous != interval_ms
-           for previous, current in zip(timestamps, timestamps[1:])):
-        raise ValueError("candle history must be gap-free at the requested interval")
+    missing_intervals = 0
+    gap_count = 0
+    for previous, current in zip(timestamps, timestamps[1:]):
+        delta = current - previous
+        if delta % interval_ms:
+            raise ValueError("candle history spacing is not aligned to the requested interval")
+        missing = delta // interval_ms - 1
+        if missing:
+            gap_count += 1
+            missing_intervals += missing
+            if missing > max_missing_intervals or gap_count > 1:
+                raise ValueError("candle history must be gap-free or contain one bounded gap")
 
     sma10 = sum(closes[-10:]) / 10.0
     sma20 = sum(closes[-20:]) / 20.0
@@ -116,6 +131,8 @@ def analyze_klines(candles, interval_ms=CANDLE_INTERVAL_MS):
         "atr14": atr14,
         "signal": signal,
         "closed_candles": len(closed),
+        "missing_intervals": missing_intervals,
+        "gap_count": gap_count,
     }
 
 
