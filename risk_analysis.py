@@ -35,8 +35,8 @@ def analyze_klines(candles, interval_ms=CANDLE_INTERVAL_MS, max_missing_interval
         raise ValueError("interval_ms must be a positive integer")
     if (isinstance(max_missing_intervals, bool)
             or not isinstance(max_missing_intervals, int)
-            or not 0 <= max_missing_intervals <= 2):
-        raise ValueError("max_missing_intervals must be an integer from 0 to 2")
+            or not 0 <= max_missing_intervals <= 3):
+        raise ValueError("max_missing_intervals must be an integer from 0 to 3")
     if not isinstance(candles, (list, tuple)):
         raise ValueError("candles must be a list")
     closed = list(candles[:-1])
