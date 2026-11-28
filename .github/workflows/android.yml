@@ -1,4 +1,4 @@
-name: Tabdeal Futures CI and signed APK build (v1.57)
+name: Tabdeal Futures CI and signed APK build (v1.58)
 # v1.57: validate Android same-process foreground keepalive and preserve the existing paper-only market worker. Live orders remain disabled.
 
 on:
