@@ -129,6 +129,32 @@ class RiskAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "gap-free"):
             analyze_klines(rows)
 
+    def test_analysis_allows_one_bounded_reconnect_gap_when_explicitly_enabled(self):
+        rows = candles()
+        for index in range(21, len(rows)):
+            rows[index][0] += 60_000
+        result = analyze_klines(rows, max_missing_intervals=2)
+        self.assertEqual(result["gap_count"], 1)
+        self.assertEqual(result["missing_intervals"], 1)
+        with self.assertRaisesRegex(ValueError, "bounded gap"):
+            analyze_klines(rows, max_missing_intervals=0)
+
+    def test_analysis_rejects_multiple_or_large_gaps_even_in_tolerant_mode(self):
+        rows = candles()
+        for index in range(21, len(rows)):
+            rows[index][0] += 3 * 60_000
+        with self.assertRaisesRegex(ValueError, "bounded gap"):
+            analyze_klines(rows, max_missing_intervals=2)
+        rows = candles()
+        rows[10][0] += 60_000
+        for index in range(11, len(rows)):
+            rows[index][0] += 60_000
+        rows[25][0] += 60_000
+        for index in range(26, len(rows)):
+            rows[index][0] += 60_000
+        with self.assertRaisesRegex(ValueError, "bounded gap"):
+            analyze_klines(rows, max_missing_intervals=2)
+
     def test_analysis_rejects_negative_timestamp_or_volume(self):
         for index, value in ((0, -1), (5, -0.1)):
             rows = candles()
