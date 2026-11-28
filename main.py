@@ -833,9 +833,11 @@ class FuturesAnalyzerApp(App):
         self._schedule_order_book_poll(0)
 
     def _start_order_book_polling(self):
-        """Start one foreground-only Kivy timer; network reads run off the UI thread."""
+        """Start or resume one foreground-only Kivy timer."""
+        # on_stop cancels the old timer and signals in-flight reads. A later
+        # Activity resume must clear that stop flag before polling can restart.
+        self.orderbook_poll_stop.clear()
         if self.orderbook_poll_event is None:
-            self.orderbook_poll_stop.clear()
             self.orderbook_poll_event = Clock.schedule_interval(
                 self._schedule_order_book_poll, 2.0
             )
@@ -1600,6 +1602,7 @@ class FuturesAnalyzerApp(App):
             ) if key in results
         }
         self.last_diagnostic_time = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.last_diagnostic_monotonic = time.monotonic()
         self.check_button.disabled = False
         self.symbol_spinner.disabled = False
         self.check_button.text = fa("بررسی دوباره اتصال")
@@ -3788,16 +3791,40 @@ class FuturesAnalyzerApp(App):
                 )
         return True
 
+    def _schedule_automatic_market_check(self, delay=0.8, force=False):
+        """Refresh public market connectivity after launch/resume without user taps."""
+        if getattr(self, "check_in_progress", False):
+            return
+        if getattr(self, "_automatic_market_check_pending", False):
+            return
+        last_check = getattr(self, "last_diagnostic_monotonic", None)
+        if not force and last_check is not None and time.monotonic() - last_check < 30.0:
+            return
+        self._automatic_market_check_pending = True
+
+        def run_check(_dt):
+            self._automatic_market_check_pending = False
+            if not getattr(self, "check_in_progress", False):
+                self.show_status(getattr(self, "check_button", None))
+
+        Clock.schedule_once(run_check, max(0.1, float(delay)))
+
     def on_resume(self):
-        # Keep the foreground service active while monitoring is enabled.
-        # Recover only if Android actually ended the Python worker; never
-        # create duplicate sockets when the original worker is still alive.
+        # Resume the order-book timer after returning from Android background.
+        # The stream worker itself is restarted only if Android ended it.
+        self._start_order_book_polling_if_verified()
         worker = getattr(self, "auto_trader_thread", None)
         if (worker is None or not worker.is_alive()) and getattr(self, "auto_engine", None) is not None:
             Clock.schedule_once(
                 lambda _dt: self.start_auto_paper_trader(), 0.5
             )
+        self._schedule_automatic_market_check(delay=0.8, force=False)
         return True
+
+    def _start_order_book_polling_if_verified(self):
+        """Resume polling only when the selected symbol was already verified."""
+        if getattr(self, "verified_market_symbols", None):
+            self._start_order_book_polling()
 
     def on_start(self):
         # Stop a stale keepalive only when this process has no live market worker.
@@ -3848,6 +3875,10 @@ class FuturesAnalyzerApp(App):
         Clock.schedule_once(
             lambda _dt: self.start_auto_paper_trader(), 0.5
         )
+        # The main screen must restore its public market connection and order
+        # book automatically on every fresh app launch; do not require the
+        # operator to tap "بررسی اتصال" again.
+        self._schedule_automatic_market_check(delay=1.2, force=True)
 
     def on_stop(self):
         # on_stop can run when the Activity closes even though the user only
@@ -3863,6 +3894,7 @@ class FuturesAnalyzerApp(App):
                 poll_event.cancel()
             except Exception:
                 pass
+            self.orderbook_poll_event = None
         poll_thread = getattr(self, "orderbook_poll_thread", None)
         if poll_thread is not None and poll_thread.is_alive():
             poll_thread.join(timeout=1.0)
