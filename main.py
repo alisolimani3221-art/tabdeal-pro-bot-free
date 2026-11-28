@@ -3812,7 +3812,9 @@ class FuturesAnalyzerApp(App):
     def on_resume(self):
         # Resume the order-book timer after returning from Android background.
         # The stream worker itself is restarted only if Android ended it.
-        self._start_order_book_polling_if_verified()
+        resume_orderbook = getattr(self, "_start_order_book_polling_if_verified", None)
+        if callable(resume_orderbook):
+            resume_orderbook()
         worker = getattr(self, "auto_trader_thread", None)
         if (worker is None or not worker.is_alive()) and getattr(self, "auto_engine", None) is not None:
             Clock.schedule_once(
@@ -3878,7 +3880,9 @@ class FuturesAnalyzerApp(App):
         # The main screen must restore its public market connection and order
         # book automatically on every fresh app launch; do not require the
         # operator to tap "بررسی اتصال" again.
-        self._schedule_automatic_market_check(delay=1.2, force=True)
+        auto_check = getattr(self, "_schedule_automatic_market_check", None)
+        if callable(auto_check):
+            auto_check(delay=1.2, force=True)
 
     def on_stop(self):
         # on_stop can run when the Activity closes even though the user only
