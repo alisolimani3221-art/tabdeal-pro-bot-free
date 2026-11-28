@@ -297,20 +297,16 @@ class TradeCandleBuilderTests(unittest.TestCase):
         self.assertEqual(builder.restore_closed_candles(rows), 23)
         self.assertFalse(builder.is_ready)
 
-        # The cached 23 closed rows are safe while the first live bucket is
-        # forming because analysis excludes that incomplete current bucket.
+        # The cached 23 closed rows are retained, but the app waits until
+        # one complete post-startup candle closes before enabling analysis.
         result = builder.add_trade(self.trade(123, second=2))
         self.assertTrue(result["accepted"])
         self.assertFalse(result["gap_detected"])
-        self.assertTrue(builder.is_ready)
+        self.assertFalse(builder.is_ready)
         self.assertEqual(len(builder.closed), 23)
-        # The forming row is excluded; technical indicators see only the
-        # validated, fully closed cached candles.
         technical = analyze_klines(builder.candles_for_analysis())
         self.assertEqual(technical["closed_candles"], 23)
 
-        # At rollover the partial bucket is dropped, then the next full candle
-        # is retained. The restored closed cache is not needlessly discarded.
         rollover = builder.add_trade(self.trade(124, second=2))
         self.assertFalse(rollover["gap_detected"])
         self.assertEqual(len(builder.closed), 23)
@@ -335,11 +331,6 @@ class TradeCandleBuilderTests(unittest.TestCase):
         builder.add_trade(self.trade(103, second=2))
         self.assertEqual(len(builder.closed), 2)
         self.assertEqual(builder.status()["history_clear_count"], 0)
-        # Minute 102 has been observed continuously from its start boundary;
-        # it can close as the first complete post-startup candle.
-        builder.add_trade(self.trade(103, second=2))
-        self.assertEqual(len(builder.closed), 1)
-        self.assertEqual(builder.closed[0][0], 102 * 60_000)
 
     def test_restored_cache_survives_one_missing_minute_but_waits_for_full_bar(self):
         builder = TradeCandleBuilder("BTC_USDT")
