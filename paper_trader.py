@@ -185,16 +185,18 @@ def rank_signal(technical):
             or timeframe.get("required_minutes") != list(TRADE_TIMEFRAMES_MINUTES)):
         return None
     timeframe_counts = timeframe.get("closed_candles")
-    minimum_counts = {"1": 23, "5": 3, "15": 3}
+    minimum_counts = {"1": 23, "5": 3, "15": 1}
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(key)) is not int
                    or timeframe_counts.get(key) < minimum
                    for key, minimum in minimum_counts.items())):
         return None
     timeframe_signals = timeframe.get("signals")
+    fifteen_mature = timeframe.get("15m_confirmation_ready") is True
     if (not isinstance(timeframe_signals, dict)
             or timeframe_signals.get("5") != signal
-            or timeframe_signals.get("15") != signal
+            or (fifteen_mature and timeframe_signals.get("15") != signal)
+            or (not fifteen_mature and timeframe_signals.get("15") != "NEUTRAL")
             or timeframe.get("entry_trigger") is not True
             or timeframe.get("entry_trigger_direction") != signal
             or timeframe_signals.get("1") not in ("BULLISH", "BEARISH", "NEUTRAL")):
@@ -273,15 +275,17 @@ def diagnose_signal(technical):
     if (not isinstance(timeframe_counts, dict)
             or any(type(timeframe_counts.get(key)) is not int
                    or timeframe_counts.get(key) < minimum
-                   for key, minimum in {"1": 23, "5": 3, "15": 3}.items())):
-        return "حداقل کندل بستهٔ لازم: یک‌دقیقه ۲۳، پنج‌دقیقه ۳ و پانزده‌دقیقه ۳؛ ورود مسدود است"
+                   for key, minimum in {"1": 23, "5": 3, "15": 1}.items())):
+        return "حداقل کندل بستهٔ لازم: یک‌دقیقه ۲۳، پنج‌دقیقه ۳ و پانزده‌دقیقه ۱؛ ورود مسدود است"
     if (timeframe.get("agreement") is not True
             or timeframe.get("direction") != signal):
         return "جهت تایم‌فریم‌ها هم‌سو نیست؛ ورود مسدود است"
     timeframe_signals = timeframe.get("signals")
+    fifteen_mature = timeframe.get("15m_confirmation_ready") is True
     if (not isinstance(timeframe_signals, dict)
             or timeframe_signals.get("5") != signal
-            or timeframe_signals.get("15") != signal):
+            or (fifteen_mature and timeframe_signals.get("15") != signal)
+            or (not fifteen_mature and timeframe_signals.get("15") != "NEUTRAL")):
         return "جهت روند ۵ و ۱۵ دقیقه هم‌سو نیست؛ ورود مسدود است"
     if (timeframe.get("entry_trigger") is not True
             or timeframe.get("entry_trigger_direction") != signal):
