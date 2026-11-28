@@ -2646,7 +2646,7 @@ class FuturesAnalyzerApp(App):
                 max_snapshot_age=30.0,
                 analyze_with_context=lambda candles, now_ms: analyze_multi_timeframe(
                     candles, now_ms,
-                    lambda rows: analyze_klines(rows, max_missing_intervals=2),
+                    lambda rows: analyze_klines(rows, max_missing_intervals=3),
                 ),
             )
         except Exception as coordinator_exc:
