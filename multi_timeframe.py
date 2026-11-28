@@ -104,7 +104,7 @@ def _trend_direction(rows):
 
 
 def analyze_multi_timeframe(candles, now_ms, analyzer):
-    """Use short higher-timeframe candle-body confirmation, not under-sampled indicators."""
+    """Use multi-bar higher-timeframe close structure, not candle body color."""
     if not callable(analyzer):
         raise ValueError("analyzer must be callable")
     if not isinstance(candles, (list, tuple)):
@@ -141,9 +141,9 @@ def analyze_multi_timeframe(candles, now_ms, analyzer):
         signals[str(minutes)] = _trend_direction(selected)
         closes[str(minutes)] = int(rows[-1][0])
 
-    # With only two 5m bars an ATR(14) is not statistically available.
-    # Use the largest true range of the two completed bars as a clearly
-    # labelled conservative stop-distance proxy instead.
+    # A full 5m ATR(14) is not available from the warm-up window.
+    # Use the largest true range of the two latest completed bars as a
+    # conservative stop-distance proxy instead.
     five_rows = aggregated[5]
     if len(five_rows) >= 2:
         recent = five_rows[-2:]
